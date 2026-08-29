@@ -45,6 +45,12 @@ body {
 
 
 @media print {
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .print-only { display: block !important; }
+  .print-hide, .app-header, .results-header-print-hide, .badge-conferencia { display: none !important; }
   body {
     background: white !important;
     color: black !important;
@@ -53,9 +59,15 @@ body {
     box-shadow: none !important;
     border: none !important;
     background: transparent !important;
+    padding: 0 !important;
   }
   .printable-area {
     width: 100% !important;
+  }
+  thead { display: table-header-group; }
+  tr { page-break-inside: avoid; }
+  @page {
+    margin: 10mm;
   }
   nav, button, select, input, .header-panel {
     display: none !important;
@@ -66,18 +78,22 @@ body {
     color: black !important;
   }
   th, td {
-    border: 1px solid #ccc !important;
-    padding: 4px 8px !important;
+    border: 1px solid #000 !important;
+    padding: 6px !important;
     color: black !important;
-    font-size: 12px !important;
+    font-size: 11px !important;
+    background: white !important;
   }
-  th {
+  th, .data-table th:first-child, .print-title-cell {
+    background-color: #e8e8e8 !important;
+    color: black !important;
+    font-weight: bold !important;
+  }
+  .data-table td:first-child {
+    background-color: white !important;
+  }
+  tr.isTotal td, .total-row td, .subtotal-row td {
+    font-weight: bold !important;
     background-color: #f0f0f0 !important;
-    color: black !important;
-    font-weight: bold !important;
-  }
-  tr.isTotal td {
-    font-weight: bold !important;
-    background-color: #f9f9f9 !important;
   }
 }

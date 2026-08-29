@@ -3,7 +3,7 @@ import { getRawRecords, bulkPutRecords, getSettings, saveSettings } from '../uti
 import { applyMapping, protheusMapping } from '../utils/mappingConfig';
 
 export default function TaxModule({ companies }) {
-  const [activeTab, setActiveTab] = useState('config'); // 'config', 'apuracao'
+  const [activeTab, setActiveTab] = useState('apuracao'); // 'config', 'apuracao'
   const [taxConfig, setTaxConfig] = useState({});
   const [cambioConfig, setCambioConfig] = useState({});
   const [taxDataStore, setTaxDataStore] = useState({}); // Stores adicoes, exclusoes, retencoes por empresa/mes
@@ -16,6 +16,7 @@ export default function TaxModule({ companies }) {
   // Dados Extraídos
   const [dreMensal, setDreMensal] = useState([]);
   const [dreAcumulada, setDreAcumulada] = useState([]);
+  const [dreAnualTotal, setDreAnualTotal] = useState([]);
   
   // Inputs Manuais LALUR
   const [lalurAdicoes, setLalurAdicoes] = useState(0);
@@ -29,8 +30,13 @@ export default function TaxModule({ companies }) {
   const [presumidoRetencoesIR, setPresumidoRetencoesIR] = useState(0);
   const [presumidoRetencoesCS, setPresumidoRetencoesCS] = useState(0);
   const [presumidoOutrasReceitas, setPresumidoOutrasReceitas] = useState(0);
+  const [presumidoImpostosDevolucao, setPresumidoImpostosDevolucao] = useState(0);
   const [presumidoCambioRealizado, setPresumidoCambioRealizado] = useState(0);
+  const [presumidoIpi, setPresumidoIpi] = useState(0);
+  const [presumidoIcmsSt, setPresumidoIcmsSt] = useState(0);
   const [presumidoMajoracao, setPresumidoMajoracao] = useState(true);
+  const [darfIrpjReduzido, setDarfIrpjReduzido] = useState(0);
+  const [darfCsllReduzida, setDarfCsllReduzida] = useState(0);
 
   useEffect(() => {
     loadSettings();
@@ -80,41 +86,37 @@ export default function TaxModule({ companies }) {
     setLalurCambioRealizado(data.lalurCambioRealizado || 0);
     
     setPresumidoRetencoesIR(data.presumidoRetencoesIR || 0);
-    setPresumidoRetencoesCS(data.presumidoRetencoesCS || 0);
+    setPresumidoRetencoesCS(data.presumidoRetencoesCS || 0); setPresumidoImpostosDevolucao(data.presumidoImpostosDevolucao || 0);
     setPresumidoOutrasReceitas(data.presumidoOutrasReceitas || 0);
     setPresumidoCambioRealizado(data.presumidoCambioRealizado || 0);
+    setPresumidoIpi(data.presumidoIpi || 0);
+    setPresumidoIcmsSt(data.presumidoIcmsSt || 0);
     setPresumidoMajoracao(data.presumidoMajoracao !== undefined ? data.presumidoMajoracao : true);
+    setDarfIrpjReduzido(data.darfIrpjReduzido || 0);
+    setDarfCsllReduzida(data.darfCsllReduzida || 0);
   };
 
   const loadFinancialData = async () => {
     if (!selectedComp) return;
     setIsProcessing(true);
     try {
-      // Pega o DRE do mês
-      const rawMensal = await getRawRecords(selectedAno, selectedMes);
-      setDreMensal(rawMensal.dre.filter(r => r.empresaId === selectedComp));
-
-      // Pega o DRE Acumulado (para Real Anual ou Trimestral)
-      let acumulada = [];
-      const regime = taxConfig[selectedComp] || '';
-      
-      let startMonth = 1;
-      if (regime === 'real_trimestral' || regime === 'presumido') {
-        // Trimestral acumula só no trimestre
-        startMonth = Math.floor((selectedMes - 1) / 3) * 3 + 1; 
-      }
-      
-      for (let m = startMonth; m <= selectedMes; m++) {
+      let anual = [];
+      for (let m = 1; m <= 12; m++) {
         const d = await getRawRecords(selectedAno, m);
         const comp = d.dre.filter(r => r.empresaId === selectedComp);
-        comp.forEach(r => {
-          const ex = acumulada.find(a => a.conta === r.conta);
-          if (ex) ex.valorMensal += r.valorMensal;
-          else acumulada.push({ ...r });
-        });
+        comp.forEach(r => anual.push({ ...r, mes: m }));
       }
-      setDreAcumulada(acumulada);
-      
+      setDreAnualTotal(anual);
+
+      setDreMensal(anual.filter(r => r.mes === selectedMes));
+
+      const regime = taxConfig[selectedComp] || '';
+      let startMonth = 1;
+      if (regime === 'real_trimestral' || regime === 'presumido') {
+        startMonth = Math.floor((selectedMes - 1) / 3) * 3 + 1;
+      }
+      setDreAcumulada(anual.filter(r => r.mes >= startMonth && r.mes <= selectedMes));
+
       loadTaxData(selectedComp, selectedAno, selectedMes);
 
     } catch (err) {
@@ -132,45 +134,72 @@ export default function TaxModule({ companies }) {
 
   // ---- FUNÇÕES DE CÁLCULO ----
 
-  // Lucro Presumido
-  const calcPresumido = () => {
+  // Lucro Presumido Genérico (pode ser mensal, acumulado ou trimestral)
+  const calcPresumidoData = (records, numMeses, inputs) => {
     let recRevenda = 0;
     let recServico = 0;
     let variacaoCambial = 0;
+    let ipi = 0;
+    let icmsSt = 0;
+    let devolucoes = 0;
+    let ipiDevolucao = 0;
+    let icmsStDevolucao = 0;
     
-    // Calcula com base no acumulado do trimestre
-    dreAcumulada.forEach(r => {
-      if (r.conta.startsWith('3.1.1.1.01.00001') || r.conta.startsWith('3.1.1.1.01.00002')) recRevenda += Math.abs(r.valorMensal || 0);
+    let outrasReceitasDre = 0;
+    let outrasReceitasDreBreakdown = [];
+    
+    // Calcula com base nos registros fornecidos
+    records.forEach(r => {
+      if (r.conta.startsWith('3.1.1.1.01.00001') || r.conta.startsWith('3.1.1.1.01.00002') || r.conta.startsWith('3.1.1.1.01.00006')) recRevenda += Math.abs(r.valorMensal || 0);
       if (r.conta.startsWith('3.1.1.1.01.00003') || r.conta.startsWith('3.1.1.1.01.00004')) recServico += Math.abs(r.valorMensal || 0);
       if (r.conta.startsWith('4.3.1.1.03')) variacaoCambial += (r.valorMensal || 0);
+      
+      if (r.conta.startsWith('3.1.1.2.01.00006')) ipi += Math.abs(r.valorMensal || 0);
+      if (r.conta.startsWith('3.1.1.2.01.00007')) icmsSt += Math.abs(r.valorMensal || 0);
+      
+      if (r.conta.startsWith('3.1.1.2.02.00001')) devolucoes += Math.abs(r.valorMensal || 0);
+      if (r.conta.startsWith('3.1.1.2.02.00002')) ipiDevolucao += Math.abs(r.valorMensal || 0);
+      if (r.conta.startsWith('3.1.1.2.02.00004')) icmsStDevolucao += Math.abs(r.valorMensal || 0);
+      
+      if (r.conta.startsWith('4.9.1.1') || r.conta.startsWith('4.9.1.2') || r.conta.startsWith('4.3.1.1.01')) {
+          if ((r.valorMensal || 0) > 0) { outrasReceitasDre += (r.valorMensal || 0); }
+          if (r.valorMensal !== 0) {
+              outrasReceitasDreBreakdown.push(`${r.conta} (${r.descricao}): R$ ${(r.valorMensal || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`);
+          }
+      }
     });
 
-    let outrasReceitasAjustadas = parseFloat(presumidoOutrasReceitas || 0);
+    let outrasReceitasAjustadas = parseFloat(inputs.outrasReceitas || 0) + Math.max(0, outrasReceitasDre);
     
     if (cambioConfig[selectedComp] === 'caixa') {
-        // Estorna Variação Competência (se for receita positiva na DRE)
-        if (variacaoCambial > 0) {
-           outrasReceitasAjustadas -= variacaoCambial;
-        }
-        // Adiciona Variação Realizada (só ganho é tributável)
-        const realizado = parseFloat(presumidoCambioRealizado || 0);
-        if (realizado > 0) {
-           outrasReceitasAjustadas += realizado;
-            }
+      const realizado = parseFloat(inputs.cambioRealizado || 0);
+      if (realizado > 0) {
+        outrasReceitasAjustadas += realizado;
+      }
+    } else {
+      if (variacaoCambial > 0) {
+        outrasReceitasAjustadas += variacaoCambial;
+      }
     }
 
-    let baseIrpj = (recRevenda * 0.08) + (recServico * 0.32);
-    let baseCsll = (recRevenda * 0.12) + (recServico * 0.32);
+    // IPI e ICMS calculados automaticamente do DRE
+    // const icmsSt = ...
+    const impostosDevolucao = parseFloat(inputs.impostosDevolucao || 0) + ipiDevolucao + icmsStDevolucao;
+    const recRevendaLiquida = Math.max(0, recRevenda - devolucoes + impostosDevolucao - ipi - icmsSt);
+
+    let baseIrpj = (recRevendaLiquida * 0.08) + (recServico * 0.32);
+    let baseCsll = (recRevendaLiquida * 0.12) + (recServico * 0.32);
 
     let acrescimoIrpj = 0;
     let acrescimoCsll = 0;
 
-    const mesesNoPeriodo = (selectedMes % 3 === 0) ? 3 : (selectedMes % 3);
+    const mesesNoPeriodo = numMeses;
     const limiteMajoracao = (1250000 / 3) * mesesNoPeriodo;
 
-    if (presumidoMajoracao) {
+    if (inputs.majoracao) {
         // A planilha rateia o limite com base na receita total (incluindo financeiras)
-        const totalReceitas = recRevenda + recServico + outrasReceitasAjustadas;
+        // A planilha rateia o limite com base na receita operacional apenas (sem financeiras)
+        const totalReceitas = recRevenda + recServico;
         
         const limiteRevenda = totalReceitas > 0 ? limiteMajoracao * (recRevenda / totalReceitas) : 0;
         const limiteServico = totalReceitas > 0 ? limiteMajoracao * (recServico / totalReceitas) : 0;
@@ -197,10 +226,55 @@ export default function TaxModule({ companies }) {
     const irpjAdicional = Math.max(0, baseIrpj - limiteAdicional) * 0.10;
     const csll = baseCsll * 0.09;
 
-    const irpjTotal = irpjNormal + irpjAdicional - parseFloat(presumidoRetencoesIR || 0);
-    const csllTotal = csll - parseFloat(presumidoRetencoesCS || 0);
+    const irpjTotal = irpjNormal + irpjAdicional - parseFloat(inputs.retencoesIR || 0);
+    const csllTotal = csll - parseFloat(inputs.retencoesCS || 0);
 
-    return { recRevenda, recServico, baseIrpj, baseCsll, irpjNormal, irpjAdicional, irpjTotal, csll, csllTotal, variacaoCambial };
+    return { recRevenda, recRevendaLiquida, devolucoes, impostosDevolucaoAuto: ipiDevolucao + icmsStDevolucao, ipi, icmsSt, recServico, baseIrpj, baseCsll, irpjNormal, irpjAdicional, irpjTotal, csll, csllTotal, variacaoCambial, outrasReceitasDre: Math.max(0, outrasReceitasDre), outrasReceitasDreBreakdown };
+  };
+
+  const calcPresumido = () => {
+    const isEstimativa = taxConfig[selectedComp] === 'real_anual';
+    const currentInputs = {
+      outrasReceitas: presumidoOutrasReceitas,
+      cambioRealizado: presumidoCambioRealizado,
+      retencoesIR: presumidoRetencoesIR,
+      retencoesCS: presumidoRetencoesCS,
+      impostosDevolucao: presumidoImpostosDevolucao,
+      majoracao: !isEstimativa && presumidoMajoracao
+    };
+
+    if (isEstimativa) {
+      // Get accumulated inputs from DB state
+      let sumOutras = 0; let sumCambio = 0; let sumRetIR = 0; let sumRetCS = 0; let sumImpDev = 0; let sumIrpjPago = 0; let sumCsllPago = 0;
+        for (let m = 1; m <= selectedMes; m++) {
+          if (!dreAnualTotal.some(r => r.mes === m)) continue;
+          if (m === selectedMes) {
+            sumOutras += parseFloat(presumidoOutrasReceitas || 0);
+            sumCambio += parseFloat(presumidoCambioRealizado || 0);
+            sumRetIR += parseFloat(presumidoRetencoesIR || 0);
+            sumRetCS += parseFloat(presumidoRetencoesCS || 0); sumImpDev += parseFloat(presumidoImpostosDevolucao || 0); sumIrpjPago += parseFloat(darfIrpjReduzido || 0); sumCsllPago += parseFloat(darfCsllReduzida || 0);
+         } else {
+            const key = `${selectedComp}_${selectedAno}_${m}`;
+            const data = taxDataStore[key] || {};
+            sumOutras += parseFloat(data.presumidoOutrasReceitas || 0);
+            sumCambio += parseFloat(data.presumidoCambioRealizado || 0);
+            sumRetIR += parseFloat(data.presumidoRetencoesIR || 0);
+            sumRetCS += parseFloat(data.presumidoRetencoesCS || 0); sumImpDev += parseFloat(data.presumidoImpostosDevolucao || 0); sumIrpjPago += parseFloat(data.darfIrpjReduzido || 0); sumCsllPago += parseFloat(data.darfCsllReduzida || 0);
+         }
+      }
+      const acumuladoInputs = {
+        outrasReceitas: sumOutras, cambioRealizado: sumCambio, retencoesIR: sumRetIR, retencoesCS: sumRetCS, impostosDevolucao: sumImpDev
+      };
+
+      const mensal = calcPresumidoData(dreAcumulada.filter(r => r.mes === selectedMes), 1, currentInputs);
+      const acumulado = calcPresumidoData(dreAcumulada, selectedMes, acumuladoInputs);
+      acumulado.irpjTotalPago = sumIrpjPago;
+      acumulado.csllTotalPago = sumCsllPago;
+      return { mensal, acumulado };
+    } else {
+      const trimestral = calcPresumidoData(dreAcumulada, (selectedMes % 3 === 0) ? 3 : (selectedMes % 3), currentInputs);
+      return { mensal: trimestral, acumulado: trimestral };
+    }
   };
 
   // Lucro Real
@@ -210,9 +284,9 @@ export default function TaxModule({ companies }) {
     let equivalenciaPatrimonial = 0;
     dreAcumulada.forEach(r => {
       // Ignorar provisões 6 e 7
-      if (!r.conta.startsWith('6') && !r.conta.startsWith('7')) {
-        lair += (r.valorMensal || 0);
-      }
+      if (!r.conta.startsWith('6') && !r.conta.startsWith('7') && !r.conta.startsWith('5.1.1.1.01')) {
+          lair += (r.valorMensal || 0);
+        }
       if (r.conta.startsWith('4.3.1.1.03')) {
         variacaoCambial += (r.valorMensal || 0);
       }
@@ -287,6 +361,22 @@ export default function TaxModule({ companies }) {
   };
 
 
+    const handleSaveInputsOnly = async () => {
+        setIsProcessing(true);
+        try {
+            await persistTaxData(selectedComp, selectedAno, selectedMes, {
+                lalurAdicoes, lalurExclusoes, lalurCompensacaoPrejuizo, lalurRetencoesIR, lalurRetencoesCS, lalurCambioRealizado,
+                presumidoRetencoesIR, presumidoRetencoesCS, presumidoOutrasReceitas, presumidoCambioRealizado, presumidoIpi, presumidoIcmsSt, presumidoMajoracao, presumidoImpostosDevolucao, darfIrpjReduzido, darfCsllReduzida
+            });
+            alert('Memória de cálculo salva com sucesso! (Apenas para controle da DARF, sem impacto no Balanço/DRE)');
+        } catch (e) {
+            console.error(e);
+            alert('Erro ao salvar.');
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
   const handleGravar = async (vIrpj, vCsll) => {
     if (!selectedComp) { alert('Selecione uma empresa.'); return; }
     
@@ -295,7 +385,7 @@ export default function TaxModule({ companies }) {
       // Salva os inputs no state/db
       await persistTaxData(selectedComp, selectedAno, selectedMes, {
         lalurAdicoes, lalurExclusoes, lalurCompensacaoPrejuizo, lalurRetencoesIR, lalurRetencoesCS, lalurCambioRealizado,
-        presumidoRetencoesIR, presumidoRetencoesCS, presumidoOutrasReceitas, presumidoCambioRealizado, presumidoMajoracao
+        presumidoRetencoesIR, presumidoRetencoesCS, presumidoOutrasReceitas, presumidoCambioRealizado, presumidoIpi, presumidoIcmsSt, presumidoMajoracao
       });
 
       const regime = taxConfig[selectedComp];
@@ -356,102 +446,330 @@ export default function TaxModule({ companies }) {
     }
   };
 
+        const renderComparativo = () => {
+    const isEstimativa = taxConfig[selectedComp] === 'real_anual';
+    if (!isEstimativa) return null;
 
-  const renderPresumido = () => {
-    const calc = calcPresumido();
+    const calcPres = calcPresumido();
+    const cM = calcPres.mensal;
+    const cA = calcPres.acumulado;
+    const calcR = calcReal();
+
+    // Acumulados
+    const acumuladoRealIrpj = Math.max(0, calcR.irpjTotal);
+    const acumuladoRealCsll = Math.max(0, calcR.csllTotal);
+    const darfPagoAnteriorIrpj = (cA.irpjTotalPago || 0) - parseFloat(darfIrpjReduzido || 0);
+    const darfPagoAnteriorCsll = (cA.csllTotalPago || 0) - parseFloat(darfCsllReduzida || 0);
+
+    const mensalEstimativaIrpj = Math.max(0, (cA.irpjTotal || 0) - darfPagoAnteriorIrpj);
+    const mensalEstimativaCsll = Math.max(0, (cA.csllTotal || 0) - darfPagoAnteriorCsll);
+
+
+    // O que eu pagaria se usasse o balanço do mês (Devido Total - Já Pago)
+    const balancoIrpjAPagar = Math.max(0, acumuladoRealIrpj - darfPagoAnteriorIrpj);
+    const balancoCsllAPagar = Math.max(0, acumuladoRealCsll - darfPagoAnteriorCsll);
+
+    // A regra é: suspender se o Saldo a Pagar pelo Balanço for menor que a Estimativa do mês.
+    const suspenderIrpj = balancoIrpjAPagar < mensalEstimativaIrpj;
+    const suspenderCsll = balancoCsllAPagar < mensalEstimativaCsll;
+
+    // Se o balanço for ZERO, é SUSPENSÃO. Se for MAIOR QUE ZERO MAS MENOR QUE ESTIMATIVA, é REDUÇÃO.
+    const statusIrpj = balancoIrpjAPagar === 0 ? '✓ SUSPENDER' : (suspenderIrpj ? '✓ REDUZIR' : '⚠️ PAGAR ESTIMATIVA');
+    const statusCsll = balancoCsllAPagar === 0 ? '✓ SUSPENDER' : (suspenderCsll ? '✓ REDUZIR' : '⚠️ PAGAR ESTIMATIVA');
+
     return (
-      <div style={{ marginTop: '1.5rem' }}>
-        <h3 style={{ color: '#2196F3', marginBottom: '1rem' }}>Cálculo do Lucro Presumido (Trimestre Atual)</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
+      <div className="glass-panel" style={{ padding: '1.5rem', marginBottom: '2rem', border: '1px solid #FFC107', background: 'rgba(255, 193, 7, 0.05)' }}>
+        <h3 style={{ color: '#FFC107', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <span className="material-icons">balance</span>
+          Comparativo para Suspensão / Redução (Acumulado até o Mês {selectedMes}/{selectedAno})
+        </h3>
+        <p style={{ color: '#ccc', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
+          Para a decisão de Suspensão/Redução, comparamos o Imposto Total Devido no Balancete contra todos os DARFs já pagos nos meses anteriores.
+        </p>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr', gap: '1rem', textAlign: 'left' }}>
           
-          <div className="glass-panel" style={{ padding: '1.5rem', background: 'rgba(33, 150, 243, 0.05)' }}>
-             <h4 style={{ color: '#ccc', marginBottom: '1rem' }}>1. Receitas e Base</h4>
-             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                <span>Receita Venda/Revenda (8% / 12%):</span>
-                <strong>{calc.recRevenda.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
-             </div>
-             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
-                <span>Receita Serviço (32%):</span>
-                <strong>{calc.recServico.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
-             </div>
+          <div style={{ background: 'rgba(255,255,255,0.05)', padding: '1rem', borderRadius: '8px' }}>
+            <h4 style={{ color: '#fff', marginBottom: '1rem', textAlign: 'center' }}>VISÃO ANUAL (ACUMULADO)</h4>
+            
+            <strong style={{ color: '#aaa', fontSize: '0.8rem', display: 'block', marginBottom: '0.5rem' }}>IMPOSTO REAL (BALANCETE)</strong>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
+              <span style={{ fontSize: '0.85rem', color: '#ccc' }}>IRPJ Real Devido Anual:</span>
+              <strong style={{ color: '#9C27B0' }}>{acumuladoRealIrpj.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
+              <span style={{ fontSize: '0.85rem', color: '#ccc' }}>CSLL Real Devida Anual:</span>
+              <strong style={{ color: '#9C27B0' }}>{acumuladoRealCsll.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
+            </div>
 
-             <div style={{ marginBottom: '1rem' }}>
-               <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(+) Outras Receitas (Financ, Ganho Cap, etc - 100%)</label>
-               <input type="number" className="text-input" value={presumidoOutrasReceitas} onChange={e => setPresumidoOutrasReceitas(e.target.value)} style={{ width: '100%' }} />
-             </div>
-
-             {cambioConfig[selectedComp] === 'caixa' && (
-               <>
-                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', color: '#888', fontSize: '0.9rem' }}>
-                    <span>(-) Variação Cambial DRE (Estorno Auto):</span>
-                    <span>{calc.variacaoCambial > 0 ? (calc.variacaoCambial * -1).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'R$ 0,00'}</span>
-                 </div>
-                 <div style={{ marginBottom: '1rem' }}>
-                   <label style={{ display: 'block', fontSize: '0.85rem', color: '#FFCA28', marginBottom: '0.3rem' }}>(+) Variação Cambial Realizada (Regime de Caixa)</label>
-                   <input type="number" className="text-input" value={presumidoCambioRealizado} onChange={e => setPresumidoCambioRealizado(e.target.value)} style={{ width: '100%', borderColor: '#FFCA28' }} />
-                 </div>
-               </>
-             )}
-
-             <div style={{ marginTop: '1.5rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center' }}>
-                <input type="checkbox" id="presumidoMajoracao" checked={presumidoMajoracao} onChange={e => setPresumidoMajoracao(e.target.checked)} style={{ marginRight: '0.5rem', transform: 'scale(1.2)' }} />
-                <label htmlFor="presumidoMajoracao" style={{ color: '#ddd', fontSize: '0.9rem', cursor: 'pointer' }}>Aplicar majoração de 10% sobre a presunção (Lei 2026)</label>
-             </div>
-
-             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1rem', borderTop: '1px solid #444', paddingTop: '1rem', color: '#FF9800' }}>
-                <span>Base IRPJ:</span>
-                <strong>{calc.baseIrpj.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
-             </div>
-             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.5rem', color: '#FF9800' }}>
-                <span>Base CSLL:</span>
-                <strong>{calc.baseCsll.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
-             </div>
+            <strong style={{ color: '#aaa', fontSize: '0.8rem', display: 'block', marginBottom: '0.5rem' }}>(-) DARFs JÁ PAGOS NO ANO</strong>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
+              <span style={{ fontSize: '0.85rem', color: '#ccc' }}>IRPJ Pago (Acumulado):</span>
+              <strong style={{ color: '#F44336' }}>{darfPagoAnteriorIrpj.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+              <span style={{ fontSize: '0.85rem', color: '#ccc' }}>CSLL Paga (Acumulada):</span>
+              <strong style={{ color: '#F44336' }}>{darfPagoAnteriorCsll.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
+            </div>
           </div>
 
-          <div className="glass-panel" style={{ padding: '1.5rem', background: 'rgba(76, 175, 80, 0.05)' }}>
-             <h4 style={{ color: '#ccc', marginBottom: '1rem' }}>2. Apuração dos Impostos</h4>
-             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                <span>IRPJ Normal (15%):</span>
-                <span>{calc.irpjNormal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
-             </div>
-             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                <span>IRPJ Adicional (10% sobre o que exceder R$ {((selectedMes%3===0?3:selectedMes%3)*20000).toLocaleString('pt-BR')}):</span>
-                <span>{calc.irpjAdicional.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
-             </div>
-             <div style={{ marginBottom: '1rem', marginTop: '0.5rem' }}>
-               <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(-) Imposto de Renda Retido (IRRF)</label>
-               <input type="number" className="text-input" value={presumidoRetencoesIR} onChange={e => setPresumidoRetencoesIR(e.target.value)} style={{ width: '100%' }} />
-             </div>
-             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1rem', borderTop: '1px solid #444', paddingTop: '1rem', color: '#4CAF50', fontSize: '1.1rem', fontWeight: 'bold' }}>
-                <span>IRPJ Devido:</span>
-                <span>{Math.max(0, calc.irpjTotal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
-             </div>
-
-             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', marginTop: '1.5rem' }}>
-                <span>CSLL Normal (9%):</span>
-                <span>{calc.csll.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
-             </div>
-             <div style={{ marginBottom: '1rem', marginTop: '0.5rem' }}>
-               <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(-) CSLL Retida</label>
-               <input type="number" className="text-input" value={presumidoRetencoesCS} onChange={e => setPresumidoRetencoesCS(e.target.value)} style={{ width: '100%' }} />
-             </div>
-             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1rem', borderTop: '1px solid #444', paddingTop: '1rem', color: '#4CAF50', fontSize: '1.1rem', fontWeight: 'bold' }}>
-                <span>CSLL Devida:</span>
-                <span>{Math.max(0, calc.csllTotal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
-             </div>
+          <div style={{ background: 'rgba(255,255,255,0.05)', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
+            <h4 style={{ color: '#888', marginBottom: '1rem' }}>DECISÃO IRPJ (MÊS {selectedMes})</h4>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+              <span style={{ fontSize: '0.9rem', color: '#aaa' }}>1. Pagar Estimativa:</span>
+              <strong style={{ color: '#2196F3' }}>{mensalEstimativaIrpj.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+              <span style={{ fontSize: '0.9rem', color: '#aaa' }}>2. Balancete de Redução:</span>
+              <strong style={{ color: '#9C27B0' }}>{balancoIrpjAPagar.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
+            </div>
+            <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #333' }}>
+              <span style={{ color: suspenderIrpj ? '#4CAF50' : '#FF9800', fontWeight: 'bold', fontSize: '1.1rem' }}>{statusIrpj}</span>
+              <div style={{ fontSize: '0.8rem', color: '#aaa', marginTop: '0.5rem' }}>
+                Valor Final: <b>{(suspenderIrpj ? balancoIrpjAPagar : mensalEstimativaIrpj).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</b>
+              </div>
+            </div>
           </div>
-          
+
+          <div style={{ background: 'rgba(255,255,255,0.05)', padding: '1rem', borderRadius: '8px', textAlign: 'center' }}>
+            <h4 style={{ color: '#888', marginBottom: '1rem' }}>DECISÃO CSLL (MÊS {selectedMes})</h4>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+              <span style={{ fontSize: '0.9rem', color: '#aaa' }}>1. Pagar Estimativa:</span>
+              <strong style={{ color: '#2196F3' }}>{mensalEstimativaCsll.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+              <span style={{ fontSize: '0.9rem', color: '#aaa' }}>2. Balancete de Redução:</span>
+              <strong style={{ color: '#9C27B0' }}>{balancoCsllAPagar.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
+            </div>
+            <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #333' }}>
+              <span style={{ color: suspenderCsll ? '#4CAF50' : '#FF9800', fontWeight: 'bold', fontSize: '1.1rem' }}>{statusCsll}</span>
+              <div style={{ fontSize: '0.8rem', color: '#aaa', marginTop: '0.5rem' }}>
+                Valor Final: <b>{(suspenderCsll ? balancoCsllAPagar : mensalEstimativaCsll).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</b>
+              </div>
+            </div>
+          </div>
+
         </div>
 
-        <div style={{ marginTop: '2rem', textAlign: 'right' }}>
-            <button className="btn-primary" onClick={() => handleGravar(calc.irpjTotal, calc.csllTotal)} style={{ padding: '1rem 2rem', fontSize: '1.1rem' }} disabled={isProcessing}>
-                {isProcessing ? 'Gravando...' : '💾 Lançar Apuração no DRE e Balanço'}
-            </button>
+        <div style={{ marginTop: '2rem', paddingTop: '2rem', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+          <h4 style={{ color: '#fff', marginBottom: '1rem', textAlign: 'center' }}>📋 CONTROLE RECOLHIMENTO MENSAL (VISÃO ANUAL)</h4>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', textAlign: 'center' }}>
+              <thead>
+                <tr style={{ background: 'rgba(0,0,0,0.4)', color: '#ccc' }}>
+                  <th style={{ padding: '8px', border: '1px solid #444' }}>Mês</th>
+                  <th style={{ padding: '8px', border: '1px solid #444' }}>IRPJ Estimativa</th>
+                  <th style={{ padding: '8px', border: '1px solid #444' }}>CSLL Estimativa</th>
+                  <th style={{ padding: '8px', border: '1px solid #444' }}>IRPJ Real (Acum)</th>
+                  <th style={{ padding: '8px', border: '1px solid #444' }}>CSLL Real (Acum)</th>
+                  <th style={{ padding: '8px', border: '1px solid #444', color: '#FF9800' }}>IRPJ Dif. Líquida</th>
+                  <th style={{ padding: '8px', border: '1px solid #444', color: '#FF9800' }}>CSLL Dif. Líquida</th>
+                  <th style={{ padding: '8px', border: '1px solid #444' }}>Suspensão/Redução</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(m => {
+                  const dreAtM = dreAnualTotal.filter(r => r.mes <= m);
+                  if (!dreAnualTotal.some(r => r.mes === m)) return null;
+                  const isCurrent = m === selectedMes;
+                  const key = `${selectedComp}_${selectedAno}_${m}`;
+                  const data = isCurrent ? { presumidoOutrasReceitas, presumidoCambioRealizado, presumidoRetencoesIR, presumidoRetencoesCS, presumidoImpostosDevolucao, presumidoMajoracao, darfIrpjReduzido, darfCsllReduzida, lalurAdicoes, lalurExclusoes, lalurCompensacaoPrejuizo, lalurRetencoesIR, lalurRetencoesCS, lalurCambioRealizado } : (taxDataStore[key] || {});
+                  
+                  const cInputsM = { outrasReceitas: parseFloat(data.presumidoOutrasReceitas || 0), cambioRealizado: parseFloat(data.presumidoCambioRealizado || 0), retencoesIR: parseFloat(data.presumidoRetencoesIR || 0), retencoesCS: parseFloat(data.presumidoRetencoesCS || 0), impostosDevolucao: parseFloat(data.presumidoImpostosDevolucao || 0), majoracao: data.presumidoMajoracao !== undefined ? data.presumidoMajoracao : true };
+                  let sumOutras = 0; let sumCambio = 0; let sumRetIR = 0; let sumRetCS = 0; let sumImpDev = 0;
+    let sumIrpjPagoPrev = 0; let sumCsllPagoPrev = 0;
+    for (let prevM = 1; prevM <= m; prevM++) {
+        const isC = prevM === selectedMes;
+        const k = `${selectedComp}_${selectedAno}_${prevM}`;
+        const d = isC ? { presumidoOutrasReceitas, presumidoCambioRealizado, presumidoRetencoesIR, presumidoRetencoesCS, presumidoImpostosDevolucao, darfIrpjReduzido, darfCsllReduzida } : (taxDataStore[k] || {});
+        sumOutras += parseFloat(d.presumidoOutrasReceitas || 0);
+        sumCambio += parseFloat(d.presumidoCambioRealizado || 0);
+        sumRetIR += parseFloat(d.presumidoRetencoesIR || 0);
+        sumRetCS += parseFloat(d.presumidoRetencoesCS || 0);
+        sumImpDev += parseFloat(d.presumidoImpostosDevolucao || 0);
+        if (prevM < m) {
+            sumIrpjPagoPrev += parseFloat(d.darfIrpjReduzido || 0);
+            sumCsllPagoPrev += parseFloat(d.darfCsllReduzida || 0);
+        }
+    }
+    const cInputsA = { outrasReceitas: sumOutras, cambioRealizado: sumCambio, retencoesIR: sumRetIR, retencoesCS: sumRetCS, impostosDevolucao: sumImpDev, majoracao: data.presumidoMajoracao !== undefined ? data.presumidoMajoracao : true };
+    const calcPresA = calcPresumidoData(dreAtM, m, cInputsA);
+    const estIrpj = Math.max(0, (calcPresA.irpjTotal || 0) - sumIrpjPagoPrev);
+    const estCsll = Math.max(0, (calcPresA.csllTotal || 0) - sumCsllPagoPrev);
+                  
+                  let lair = 0; let varCamb = 0; let eqPat = 0;
+                  dreAtM.forEach(r => { if (!r.conta.startsWith('6') && !r.conta.startsWith('7') && !r.conta.startsWith('5.1.1.1.01')) lair += (r.valorMensal || 0); if (r.conta.startsWith('4.3.1.1.03')) varCamb += (r.valorMensal || 0); if (r.conta.startsWith('4.4')) eqPat += (r.valorMensal || 0); });
+                  let adicoesAuto = 0; let exclusoesAuto = 0; let cambioAdicao = 0; let cambioExclusao = 0;
+                  if (eqPat > 0) exclusoesAuto += eqPat; else if (eqPat < 0) adicoesAuto += Math.abs(eqPat);
+                  if (cambioConfig[selectedComp] === 'caixa') { if (varCamb > 0) exclusoesAuto += varCamb; else if (varCamb < 0) adicoesAuto += Math.abs(varCamb); const realizado = parseFloat(data.lalurCambioRealizado || 0); if (realizado > 0) cambioAdicao = realizado; else if (realizado < 0) cambioExclusao = Math.abs(realizado); }
+                  
+                  const baseCalculo = lair + parseFloat(data.lalurAdicoes || 0) + adicoesAuto + cambioAdicao - (parseFloat(data.lalurExclusoes || 0) + exclusoesAuto + cambioExclusao);
+                  const baseAjustada = baseCalculo - Math.min(parseFloat(data.lalurCompensacaoPrejuizo || 0), baseCalculo > 0 ? baseCalculo * 0.30 : 0);
+                  let irpjNormal = 0; let irpjAdicional = 0; let csll = 0;
+                  if (baseAjustada > 0) { irpjNormal = baseAjustada * 0.15; irpjAdicional = Math.max(0, baseAjustada - 20000 * m) * 0.10; csll = baseAjustada * 0.09; }
+                  const realIrpjAcum = irpjNormal + irpjAdicional - parseFloat(data.lalurRetencoesIR || 0);
+                  const realCsllAcum = csll - parseFloat(data.lalurRetencoesCS || 0);
+                  
+                  
+                  const balancoIrpj = Math.max(0, realIrpjAcum - sumIrpjPagoPrev);
+                  const balancoCsll = Math.max(0, realCsllAcum - sumCsllPagoPrev);
+                  const statusM = balancoIrpj === 0 ? 'LANCAR LUCRO REAL' : (balancoIrpj < estIrpj ? 'LANCAR LUCRO REAL' : 'NAO');
+                  
+                  return (
+                    <tr key={m} style={{ background: isCurrent ? 'rgba(255,255,255,0.1)' : 'transparent', fontWeight: isCurrent ? 'bold' : 'normal' }}>
+                      <td style={{ padding: '8px', border: '1px solid #444' }}>{String(m).padStart(2, '0')}/{String(selectedAno).slice(2)}</td>
+                      <td style={{ padding: '8px', border: '1px solid #444', color: '#2196F3' }}>{estIrpj.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                      <td style={{ padding: '8px', border: '1px solid #444', color: '#2196F3' }}>{estCsll.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                      <td style={{ padding: '8px', border: '1px solid #444', color: '#9C27B0' }}>{Math.max(0, realIrpjAcum).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                      <td style={{ padding: '8px', border: '1px solid #444', color: '#9C27B0' }}>{Math.max(0, realCsllAcum).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                      <td style={{ padding: '8px', border: '1px solid #444', color: '#FF9800' }}>{balancoIrpj.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                      <td style={{ padding: '8px', border: '1px solid #444', color: '#FF9800' }}>{balancoCsll.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                      <td style={{ padding: '8px', border: '1px solid #444', color: statusM === 'NAO' ? '#F44336' : '#4CAF50' }}>{statusM}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     );
   };
 
+
+
+
+
+  const renderPresumido = () => {
+    const isEstimativa = taxConfig[selectedComp] === 'real_anual';
+    const calc = calcPresumido();
+    const cM = calc.mensal;
+    const cA = calc.acumulado;
+    
+    const Row = ({ label, m, a, color, bold }) => (
+      <div style={{ display: 'grid', gridTemplateColumns: isEstimativa ? '2fr 1fr 1fr' : '2fr 1fr', gap: '1rem', marginBottom: '0.5rem', color: color || 'inherit', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '0.3rem' }}>
+        <span style={{ fontSize: '0.9rem' }}>{label}</span>
+        <span style={{ textAlign: 'right', fontWeight: bold ? 'bold' : 'normal' }}>{m.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+        {isEstimativa && <span style={{ textAlign: 'right', color: '#888' }}>{a.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>}
+      </div>
+    );
+
+    return (
+      <div style={{ marginTop: '1.5rem' }}>
+        <h3 style={{ color: '#2196F3', marginBottom: '1rem' }}>{isEstimativa ? 'Cálculo da Estimativa Mensal (DARF - Regra do Presumido)' : 'Cálculo do Lucro Presumido (Trimestre Atual)'}</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
+          
+          <details open className="glass-panel" style={{ padding: '1.5rem', background: 'rgba(33, 150, 243, 0.05)' }}>
+            <summary style={{ fontSize: '1.1rem', fontWeight: 'bold', color: '#ccc', cursor: 'pointer', marginBottom: '1rem' }}>1. Receitas e Base (Clique para Expandir/Ocultar)</summary>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: isEstimativa ? '2fr 1fr 1fr' : '2fr 1fr', gap: '1rem', marginBottom: '1rem', color: '#666', fontSize: '0.8rem', borderBottom: '1px solid #444', paddingBottom: '0.5rem' }}>
+               <span></span>
+               <span style={{ textAlign: 'right' }}>{isEstimativa ? 'DO MÊS' : 'DO TRIMESTRE'}</span>
+               {isEstimativa && <span style={{ textAlign: 'right' }}>ACUMULADO DO ANO</span>}
+            </div>
+
+            <Row label="Receita Venda/Revenda:" m={cM.recRevenda} a={cA.recRevenda} bold={true} />
+            <Row label="(-) Devoluções de Vendas (Extraído da DRE)" m={cM.devolucoes} a={cA.devolucoes} color="#f44336" />
+            <Row label="(+) IPI e ICMS ST sobre Devolução (Extraído da DRE):" m={cM.impostosDevolucaoAuto} a={cA.impostosDevolucaoAuto} color="#FF9800" />
+            <div style={{ marginBottom: '1rem', marginTop: '0.5rem' }}>
+              <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(+) Ajuste Manual de Impostos s/ Devolução - <b>Valor do Mês</b></label>
+              <input type="number" className="text-input" value={presumidoImpostosDevolucao} onChange={e => setPresumidoImpostosDevolucao(e.target.value)} style={{ width: '100%' }} />
+            </div>
+            <Row label="(-) IPI sobre Vendas (Extraído da DRE)" m={cM.ipi} a={cA.ipi} color="#f44336" />
+            <Row label="(-) ICMS ST sobre Vendas (Extraído da DRE)" m={cM.icmsSt} a={cA.icmsSt} color="#f44336" />
+            
+            <div style={{ margin: '1rem 0' }}>
+               <Row label="Base Receita Venda Líquida (8% / 12%):" m={cM.recRevendaLiquida} a={cA.recRevendaLiquida} color="#2196F3" bold={true} />
+            </div>
+
+            <Row label="Receita Serviço (32%):" m={cM.recServico} a={cA.recServico} bold={true} />
+            
+            <div title={(cM.outrasReceitasDreBreakdown || []).join('\n')}>
+              <Row label="(+) Receitas Financeiras e Outras (Extraído da DRE) [Passe o mouse p/ ver contas]:" m={cM.outrasReceitasDre} a={cA.outrasReceitasDre} color="#888" />
+            </div>
+            <div style={{ marginBottom: '1rem', marginTop: '1.5rem' }}>
+              <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(+) Ajuste Manual de Outras Receitas - <b>Valor do Mês</b></label>
+              <input type="number" className="text-input" value={presumidoOutrasReceitas} onChange={e => setPresumidoOutrasReceitas(e.target.value)} style={{ width: '100%' }} />
+            </div>
+            
+            {cambioConfig[selectedComp] === 'caixa' ? (
+              <div style={{ marginBottom: '1rem', marginTop: '1rem' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', color: '#FFCA28', marginBottom: '0.3rem' }}>(+) Variação Cambial Realizada (Regime de Caixa) - <b>Valor do Mês</b></label>
+                <input type="number" className="text-input" value={presumidoCambioRealizado} onChange={e => setPresumidoCambioRealizado(e.target.value)} style={{ width: '100%', borderColor: '#FFCA28' }} />
+              </div>
+            ) : (
+              <Row label="(+) Variação Cambial DRE (Competência):" m={cM.variacaoCambial > 0 ? cM.variacaoCambial : 0} a={cA.variacaoCambial > 0 ? cA.variacaoCambial : 0} color="#888" />
+            )}
+
+            {!isEstimativa && (
+              <div style={{ marginTop: '1.5rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center' }}>
+                <input type="checkbox" id="presumidoMajoracao" checked={presumidoMajoracao} onChange={e => setPresumidoMajoracao(e.target.checked)} style={{ marginRight: '0.5rem', transform: 'scale(1.2)' }} />
+                <label htmlFor="presumidoMajoracao" style={{ color: '#ddd', fontSize: '0.9rem', cursor: 'pointer' }}>Aplicar majoração de 10% sobre a presunção (Lei 2026)</label>
+              </div>
+            )}
+
+            <div style={{ marginTop: '1.5rem' }}>
+               <Row label="Base IRPJ:" m={cM.baseIrpj} a={cA.baseIrpj} color="#FF9800" bold={true} />
+               <Row label="Base CSLL:" m={cM.baseCsll} a={cA.baseCsll} color="#FF9800" bold={true} />
+            </div>
+          </details>
+
+          <div className="glass-panel" style={{ padding: '1.5rem', background: 'rgba(76, 175, 80, 0.05)' }}>
+            <h4 style={{ color: '#ccc', marginBottom: '1rem' }}>2. Apuração dos Impostos</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: isEstimativa ? '2fr 1fr 1fr' : '2fr 1fr', gap: '1rem', marginBottom: '1rem', color: '#666', fontSize: '0.8rem', borderBottom: '1px solid #444', paddingBottom: '0.5rem' }}>
+               <span></span>
+               <span style={{ textAlign: 'right' }}>{isEstimativa ? 'DO MÊS' : 'DO TRIMESTRE'}</span>
+               {isEstimativa && <span style={{ textAlign: 'right' }}>ACUMULADO DO ANO</span>}
+            </div>
+
+            <Row label="IRPJ Normal (15%):" m={cM.irpjNormal} a={cA.irpjNormal} />
+            <Row label="IRPJ Adicional (10%):" m={cM.irpjAdicional} a={cA.irpjAdicional} />
+            
+            <div style={{ marginBottom: '1rem', marginTop: '1.5rem' }}>
+              <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(-) Imposto de Renda Retido (IRRF) - <b>Valor do Mês</b></label>
+              <input type="number" className="text-input" value={presumidoRetencoesIR} onChange={e => setPresumidoRetencoesIR(e.target.value)} style={{ width: '100%' }} />
+            </div>
+
+            <Row label="IRPJ DEVIDO CALCULADO:" m={Math.max(0, cM.irpjTotal)} a={Math.max(0, cA.irpjTotal)} color="#4CAF50" bold={true} />
+            
+            {isEstimativa && (
+              <div style={{ marginTop: '1rem', background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '4px' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', color: '#fff', marginBottom: '0.5rem' }}>✏️ <b>Ajuste de Suspensão/Redução: IRPJ Pago no Mês</b> (Para controle anual)</label>
+                <input type="number" className="text-input" value={darfIrpjReduzido} onChange={e => setDarfIrpjReduzido(e.target.value)} style={{ width: '100%', borderColor: '#4CAF50' }} placeholder={`Valor Padrão: ${Math.max(0, cM.irpjTotal).toFixed(2)}`} />
+                <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#aaa' }}>Acumulado Efetivamente Pago: {(cA.irpjTotalPago || 0).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</div>
+              </div>
+            )}
+
+
+            <div style={{ marginTop: '1.5rem' }}>
+               <Row label="CSLL Normal (9%):" m={cM.csll} a={cA.csll} />
+            </div>
+
+            <div style={{ marginBottom: '1rem', marginTop: '1.5rem' }}>
+              <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(-) CSLL Retida - <b>Valor do Mês</b></label>
+              <input type="number" className="text-input" value={presumidoRetencoesCS} onChange={e => setPresumidoRetencoesCS(e.target.value)} style={{ width: '100%' }} />
+            </div>
+
+            <Row label="CSLL DEVIDA CALCULADA:" m={Math.max(0, cM.csllTotal)} a={Math.max(0, cA.csllTotal)} color="#4CAF50" bold={true} />
+            {isEstimativa && (
+              <div style={{ marginTop: '1rem', background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '4px' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', color: '#fff', marginBottom: '0.5rem' }}>✏️ <b>Ajuste de Suspensão/Redução: CSLL Paga no Mês</b> (Para controle anual)</label>
+                <input type="number" className="text-input" value={darfCsllReduzida} onChange={e => setDarfCsllReduzida(e.target.value)} style={{ width: '100%', borderColor: '#4CAF50' }} placeholder={`Valor Padrão: ${Math.max(0, cM.csllTotal).toFixed(2)}`} />
+                <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#aaa' }}>Acumulado Efetivamente Pago: {(cA.csllTotalPago || 0).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</div>
+              </div>
+            )}
+            </div>
+
+</div>
+
+        <div style={{ marginTop: '2rem', textAlign: 'right' }}>
+            <button className="btn-primary" onClick={() => isEstimativa ? handleSaveInputsOnly() : handleGravar(cM.irpjTotal, cM.csllTotal)} style={{ padding: '1rem 2rem', fontSize: '1.1rem' }} disabled={isProcessing}>
+                {isProcessing ? 'Gravando...' : (isEstimativa ? '💾 Salvar Memória de Cálculo (Controle DARF)' : '💾 Lançar Apuração no DRE e Balanço')}
+            </button>
+        </div>
+      </div>
+    );
+  };
 
   const renderReal = () => {
     const calc = calcReal();
@@ -462,7 +780,7 @@ export default function TaxModule({ companies }) {
       <div style={{ marginTop: '1.5rem' }}>
         <h3 style={{ color: '#FF9800', marginBottom: '1rem' }}>Cálculo do Lucro Real ({isAnual ? 'Estimativa Mensal Acumulada' : 'Trimestral'})</h3>
         
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '2rem' }}>
           
           <div className="glass-panel" style={{ padding: '1.5rem', background: 'rgba(255, 152, 0, 0.05)' }}>
              <h4 style={{ color: '#ccc', marginBottom: '1rem' }}>1. e-LALUR / Base de Cálculo</h4>
@@ -558,7 +876,7 @@ export default function TaxModule({ companies }) {
 
         <div style={{ marginTop: '2rem', textAlign: 'right' }}>
             <button className="btn-primary" onClick={() => handleGravar(calc.irpjTotal, calc.csllTotal)} style={{ padding: '1rem 2rem', fontSize: '1.1rem' }} disabled={isProcessing}>
-                {isProcessing ? 'Gravando...' : '💾 Lançar Apuração no DRE e Balanço'}
+              {isProcessing ? 'Gravando...' : (isAnual ? '💾 Lançar Balanço de Suspensão/Redução no DRE e Balanço' : '💾 Lançar Apuração no DRE e Balanço')}
             </button>
             {isAnual && (
                 <p style={{ color: '#888', fontSize: '0.8rem', marginTop: '0.5rem' }}>
@@ -574,8 +892,8 @@ export default function TaxModule({ companies }) {
   return (
     <div className="glass-panel" style={{ padding: '1.5rem', marginTop: '1rem' }}>
       <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid #333', paddingBottom: '1rem', marginBottom: '1.5rem' }}>
-        <button className={activeTab === 'config' ? 'btn-primary' : 'btn-secondary'} onClick={() => setActiveTab('config')}>1. Configurações de Regime</button>
-        <button className={activeTab === 'apuracao' ? 'btn-primary' : 'btn-secondary'} onClick={() => setActiveTab('apuracao')}>2. Painel de Apuração</button>
+        <button className={activeTab === 'apuracao' ? 'btn-primary' : 'btn-secondary'} onClick={() => setActiveTab('apuracao')}>1. Painel de Apuração</button>
+        <button className={activeTab === 'config' ? 'btn-primary' : 'btn-secondary'} onClick={() => setActiveTab('config')}>2. Configurações de Regime</button>
       </div>
 
       {activeTab === 'config' && (
@@ -650,12 +968,14 @@ export default function TaxModule({ companies }) {
 
           {selectedComp && (
              <div>
-                {taxConfig[selectedComp] === 'presumido' ? renderPresumido() : 
-                 (taxConfig[selectedComp] === 'real_anual' || taxConfig[selectedComp] === 'real_trimestral') ? renderReal() :
-                 <div style={{ padding: '2rem', textAlign: 'center', color: '#FF9800', background: 'rgba(255,152,0,0.1)', borderRadius: '10px' }}>
-                    Por favor, vá para a aba "Configurações de Regime" e defina o regime tributário para esta empresa antes de apurar.
-                 </div>
-                }
+                  {taxConfig[selectedComp] === 'real_anual' && renderComparativo()}
+                  {(taxConfig[selectedComp] === 'presumido' || taxConfig[selectedComp] === 'real_anual') && renderPresumido()}
+                  {(taxConfig[selectedComp] === 'real_anual' || taxConfig[selectedComp] === 'real_trimestral') && renderReal()}
+                  {(!taxConfig[selectedComp]) && (
+                    <div style={{ padding: '2rem', textAlign: 'center', color: '#FF9800', background: 'rgba(255,152,0,0.1)', borderRadius: '10px' }}>
+                      Por favor, vá para a aba "Configurações de Regime" e defina o regime tributário para esta empresa antes de apurar.
+                    </div>
+                  )}
              </div>
           )}
         </div>

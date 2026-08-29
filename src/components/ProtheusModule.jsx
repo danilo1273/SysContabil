@@ -1118,10 +1118,54 @@ function ProtheusModule({ userRole, userPermissions, username }) {
     } catch (error) {
       console.error('Erro ao processar', error);
       alert('Erro ao processar balancete: ' + error.message);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
+    } finally { setIsProcessing(false); } };
+
+    const handlePrint = (reportName) => {
+        const compData = selectedCompany !== 'consolidado' ? companies.find(c => c.id === selectedCompany) : null;
+        const headerNome = selectedCompany === 'consolidado' ? 'GRUPO AGF CONSOLIDADO' : (compData ? compData.name.toUpperCase() : '');
+        const mesNome = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][selectedMes-1];
+        let periodText = '';
+        if (period === 'mensal') periodText = `${mesNome} ${selectedAno}`;
+        else if (period === 'trimestre') periodText = `${selectedTrimestre}T ${selectedAno}`;
+        else periodText = `Acumulado ${selectedAno}`;
+        
+        const fileName = `${headerNome} - ${reportName} - ${periodText}`;
+        const originalTitle = document.title;
+        document.title = fileName;
+
+        const style = document.createElement('style');
+        style.innerHTML = `@media print { @page { size: A4 ${selectedCompany === 'consolidado' ? 'landscape' : 'portrait'} !important; } }`;
+        document.head.appendChild(style);
+
+        window.print();
+
+        document.title = originalTitle;
+        document.head.removeChild(style);
+    };
+
+    const PrintHeader = () => {
+        const compData = selectedCompany !== 'consolidado' ? companies.find(c => c.id === selectedCompany) : null;
+        const headerNome = selectedCompany === 'consolidado' ? 'GRUPO AGF (CONSOLIDADO)' : (compData ? compData.name.toUpperCase() : '');
+        const headerCnpj = selectedCompany === 'consolidado' ? 'CNPJ: 11.681.470/0001-84 IE: 530051442114' : (compData && compData.cnpj ? `CNPJ: ${compData.cnpj}` : 'CNPJ: 11.681.470/0001-84 IE: 530051442114');
+        
+        const mesNome = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][selectedMes-1];
+        let periodText = '';
+        if (period === 'mensal') periodText = `Mês: ${mesNome} / ${selectedAno}`;
+        else if (period === 'trimestre') periodText = `Trimestre: ${selectedTrimestre}º Trimestre / ${selectedAno}`;
+        else periodText = `Acumulado YTD: ${selectedAno}`;
+
+        return (
+            <div className="print-only" style={{ display: 'none', alignItems: 'center', marginBottom: '1rem', color: '#000' }}>
+                <div style={{ textAlign: 'center', flex: 1 }}>
+                    <h2 style={{ fontSize: '1.2rem', margin: '0 0 0.25rem 0', fontWeight: 'bold' }}>{headerNome}</h2>
+                    <p style={{ fontSize: '0.9rem', margin: '0 0 0.5rem 0' }}>{headerCnpj}</p>
+                    <div style={{ display: 'inline-block', borderTop: '1px solid #000', borderBottom: '1px solid #000', padding: '0.3rem 2rem', fontWeight: 'bold', fontSize: '1.1rem' }}>
+                        Período da Demonstração: {periodText}
+                    </div>
+                </div>
+            </div>
+        );
+    };
 
   const renderTable = (title, lines, avBaseKey = null) => {
     if (!lines || lines.length === 0) return null;
@@ -1140,11 +1184,16 @@ function ProtheusModule({ userRole, userPermissions, username }) {
     
     return (
       <div className="table-wrapper" style={{ marginBottom: '3rem' }}>
-        <h3 style={{ padding: '1rem', background: 'rgba(0,0,0,0.4)', color: 'var(--color-primary)', borderBottom: '1px solid #333' }}>
+        <h3 className="print-hide" style={{ padding: '1rem', background: 'rgba(0,0,0,0.4)', color: 'var(--color-primary)', borderBottom: '1px solid #333' }}>
           {title}
         </h3>
         <table className="data-table">
           <thead>
+            <tr>
+                <th colSpan={100} className="print-title-cell" style={{ background: '#e0e0e0', color: '#000', textAlign: 'center', padding: '0.75rem', fontWeight: 'bold', fontSize: '1.1rem', border: '1px solid #000' }}>
+                    {title}
+                </th>
+            </tr>
             <tr>
               <th>Conta Gerencial / Descrição</th>
               {compArray.map(c => (
@@ -1540,7 +1589,7 @@ function ProtheusModule({ userRole, userPermissions, username }) {
       {activeTab === "resultados" && results && (
         <div className="results-section">
           
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem", flexWrap: "wrap", gap: "1rem" }}>
+          <div className="print-hide" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem", flexWrap: "wrap", gap: "1rem" }}>
             <div>
               <h2 style={{ color: 'var(--color-primary)' }}>Painel de Inteligência Consolidado</h2>
               {latestAvailable && <p style={{ color: '#888', fontSize: '0.85rem', marginTop: '0.2rem' }}>Último balancete integrado: <strong>{latestAvailable}</strong></p>}
@@ -1635,7 +1684,7 @@ function ProtheusModule({ userRole, userPermissions, username }) {
 
           {secondaryTab === 'dre' && (
             <div className="glass-panel" style={{ padding: '1.5rem', position: 'relative' }}>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginBottom: '1rem' }}>
+              <div className="print-hide" style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginBottom: '1rem' }}>
                 <button 
                    onClick={() => setIsDREDetalhada(!isDREDetalhada)} 
                    className="btn-secondary"
@@ -1644,7 +1693,7 @@ function ProtheusModule({ userRole, userPermissions, username }) {
                    {isDREDetalhada ? '🔄 Ver DRE Simples' : '🔄 Ver DRE Detalhada'}
                 </button>
                 <button 
-                   onClick={() => window.print()} 
+                   onClick={() => handlePrint('DRE')} 
                    className="btn-primary"
                    style={{ padding: '0.6rem 1rem' }}
                 >
@@ -1652,6 +1701,7 @@ function ProtheusModule({ userRole, userPermissions, username }) {
                 </button>
               </div>
               <div className="printable-area">
+                 <PrintHeader />
                  {renderTable(`DRE - ${period.toUpperCase()}`, results.dre, 'RECEITA OPERACIONAL LÍQUIDA')}
               </div>
             </div>
@@ -1659,7 +1709,7 @@ function ProtheusModule({ userRole, userPermissions, username }) {
 
           {secondaryTab === 'balanco' && (
             <div className="glass-panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '2rem', position: 'relative' }}>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginBottom: '-1rem' }}>
+              <div className="print-hide" style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginBottom: '-1rem' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#ccc', cursor: 'pointer', marginRight: '1rem' }}>
                   <input type="checkbox" checked={hideZeros} onChange={e => setHideZeros(e.target.checked)} />
                   Ocultar valores zerados
@@ -1672,7 +1722,7 @@ function ProtheusModule({ userRole, userPermissions, username }) {
                    {isBalancoDetalhado ? '🔄 Ver Balanço Simples' : '🔄 Ver Balanço Detalhado'}
                 </button>
                 <button 
-                   onClick={() => window.print()} 
+                   onClick={() => handlePrint('Balanço Patrimonial')} 
                    className="btn-primary"
                    style={{ padding: '0.6rem 1rem' }}
                 >
@@ -1681,6 +1731,7 @@ function ProtheusModule({ userRole, userPermissions, username }) {
               </div>
 
               <div className="printable-area">
+              <PrintHeader />
               {/* Badge de Conferência: Ativo = Passivo + PL */}
               {(() => {
                 const getTotal = (tableLines) => {
@@ -1692,7 +1743,7 @@ function ProtheusModule({ userRole, userPermissions, username }) {
                 const passivoTot = getTotal(results.passivo);
                 const comps = selectedCompany === 'consolidado' ? ['consolidado'] : [selectedCompany];
                 return (
-                  <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+                  <div className="print-hide" style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
                     {comps.map(cid => {
                       const ativo = ativoTot[cid] || 0;
                       const passivo = passivoTot[cid] || 0;
@@ -1778,6 +1829,8 @@ function ProtheusModule({ userRole, userPermissions, username }) {
 
 
               {renderTable('Balanço Patrimonial - ATIVO', results.ativo, 'TOTAL DO ATIVO')}
+              <div className="print-only" style={{ pageBreakBefore: 'always', display: 'none' }}></div>
+              <PrintHeader />
               {renderTable('Balanço Patrimonial - PASSIVO + PATRIMÔNIO LÍQUIDO', results.passivo, 'TOTAL PASSIVO E PATRIMÔNIO LÍQUIDO')}
               </div>
             </div>
@@ -1815,7 +1868,7 @@ function ProtheusModule({ userRole, userPermissions, username }) {
       )}
 
       {activeTab === 'gestao' && (
-        <GestaoContabilModule userRole={userRole} userName={localStorage.getItem('agf_session') ? JSON.parse(localStorage.getItem('agf_session')).username : ''} />
+        <GestaoContabilModule userRole={userRole} userName={localStorage.getItem('agf_session') ? JSON.parse(localStorage.getItem('agf_session')).username : ''} companies={companies} />
       )}
 
       {isMappingModalOpen && mappingTarget && (

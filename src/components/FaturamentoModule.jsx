@@ -104,17 +104,22 @@ function FaturamentoModule({ companies, selectedCompany, selectedAno, selectedMe
   const grandTotal = faturamentoData.reduce((acc, curr) => acc + curr.value, 0);
 
   // Empresa Cabeçalho
-  const defaultHeader = {
-    nome: 'AGF IMPORTAÇÃO EXPORTAÇÃO E COMERCIALIZAÇÃO DE MAQUINAS E ACESSORIOS LTDA',
-    cnpj: '11.681.470/0001-84 IE: 530051442114'
+  const companyHeaders = {
+    'equipamentos': { nome: 'AGF IMPORTAÇÃO EXPORTAÇÃO E COMERCIALIZAÇÃO DE MAQUINAS E ACESSORIOS LTDA', cnpj: '11.681.470/0001-84 IE: 530051442114' },
+    'rompedores': { nome: 'AGF ROMPEDORES LTDA', cnpj: '' },
+    'casa': { nome: 'CASA DA ESCAVADEIRA LTDA', cnpj: '' },
+    'consolidado': { nome: 'AGF GROUP - CONSOLIDADO', cnpj: 'Múltiplos CNPJs' }
   };
 
-  const compData = selectedCompany !== 'consolidado' 
-    ? companies.find(c => c.id === selectedCompany) 
-    : null;
-    
-  const headerNome = compData ? compData.name.toUpperCase() : defaultHeader.nome;
-  const headerCnpj = compData && compData.cnpj ? `CNPJ: ${compData.cnpj}` : defaultHeader.cnpj;
+  const compData = selectedCompany !== 'consolidado' ? companies.find(c => c.id === selectedCompany) : null;
+  
+  const currentHeader = companyHeaders[selectedCompany] || { 
+    nome: compData ? compData.name.toUpperCase() : 'AGF GROUP', 
+    cnpj: '' 
+  };
+
+  const headerNome = currentHeader.nome;
+  const headerCnpj = currentHeader.cnpj ? `CNPJ: ${currentHeader.cnpj}` : '';
 
   const dataAtual = new Date();
   const dataFormatada = `${dataAtual.getDate()} ${monthNames[dataAtual.getMonth()]} ${dataAtual.getFullYear()}`;

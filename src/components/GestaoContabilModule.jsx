@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import RelatoriosContabeis from './RelatoriosContabeis';
 
-function GestaoContabilModule({ userRole, userName }) {
+function GestaoContabilModule({ userRole, userName, companies }) {
     const [activeTab, setActiveTab] = useState('integracoes');
     const [selectedMes, setSelectedMes] = useState(new Date().getMonth() + 1);
     const [selectedAno, setSelectedAno] = useState(new Date().getFullYear());
@@ -330,7 +331,12 @@ function GestaoContabilModule({ userRole, userName }) {
                 <button className={activeTab === 'integracoes' ? 'btn-primary' : 'btn-secondary'} onClick={() => setActiveTab('integracoes')}>Integrações do Mês</button>
                 <button className={activeTab === 'obrigacoes' ? 'btn-primary' : 'btn-secondary'} onClick={() => setActiveTab('obrigacoes')}>Obrigações Acessórias</button>
                 <button className={activeTab === 'pendencias' ? 'btn-primary' : 'btn-secondary'} onClick={() => setActiveTab('pendencias')}>Documentos Pendentes</button>
+                <button className={activeTab === 'relatorios' ? 'btn-primary' : 'btn-secondary'} onClick={() => setActiveTab('relatorios')}>Relatórios</button>
             </div>
+
+            {activeTab === 'relatorios' && (
+              <RelatoriosContabeis selectedAno={selectedAno} selectedMes={selectedMes} companies={companies} />
+            )}
 
             {activeTab === 'integracoes' && (
                 <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>

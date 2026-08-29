@@ -1,1 +1,1 @@
-import sqlite3 from 'sqlite3'; const db = new sqlite3.Database('database.sqlite'); db.all('SELECT mes, conta, valorMensal, id, empresaId FROM dre_history WHERE id LIKE \'tax-dre-%%\'', [], (err, rows) => console.log(rows));  
+import sqlite3 from 'sqlite3'; const db = new sqlite3.Database('database.sqlite'); db.all('SELECT * FROM dre_history WHERE empresaId = \'rompedores\' AND mes IN (4,5,6) AND (conta = \'7\' OR UPPER(descricao) LIKE \'%IRPJ%\')', (err, rows) => { console.log(rows); });  
