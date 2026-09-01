@@ -41,19 +41,17 @@ function PendencyWidget({ companies, ano }) {
       let diffValue = 0;
 
       if (lastImport > 0) {
-         const { data: bData } = await supabase.from("balanco_history").select("id, conta, saldoAcumulado").eq("empresaId", c.id).eq("ano", ano).eq("mes", lastImport);
-         const { data: dData } = await supabase.from("dre_history").select("id, conta, valorMensal").eq("empresaId", c.id).eq("ano", ano).lte("mes", lastImport);
+         const bData = await getBalancoFromDB(c.id, ano, lastImport);
+         const dData = await getDREFromDB(c.id, ano, lastImport, 'acumulado');
          
          let ativo = 0, passivo = 0, pl = 0, lucro = 0;
-         (bData || []).forEach(r => {
-            if (r.id.startsWith("tax-bal") || r.id.startsWith("manual_")) return; // Only raw ERP data
-            if (r.conta.startsWith("1")) ativo += (r.saldoAcumulado || 0);
-            else if (r.conta.startsWith("2.3") || r.conta.startsWith("2.4")) pl += (r.saldoAcumulado || 0);
-            else if (r.conta.startsWith("2")) passivo += (r.saldoAcumulado || 0);
+         Object.keys(bData).forEach(conta => {
+            if (conta.startsWith("1")) ativo += (bData[conta].valor || 0);
+            else if (conta.startsWith("2.3") || conta.startsWith("2.4")) pl += (bData[conta].valor || 0);
+            else if (conta.startsWith("2")) passivo += (bData[conta].valor || 0);
          });
-         (dData || []).forEach(r => {
-            if (r.id.startsWith("tax-dre") || r.id.startsWith("manual_")) return; // Only raw ERP data
-            lucro += (r.valorMensal || 0);
+         Object.keys(dData).forEach(conta => {
+            lucro += (dData[conta].valor || 0);
          });
          
          diffValue = ativo - (passivo + pl + lucro);
@@ -101,7 +99,7 @@ function PendencyWidget({ companies, ano }) {
               </div>
               {st.isUnbalanced && (
                 <div style={{ marginTop: "0.5rem", fontSize: "0.75rem", textAlign: "center", fontWeight: "bold", color: "#FF5252", padding: "4px", background: "rgba(255,82,82,0.1)", borderRadius: "4px" }}>
-                  ⚠️ ERP DESEQUILIBRADO! (Dif: {Math.abs(st.diffValue).toLocaleString("pt-BR", {style:"currency", currency:"BRL"})})
+                  ⚠️ DIVERGÊNCIA APURAÇÃO: {st.diffValue < 0 ? '-' : ''}{Math.abs(st.diffValue).toLocaleString("pt-BR", {style:"currency", currency:"BRL"})}
                 </div>
               )}
             </div>
