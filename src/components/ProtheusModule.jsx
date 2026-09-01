@@ -492,8 +492,8 @@ function ProtheusModule({ userRole, userPermissions, username }) {
         const dbDataArray = Array.isArray(dbData) ? dbData : Object.entries(dbData || {}).map(([conta, data]) => ({ conta, ...data }));
         dbDataArray.forEach(d => {
           if ((tipo === 'ativo' && d.conta.startsWith('1')) || (tipo === 'passivo' && d.conta.startsWith('2'))) {
-             if (!prefixes.some(p => d.conta.startsWith(p)) && Math.abs(d.valor || 0) > 0.01) {
-               if (d.conta !== '2.9.9.1.01.00900') {
+             if (!prefixes.some(p => d.conta.startsWith(p)) && Math.abs(d.saldoAcumulado || d.valor || 0) > 0.01) {
+               if (d.conta !== '2.9.9.1.01.00900' && !d.conta.startsWith('2.1.1.6')) {
                  unmappedAccounts.push({ ...d, tipo, compId });
                }
              }

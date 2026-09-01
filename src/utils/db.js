@@ -98,10 +98,12 @@ export async function getDREFromDB(empresaId, ano, mes, tipoConsulta = "mensal")
 
   const consolidated = {};
   for (const r of records || []) {
+    if (r && !( (r.conta.startsWith("7") || r.conta.startsWith("6") || r.conta.startsWith("5.1.1.1.01")) && !r.id.includes("tax-dre") && !r.id.includes("manual_") )) {
     if (!consolidated[r.conta]) {
       consolidated[r.conta] = { descricao: r.descricao, valor: 0 };
     }
     consolidated[r.conta].valor += r.valorMensal;
+    }
   }
   return consolidated;
 }
@@ -122,10 +124,12 @@ export async function getBalancoFromDB(empresaId, ano, mes) {
 
   const consolidated = {};
   for (const r of records) {
+    if (r && !( r.conta.startsWith("2.1.1.6") && !r.id.includes("tax-bal") && !r.id.includes("manual_") )) {
     if (!consolidated[r.conta]) {
       consolidated[r.conta] = { descricao: r.descricao, valor: 0 };
     }
     consolidated[r.conta].valor += r.saldoAcumulado;
+    }
   }
   return consolidated;
 }
@@ -201,8 +205,10 @@ export async function getHistorySeries(empresaId, ano) {
     balancoQuery = balancoQuery.eq("empresaId", empresaId);
   }
 
-  const dre = await fetchAll(dreQuery);
-  const balanco = await fetchAll(balancoQuery);
+  let dre = await fetchAll(dreQuery);
+  dre = dre.filter(r => !( (r.conta.startsWith("7") || r.conta.startsWith("6") || r.conta.startsWith("5.1.1.1.01")) && !r.id.includes("tax-dre") && !r.id.includes("manual_") ));
+  let balanco = await fetchAll(balancoQuery);
+  balanco = balanco.filter(r => !( r.conta.startsWith("2.1.1.6") && !r.id.includes("tax-bal") && !r.id.includes("manual_") ));
   return { dre: dre || [], balanco: balanco || [] };
 }
 
