@@ -112,13 +112,27 @@ export async function getBalancoFromDB(empresaId, ano, mes) {
   let records = await fetchAll(supabase.from("balanco_history").select("*").eq("empresaId", empresaId).eq("ano", ano).eq("mes", mes));
 
   if (mes > 1) {
-    // Carry over manual and tax entries
-    const carryOvers = await fetchAll(supabase.from("balanco_history")
-      .select("*").eq("empresaId", empresaId).eq("ano", ano).lt("mes", mes)
-      .or("id.like.manual_%,id.like.tax-bal-%"));
-      
-    if (carryOvers) {
-      records = records.concat(carryOvers);
+    const { data: taxConfigData } = await supabase.from('settings').select('value').eq('key', 'agf_tax_config').single();
+    let taxConfig = {};
+    if (taxConfigData) taxConfig = JSON.parse(taxConfigData.value || '{}');
+    const isTrimestral = empresaId !== 'consolidado' && empresaId !== 'todas' && (taxConfig[empresaId] === 'presumido' || taxConfig[empresaId] === 'real_trimestral');
+
+    let startMes = 1;
+    if (isTrimestral) {
+      if (mes <= 3) startMes = 1;
+      else if (mes <= 6) startMes = 4;
+      else if (mes <= 9) startMes = 7;
+      else startMes = 10;
+    }
+
+    if (mes > startMes) {
+      const carryOvers = await fetchAll(supabase.from("balanco_history")
+        .select("*").eq("empresaId", empresaId).eq("ano", ano).gte("mes", startMes).lt("mes", mes)
+        .or("id.like.manual_%,id.like.tax-bal-%"));
+
+      if (carryOvers) {
+        records = records.concat(carryOvers);
+      }
     }
   }
 
