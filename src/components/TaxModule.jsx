@@ -826,9 +826,9 @@ export default function TaxModule({ companies }) {
             <Row label="IRPJ Adicional (10%):" m={cM.irpjAdicional} a={cA.irpjAdicional} />
             
             <div style={{ marginBottom: '1rem', marginTop: '1.5rem' }}>
-              <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(-) IRRF s/ Servi�os - <b>Valor do Mês</b></label>
+              <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(-) IRRF s/ Serviços - <b>Valor do Mês</b></label>
               <input type="number" className="text-input" value={presumidoRetencoesIR} onChange={e => setPresumidoRetencoesIR(e.target.value)} style={{ width: '100%' }} />
-            <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginTop: '1rem', marginBottom: '0.3rem' }}>(-) IRRF s/ Aplica��es - <b>Valor do M�s</b></label>
+            <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginTop: '1rem', marginBottom: '0.3rem' }}>(-) IRRF s/ Aplicações - <b>Valor do Mês</b></label>
             <input type="number" className="text-input" value={presumidoRetencoesIR_AppFin} onChange={e => setPresumidoRetencoesIR_AppFin(e.target.value)} style={{ width: '100%' }} />
             </div>
 
@@ -952,9 +952,9 @@ export default function TaxModule({ companies }) {
                 <span>{calc.irpjAdicional.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
              </div>
              <div style={{ marginBottom: '1rem', marginTop: '0.5rem' }}>
-               <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(-) IRRF s/ Servi�os</label>
+               <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(-) IRRF s/ Serviços</label>
                <input type="number" className="text-input" value={lalurRetencoesIR} onChange={e => setLalurRetencoesIR(e.target.value)} style={{ width: '100%' }} />
-            <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginTop: '1rem', marginBottom: '0.3rem' }}>(-) IRRF s/ Aplica��es</label>
+            <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginTop: '1rem', marginBottom: '0.3rem' }}>(-) IRRF s/ Aplicações</label>
             <input type="number" className="text-input" value={lalurRetencoesIR_AppFin} onChange={e => setLalurRetencoesIR_AppFin(e.target.value)} style={{ width: '100%' }} />
              </div>
              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1rem', borderTop: '1px solid #444', paddingTop: '1rem', color: '#81C784', fontSize: '1.1rem', fontWeight: 'bold' }}>
