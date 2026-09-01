@@ -25,8 +25,7 @@ function PendencyWidget({ companies, ano }) {
     setLoading(true);
     Promise.all(companies.map(c => 
       supabase.from("dre_history").select("id, mes").eq("empresaId", c.id).eq("ano", ano).lte("mes", 12)
-        
-        .then(data => {
+        .then(({ data }) => {
           let lastImport = 0;
           let lastTax = 0;
           if (Array.isArray(data)) {
