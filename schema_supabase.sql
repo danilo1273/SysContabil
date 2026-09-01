@@ -7,7 +7,7 @@ CREATE TABLE dre_history (
     trimestre INTEGER,
     conta TEXT,
     descricao TEXT,
-    "valorMensal" REAL
+    "valorMensal" DOUBLE PRECISION
 );
 
 -- Tabela de Histórico do Balanço Patrimonial
@@ -20,7 +20,7 @@ CREATE TABLE balanco_history (
     tipo TEXT,
     conta TEXT,
     descricao TEXT,
-    "saldoAcumulado" REAL
+    "saldoAcumulado" DOUBLE PRECISION
 );
 
 -- Tabela de Centro de Custo
@@ -34,7 +34,7 @@ CREATE TABLE cc_history (
     cc_descricao TEXT,
     conta TEXT,
     conta_descricao TEXT,
-    valor REAL
+    valor DOUBLE PRECISION
 );
 
 -- Tabela de Usuários

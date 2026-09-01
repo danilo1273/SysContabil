@@ -75,10 +75,10 @@ export const protheusMapping = {
       "Outras Receitas Operacionais": ["4.9.1.2", "4.9.1.1"]
     },
     "PROVISÃO IRPJ": {
-      "Provisão IRPJ": ["7"]
+      "Provisão IRPJ": ["7", "5.1.1.1.01.00001"]
     },
     "PROVISÃO CSLL": {
-      "Provisão CSLL": ["6"]
+      "Provisão CSLL": ["6", "5.1.1.1.01.00002"]
     },
     "REVERSÃO JUROS S/ CAPITAL PROPRIO": {
       "Reversão Juros s/ Capital Proprio": ["4.3.1.1.02.00008"]
