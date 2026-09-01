@@ -445,8 +445,8 @@ export default function TaxModule({ companies }) {
           const idIrpjDreThisMonth = 'tax-dre-irpj-' + selectedComp + '-' + selectedAno + '-' + selectedMes;
           const idCsllDreThisMonth = 'tax-dre-csll-' + selectedComp + '-' + selectedAno + '-' + selectedMes;
           
-          const isDespesaIR = (r) => (r.conta === '7' || (r.descricao && r.descricao.toUpperCase().includes('IRPJ'))) && r.id !== idIrpjDreThisMonth && r.mes >= startMonth && r.mes < selectedMes;
-          const isDespesaCS = (r) => (r.conta === '6' || (r.descricao && r.descricao.toUpperCase().includes('CSLL'))) && r.id !== idCsllDreThisMonth && r.mes >= startMonth && r.mes < selectedMes;
+          const isDespesaIR = (r) => r.id.startsWith('tax-dre-irpj-') && r.id !== idIrpjDreThisMonth && r.mes >= startMonth && r.mes < selectedMes;
+          const isDespesaCS = (r) => r.id.startsWith('tax-dre-csll-') && r.id !== idCsllDreThisMonth && r.mes >= startMonth && r.mes < selectedMes;
           
           despesaDreIRAnterior = dreAcumulada.filter(isDespesaIR).reduce((acc, r) => acc + Math.abs(r.valorMensal || 0), 0);
           despesaDreCSAnterior = dreAcumulada.filter(isDespesaCS).reduce((acc, r) => acc + Math.abs(r.valorMensal || 0), 0);
