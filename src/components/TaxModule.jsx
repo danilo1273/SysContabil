@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { getRawRecords, bulkPutRecords, getSettings, saveSettings } from '../utils/db';
 import { applyMapping, protheusMapping } from '../utils/mappingConfig';
+import { supabase } from '../supabaseClient';
 
 export default function TaxModule({ companies }) {
   const [activeTab, setActiveTab] = useState('apuracao'); // 'config', 'apuracao'

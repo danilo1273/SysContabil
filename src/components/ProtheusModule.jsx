@@ -23,23 +23,47 @@ function PendencyWidget({ companies, ano }) {
 
   React.useEffect(() => {
     setLoading(true);
-    Promise.all(companies.map(c => 
-      supabase.from("dre_history").select("id, mes").eq("empresaId", c.id).eq("ano", ano).lte("mes", 12)
-        .then(({ data }) => {
-          let lastImport = 0;
-          let lastTax = 0;
-          if (Array.isArray(data)) {
-            data.forEach(r => {
-              if (r.id && r.id.startsWith("tax-dre-irpj")) {
-                if (r.mes > lastTax) lastTax = r.mes;
-              } else {
-                if (r.mes > lastImport) lastImport = r.mes;
-              }
-            });
+    Promise.all(companies.map(async c => {
+      const { data } = await supabase.from("dre_history").select("id, mes").eq("empresaId", c.id).eq("ano", ano).lte("mes", 12);
+      let lastImport = 0;
+      let lastTax = 0;
+      if (Array.isArray(data)) {
+        data.forEach(r => {
+          if (r.id && r.id.startsWith("tax-dre-irpj")) {
+            if (r.mes > lastTax) lastTax = r.mes;
+          } else {
+            if (r.mes > lastImport) lastImport = r.mes;
           }
-          return { id: c.id, lastImport, lastTax };
-        })
-    )).then(results => {
+        });
+      }
+      
+      let isUnbalanced = false;
+      let diffValue = 0;
+
+      if (lastImport > 0) {
+         const { data: bData } = await supabase.from("balanco_history").select("id, conta, saldoAcumulado").eq("empresaId", c.id).eq("ano", ano).eq("mes", lastImport);
+         const { data: dData } = await supabase.from("dre_history").select("id, conta, valorMensal").eq("empresaId", c.id).eq("ano", ano).lte("mes", lastImport);
+         
+         let ativo = 0, passivo = 0, pl = 0, lucro = 0;
+         (bData || []).forEach(r => {
+            if (r.id.startsWith("tax-bal") || r.id.startsWith("manual_")) return; // Only raw ERP data
+            if (r.conta.startsWith("1")) ativo += (r.saldoAcumulado || 0);
+            else if (r.conta.startsWith("2.3") || r.conta.startsWith("2.4")) pl += (r.saldoAcumulado || 0);
+            else if (r.conta.startsWith("2")) passivo += (r.saldoAcumulado || 0);
+         });
+         (dData || []).forEach(r => {
+            if (r.id.startsWith("tax-dre") || r.id.startsWith("manual_")) return; // Only raw ERP data
+            lucro += (r.valorMensal || 0);
+         });
+         
+         diffValue = ativo - (passivo + pl + lucro);
+         if (Math.abs(diffValue) > 2) {
+             isUnbalanced = true;
+         }
+      }
+
+      return { id: c.id, lastImport, lastTax, isUnbalanced, diffValue };
+    })).then(results => {
       const map = {};
       results.forEach(r => map[r.id] = r);
       setStatusMap(map);
@@ -77,7 +101,7 @@ function PendencyWidget({ companies, ano }) {
               </div>
               {st.isUnbalanced && (
                 <div style={{ marginTop: "0.5rem", fontSize: "0.75rem", textAlign: "center", fontWeight: "bold", color: "#FF5252", padding: "4px", background: "rgba(255,82,82,0.1)", borderRadius: "4px" }}>
-                  ?? BALAN�O DESEQUILIBRADO! (Dif: {Math.abs(st.diffValue).toLocaleString("pt-BR", {style:"currency", currency:"BRL"})})
+                  ⚠️ ERP DESEQUILIBRADO! (Dif: {Math.abs(st.diffValue).toLocaleString("pt-BR", {style:"currency", currency:"BRL"})})
                 </div>
               )}
             </div>
@@ -961,7 +985,8 @@ function ProtheusModule({ userRole, userPermissions, username }) {
               grp['TOTAL'].total += lucroYTD;
            }
          }
-      }
+
+              }
 
       // Construir DFC
       const buildDFC = () => {
