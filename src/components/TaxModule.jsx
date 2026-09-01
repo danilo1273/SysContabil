@@ -287,39 +287,40 @@ export default function TaxModule({ companies }) {
       majoracao: !isEstimativa && presumidoMajoracao
     };
 
-    if (isEstimativa) {
-      // Get accumulated inputs from DB state
-      let sumOutras = 0; let sumCambio = 0; let sumRetIR = 0; let sumRetCS = 0; let sumImpDev = 0; let sumIrpjPago = 0; let sumCsllPago = 0;
-        for (let m = 1; m <= selectedMes; m++) {
-          if (!dreAnualTotal.some(r => r.mes === m)) continue;
-          if (m === selectedMes) {
-            sumOutras += parseFloat(presumidoOutrasReceitas || 0);
-            sumCambio += parseFloat(presumidoCambioRealizado || 0);
-            sumRetIR += parseFloat(presumidoRetencoesIR || 0) + parseFloat(presumidoRetencoesIR_AppFin || 0);
-            sumRetCS += parseFloat(presumidoRetencoesCS || 0); sumImpDev += parseFloat(presumidoImpostosDevolucao || 0); sumIrpjPago += parseFloat(darfIrpjReduzido || 0); sumCsllPago += parseFloat(darfCsllReduzida || 0);
-         } else {
-            const key = `${selectedComp}_${selectedAno}_${m}`;
-            const data = taxDataStore[key] || {};
-            sumOutras += parseFloat(data.presumidoOutrasReceitas || 0);
-            sumCambio += parseFloat(data.presumidoCambioRealizado || 0);
-            sumRetIR += parseFloat(data.presumidoRetencoesIR || 0) + parseFloat(data.presumidoRetencoesIR_AppFin || 0);
-            sumRetCS += parseFloat(data.presumidoRetencoesCS || 0); sumImpDev += parseFloat(data.presumidoImpostosDevolucao || 0); sumIrpjPago += parseFloat(data.darfIrpjReduzido || 0); sumCsllPago += parseFloat(data.darfCsllReduzida || 0);
-         }
+    let startMonth = isEstimativa ? 1 : Math.floor((selectedMes - 1) / 3) * 3 + 1;
+    
+    // Get accumulated inputs from DB state
+    let sumOutras = 0; let sumCambio = 0; let sumRetIR = 0; let sumRetCS = 0; let sumImpDev = 0; let sumIrpjPago = 0; let sumCsllPago = 0;
+    for (let m = startMonth; m <= selectedMes; m++) {
+      if (!dreAnualTotal.some(r => r.mes === m)) continue;
+      if (m === selectedMes) {
+        sumOutras += parseFloat(presumidoOutrasReceitas || 0);
+        sumCambio += parseFloat(presumidoCambioRealizado || 0);
+        sumRetIR += parseFloat(presumidoRetencoesIR || 0) + parseFloat(presumidoRetencoesIR_AppFin || 0);
+        sumRetCS += parseFloat(presumidoRetencoesCS || 0); sumImpDev += parseFloat(presumidoImpostosDevolucao || 0); sumIrpjPago += parseFloat(darfIrpjReduzido || 0); sumCsllPago += parseFloat(darfCsllReduzida || 0);
+      } else {
+        const key = `${selectedComp}_${selectedAno}_${m}`;
+        const data = taxDataStore[key] || {};
+        sumOutras += parseFloat(data.presumidoOutrasReceitas || 0);
+        sumCambio += parseFloat(data.presumidoCambioRealizado || 0);
+        sumRetIR += parseFloat(data.presumidoRetencoesIR || 0) + parseFloat(data.presumidoRetencoesIR_AppFin || 0);
+        sumRetCS += parseFloat(data.presumidoRetencoesCS || 0); sumImpDev += parseFloat(data.presumidoImpostosDevolucao || 0); sumIrpjPago += parseFloat(data.darfIrpjReduzido || 0); sumCsllPago += parseFloat(data.darfCsllReduzida || 0);
       }
-      const acumuladoInputs = {
-        outrasReceitas: sumOutras, cambioRealizado: sumCambio, retencoesIR: sumRetIR, retencoesCS: sumRetCS, impostosDevolucao: sumImpDev, majoracao: !isEstimativa && presumidoMajoracao
-      };
+    }
+    
+    const acumuladoInputs = {
+      outrasReceitas: sumOutras, cambioRealizado: sumCambio, retencoesIR: sumRetIR, retencoesCS: sumRetCS, impostosDevolucao: sumImpDev, majoracao: !isEstimativa && presumidoMajoracao
+    };
 
-      const mensal = calcPresumidoData(dreAcumulada.filter(r => r.mes === selectedMes), 1, currentInputs);
-      const acumulado = calcPresumidoData(dreAcumulada, selectedMes, acumuladoInputs);
+    const mensal = calcPresumidoData(dreAcumulada.filter(r => r.mes === selectedMes), 1, currentInputs);
+    const acumulado = calcPresumidoData(dreAcumulada, selectedMes - startMonth + 1, acumuladoInputs);
+    
+    if (isEstimativa) {
       acumulado.irpjTotalPago = sumIrpjPago;
       acumulado.csllTotalPago = sumCsllPago;
-      return { mensal, acumulado };
-    } else {
-      const mensal = calcPresumidoData(dreAcumulada.filter(r => r.mes === selectedMes), 1, currentInputs);
-      const trimestral = calcPresumidoData(dreAcumulada, (selectedMes % 3 === 0) ? 3 : (selectedMes % 3), currentInputs);
-      return { mensal: mensal, acumulado: trimestral };
     }
+    
+    return { mensal, acumulado };
   };
 
   // Lucro Real
