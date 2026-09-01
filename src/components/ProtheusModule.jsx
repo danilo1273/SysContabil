@@ -61,10 +61,7 @@ function PendencyWidget({ companies, ano }) {
         {companies.map(c => {
           const st = statusMap[c.id];
           if (!st) return null;
-          const currentMonth = new Date().getMonth(); // 0-based, so August = 7 (which is current month - 1)
-          const isCurrentYear = parseInt(ano) === new Date().getFullYear();
-          const targetTaxMonth = isCurrentYear ? (currentMonth || 1) : 12;
-          const pendente = (st.lastTax < targetTaxMonth) || (st.lastImport > st.lastTax);
+          const pendente = st.lastImport > st.lastTax;
           
           return (
             <div key={c.id} style={{ background: st.lastImport === 0 ? "rgba(255,255,255,0.05)" : pendente ? "rgba(255,202,40,0.1)" : "rgba(76,175,80,0.1)", padding: "1rem", borderRadius: "8px", border: "1px solid " + (st.lastImport === 0 ? "#444" : pendente ? "#FFCA28" : "#4CAF50") }}>
