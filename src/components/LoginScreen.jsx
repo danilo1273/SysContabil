@@ -31,7 +31,7 @@ const LoginScreen = ({ onLogin }) => {
       }
     } catch (err) {
       console.error(err);
-      setError('Erro ao conectar com o banco de dados.');
+      setError('Erro: ' + (err.message || String(err)));
       setIsLoading(false);
       return;
     }

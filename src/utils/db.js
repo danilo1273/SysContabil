@@ -1,12 +1,4 @@
-const API_URL = `http://${window.location.hostname}:3001/api`;
-
-// Fallback for API URL when accessed from network
-const getApiUrl = () => {
-  if (typeof window !== 'undefined') {
-    return 'http://' + window.location.hostname + ':3001/api';
-  }
-  return API_URL;
-};
+import { supabase } from "../supabaseClient";
 
 export async function saveBalanceteToDB(fileData, empresaId, ano, mes, userConfigs) {
   const dreEntries = [];
@@ -18,63 +10,79 @@ export async function saveBalanceteToDB(fileData, empresaId, ano, mes, userConfi
   for (const [conta, data] of Object.entries(rawAccounts)) {
     if (!data.isAnalitica) continue;
 
-    if (conta.startsWith('3.') || conta.startsWith('4.') || conta.startsWith('5.') || conta.startsWith('6.') || conta.startsWith('7.')) {
+    if (conta.startsWith("3.") || conta.startsWith("4.") || conta.startsWith("5.") || conta.startsWith("6.") || conta.startsWith("7.")) {
       dreEntries.push({
         id: `${empresaId}-${ano}-${mes}-${conta}`,
         empresaId, ano, mes, trimestre, conta,
         descricao: data.descricao,
         valorMensal: data.mensal
       });
-    } else if (conta.startsWith('1.') || conta.startsWith('2.')) {
+    } else if (conta.startsWith("1.") || conta.startsWith("2.")) {
       balancoEntries.push({
         id: `${empresaId}-${ano}-${mes}-${conta}`,
         empresaId, ano, mes, trimestre,
-        tipo: conta.startsWith('1.') ? 'ativo' : 'passivo',
+        tipo: conta.startsWith("1.") ? "ativo" : "passivo",
         conta, descricao: data.descricao,
         saldoAcumulado: data.acumulado
       });
     }
   }
 
-  const res = await fetch(`${getApiUrl()}/balancete`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ dreEntries, balancoEntries, empresaId, ano, mes })
-  });
-  if (!res.ok) throw new Error('Falha ao salvar no servidor central');
-  return res.json();
+  // Delete existing records for this month to avoid duplicates
+  await supabase.from("dre_history").delete().match({ empresaId, ano, mes });
+  await supabase.from("balanco_history").delete().match({ empresaId, ano, mes });
+
+  // Insert in chunks
+  const insertChunks = async (table, entries) => {
+    for (let i = 0; i < entries.length; i += 500) {
+      await supabase.from(table).upsert(entries.slice(i, i + 500));
+    }
+  };
+
+  await Promise.all([
+    insertChunks("dre_history", dreEntries),
+    insertChunks("balanco_history", balancoEntries)
+  ]);
+
+  return { success: true };
 }
 
 export async function saveCCToDB(ccRecords, empresaId, ano, mes) {
   const ccEntries = ccRecords.map(r => ({
     id: `${empresaId}-${ano}-${mes}-${r.cc_codigo}-${r.conta}`,
-    empresaId, 
-    ano, 
-    mes, 
-    trimestre: Math.ceil(mes / 3),
-    cc_codigo: r.cc_codigo ? r.cc_codigo.toString() : '',
-    cc_descricao: r.cc_descricao || '',
-    conta: r.conta ? r.conta.toString() : '',
-    conta_descricao: r.conta_descricao || '',
+    empresaId, ano, mes, trimestre: Math.ceil(mes / 3),
+    cc_codigo: r.cc_codigo ? r.cc_codigo.toString() : "",
+    cc_descricao: r.cc_descricao || "",
+    conta: r.conta ? r.conta.toString() : "",
+    conta_descricao: r.conta_descricao || "",
     valor: r.valor || 0
   }));
 
-  const res = await fetch(`${getApiUrl()}/cc-balancete`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ccEntries, empresaId, ano, mes })
-  });
-  if (!res.ok) throw new Error('Falha ao salvar Centros de Custo no servidor central');
-  return res.json();
+  await supabase.from("cc_history").delete().match({ empresaId, ano, mes });
+
+  for (let i = 0; i < ccEntries.length; i += 500) {
+    await supabase.from("cc_history").upsert(ccEntries.slice(i, i + 500));
+  }
+  return { success: true };
 }
 
-export async function getDREFromDB(empresaId, ano, mes, tipoConsulta = 'mensal') {
-  const res = await fetch(`${getApiUrl()}/dre?empresaId=${empresaId}&ano=${ano}&mes=${mes}&tipoConsulta=${tipoConsulta}`);
-  if (!res.ok) throw new Error('Erro ao buscar DRE');
-  const records = await res.json();
+export async function getDREFromDB(empresaId, ano, mes, tipoConsulta = "mensal") {
+  let query = supabase.from("dre_history").select("*").eq("empresaId", empresaId).eq("ano", ano);
+  
+  if (tipoConsulta === "mensal") {
+    query = query.eq("mes", mes);
+  } else if (tipoConsulta === "trimestre") {
+    const trimestre = Math.ceil(mes / 3);
+    query = query.eq("trimestre", trimestre).lte("mes", mes);
+  } else if (tipoConsulta === "acumulado") {
+    query = query.lte("mes", mes);
+  }
+
+  const { data: records, error } = await query;
+  if (error) throw error;
 
   const consolidated = {};
-  for (const r of records) {
+  for (const r of records || []) {
     if (!consolidated[r.conta]) {
       consolidated[r.conta] = { descricao: r.descricao, valor: 0 };
     }
@@ -84,135 +92,114 @@ export async function getDREFromDB(empresaId, ano, mes, tipoConsulta = 'mensal')
 }
 
 export async function getBalancoFromDB(empresaId, ano, mes) {
-    const res = await fetch(`${getApiUrl()}/balanco?empresaId=${empresaId}&ano=${ano}&mes=${mes}`);
-    if (!res.ok) throw new Error('Erro ao buscar Balanço');
-    let records = await res.json();
-    
-    // Carry over manual and tax entries from previous months of the same year
-    if (mes > 1) {
-        for (let m = 1; m < mes; m++) {
-            try {
-                const mRes = await fetch(`${getApiUrl()}/balanco?empresaId=${empresaId}&ano=${ano}&mes=${m}`);
-                if (mRes.ok) {
-                    const mRecords = await mRes.json();
-                    const carryOvers = mRecords.filter(r => r.id.startsWith('manual_') || r.id.startsWith('tax-bal-'));
-                    records = records.concat(carryOvers);
-                }
-            } catch (e) {
-                console.error(`Erro ao buscar carry-over do mês ${m}:`, e);
-            }
-        }
-    }
+  let { data: records, error } = await supabase.from("balanco_history")
+    .select("*").eq("empresaId", empresaId).eq("ano", ano).eq("mes", mes);
+  
+  if (error) throw error;
+  records = records || [];
 
-    const consolidated = {};
-    for (const r of records) {
-        if (!consolidated[r.conta]) {
-            consolidated[r.conta] = { descricao: r.descricao, valor: 0 };
-        }
-        consolidated[r.conta].valor += r.saldoAcumulado;
+  if (mes > 1) {
+    // Carry over manual and tax entries
+    const { data: carryOvers } = await supabase.from("balanco_history")
+      .select("*").eq("empresaId", empresaId).eq("ano", ano).lt("mes", mes)
+      .or("id.like.manual_%,id.like.tax-bal-%");
+      
+    if (carryOvers) {
+      records = records.concat(carryOvers);
     }
-    return consolidated;
+  }
+
+  const consolidated = {};
+  for (const r of records) {
+    if (!consolidated[r.conta]) {
+      consolidated[r.conta] = { descricao: r.descricao, valor: 0 };
+    }
+    consolidated[r.conta].valor += r.saldoAcumulado;
+  }
+  return consolidated;
 }
 
 export async function addManualEntryToDB(empresaId, ano, mes, conta, descricao, valor) {
   const trimestre = Math.ceil(mes / 3);
-  const type = (conta.startsWith('3') || conta.startsWith('4') || conta.startsWith('6') || conta.startsWith('7')) ? 'dre' : 'balanco';
+  const type = (conta.startsWith("3") || conta.startsWith("4") || conta.startsWith("6") || conta.startsWith("7")) ? "dre" : "balanco";
   
   const entry = {
     id: `manual_${empresaId}_${ano}_${mes}_${conta}_${Date.now()}`,
     empresaId, ano, mes, trimestre, conta, descricao,
   };
 
-  if (type === 'dre') {
+  if (type === "dre") {
     entry.valorMensal = valor;
+    await supabase.from("dre_history").upsert(entry);
   } else {
-    entry.tipo = conta.startsWith('1') ? 'ativo' : 'passivo';
+    entry.tipo = conta.startsWith("1") ? "ativo" : "passivo";
     entry.saldoAcumulado = valor;
+    await supabase.from("balanco_history").upsert(entry);
   }
 
-  const res = await fetch(`${getApiUrl()}/manual`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ entry, type })
-  });
-  if (!res.ok) throw new Error('Falha ao salvar conta manual');
-  return res.json();
+  return { success: true };
 }
 
 export async function checkAvailableMonths() {
-  const res = await fetch(`${getApiUrl()}/info`);
-  if (!res.ok) return [];
-  return res.json();
-}
-
-export async function getRawRecords(ano, mes) {
-  const res = await fetch(`${getApiUrl()}/records?ano=${ano}&mes=${mes}`);
-  if (!res.ok) throw new Error('Erro ao buscar registros brutos');
-  return res.json();
-}
-
-export async function getHistorySeries(empresaId, ano) {
-  const res = await fetch(`${getApiUrl()}/history-series?empresaId=${empresaId}&ano=${ano}`);
-  if (!res.ok) throw new Error('Erro ao buscar série histórica');
-  return res.json();
-}
-
-export async function updateRecord(id, type, valor) {
-  const res = await fetch(`${getApiUrl()}/records/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ type, valor })
-  });
-  if (!res.ok) throw new Error('Erro ao atualizar registro');
-  return res.json();
-}
-
-export async function deleteRecords(empresaId, ano, mes) {
-  const params = new URLSearchParams();
-  if (empresaId) params.append('empresaId', empresaId);
-  if (ano) params.append('ano', ano);
-  if (mes) params.append('mes', mes);
-  const res = await fetch(`${getApiUrl()}/records?${params.toString()}`, {
-    method: 'DELETE'
-  });
-  if (!res.ok) throw new Error('Erro ao deletar registros');
-  return res.json();
-}
-
-export async function bulkPutRecords(table, entries) {
-  const payload = table === 'dre_history' ? { dreEntries: entries } : { balancoEntries: entries };
-  const res = await fetch(`${getApiUrl()}/import`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
-  if (!res.ok) throw new Error('Erro ao importar registros em lote');
-  return res.json();
+  const { data } = await supabase.from("dre_history").select("ano, mes");
+  const unique = [];
+  const map = {};
+  for (const d of data || []) {
+    const key = `${d.ano}-${d.mes}`;
+    if (!map[key]) {
+      map[key] = true;
+      unique.push(d);
+    }
+  }
+  return unique;
 }
 
 export async function getSettings(key) {
-  const res = await fetch(`${getApiUrl()}/settings/${key}`);
-  if (!res.ok) return null;
-  return res.json();
+  const { data, error } = await supabase.from("settings").select("value").eq("key", key).single();
+  if (error || !data) return null;
+  try { return JSON.parse(data.value); } catch(e) { return data.value; }
 }
 
 export async function saveSettings(key, value) {
-  const res = await fetch(`${getApiUrl()}/settings/${key}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ value })
-  });
-  if (!res.ok) throw new Error('Erro ao salvar configurações');
-  return res.json();
+  const val = typeof value === "string" ? value : JSON.stringify(value);
+  await supabase.from("settings").upsert({ key, value: val });
+  return { success: true };
 }
 
-export const db = {
-  dre_history: {
-    toArray: async () => {
-      const res = await fetch(`${getApiUrl()}/info`);
-      if (!res.ok) return [];
-      const data = await res.json();
-      return data.map(d => ({ ano: d.ano, mes: d.mes }));
-    }
+
+export async function getRawRecords(ano, mes) {
+  const { data: dre } = await supabase.from("dre_history").select("*").eq("ano", ano).eq("mes", mes);
+  const { data: balanco } = await supabase.from("balanco_history").select("*").eq("ano", ano).eq("mes", mes);
+  return { dre: dre || [], balanco: balanco || [] };
+}
+
+export async function bulkPutRecords(table, entries) {
+  const tableName = table === "dre_history" ? "dre_history" : "balanco_history";
+  for (let i = 0; i < entries.length; i += 500) {
+    await supabase.from(tableName).upsert(entries.slice(i, i + 500));
   }
-};
+  return { success: true };
+}
+
+export async function getHistorySeries(empresaId, ano) {
+  const { data: dre } = await supabase.from("dre_history").select("*").eq("empresaId", empresaId).eq("ano", ano);
+  const { data: balanco } = await supabase.from("balanco_history").select("*").eq("empresaId", empresaId).eq("ano", ano);
+  return { dre: dre || [], balanco: balanco || [] };
+}
+
+export async function updateRecord(id, type, valor) {
+  const table = type === "dre" ? "dre_history" : "balanco_history";
+  const field = type === "dre" ? "valorMensal" : "saldoAcumulado";
+  await supabase.from(table).update({ [field]: valor }).eq("id", id);
+  return { success: true };
+}
+
+export async function deleteRecords(empresaId, ano, mes) {
+  const match = {};
+  if (ano) match.ano = ano;
+  if (mes) match.mes = mes;
+  if (empresaId) match.empresaId = empresaId;
+  await supabase.from("dre_history").delete().match(match);
+  await supabase.from("balanco_history").delete().match(match);
+  return { success: true };
+}

@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, Cell } from 'recharts';
 import { parseProtheusExcel } from '../utils/protheusParser';
 import { protheusMapping, applyMapping } from '../utils/mappingConfig';
+import { supabase } from "../supabaseClient";
 import { saveBalanceteToDB, getDREFromDB, getBalancoFromDB, addManualEntryToDB, getSettings, saveSettings } from '../utils/db';
 import TaxModule from './TaxModule';
 import DashboardView from './DashboardView';
@@ -11,8 +12,80 @@ import FaturamentoModule from './FaturamentoModule';
 import RateioModule from './RateioModule';
 import CentroCustoModule from './CentroCustoModule';
 import GestaoContabilModule from './GestaoContabilModule';
+import PerdcompModule from './PerdcompModule';
 
 const COLORS = ['#4CAF50', '#2196F3', '#f7c324', '#9C27B0', '#FF9800'];
+
+
+function PendencyWidget({ companies, ano }) {
+  const [statusMap, setStatusMap] = React.useState({});
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    setLoading(true);
+    Promise.all(companies.map(c => 
+      supabase.from("dre_history").select("id, mes").eq("empresaId", c.id).eq("ano", ano).lte("mes", 12)
+        
+        .then(data => {
+          let lastImport = 0;
+          let lastTax = 0;
+          if (Array.isArray(data)) {
+            data.forEach(r => {
+              if (r.id && r.id.startsWith("tax-dre-irpj")) {
+                if (r.mes > lastTax) lastTax = r.mes;
+              } else {
+                if (r.mes > lastImport) lastImport = r.mes;
+              }
+            });
+          }
+          return { id: c.id, lastImport, lastTax };
+        })
+    )).then(results => {
+      const map = {};
+      results.forEach(r => map[r.id] = r);
+      setStatusMap(map);
+      setLoading(false);
+    }).catch(err => {
+      console.error(err);
+      setLoading(false);
+    });
+  }, [companies, ano]);
+
+  if (loading) return <div style={{color:"#888", marginBottom: "1rem"}}>Carregando pendências...</div>;
+
+  return (
+    <div className="print-hide widget-pendencia" style={{ marginBottom: "2rem", background: "linear-gradient(135deg, #1e1e1e 0%, #1a233a 100%)", padding: "1.5rem", borderRadius: "12px", border: "1px solid #333" }}>
+      <h3 style={{ margin: "0 0 1rem 0", color: "#64B5F6", display: "flex", alignItems: "center", gap: "8px" }}>
+        <span>📊 Status de Apuração - {ano}</span>
+      </h3>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem" }}>
+        {companies.map(c => {
+          const st = statusMap[c.id];
+          if (!st) return null;
+          const currentMonth = new Date().getMonth(); // 0-based, so August = 7 (which is current month - 1)
+          const isCurrentYear = parseInt(ano) === new Date().getFullYear();
+          const targetTaxMonth = isCurrentYear ? (currentMonth || 1) : 12;
+          const pendente = (st.lastTax < targetTaxMonth) || (st.lastImport > st.lastTax);
+          
+          return (
+            <div key={c.id} style={{ background: st.lastImport === 0 ? "rgba(255,255,255,0.05)" : pendente ? "rgba(255,202,40,0.1)" : "rgba(76,175,80,0.1)", padding: "1rem", borderRadius: "8px", border: "1px solid " + (st.lastImport === 0 ? "#444" : pendente ? "#FFCA28" : "#4CAF50") }}>
+              <div style={{ fontWeight: "bold", marginBottom: "0.5rem" }}>{c.name}</div>
+              <div style={{ fontSize: "0.85rem", color: "#ccc", display: "flex", justifyContent: "space-between" }}>
+                <span>Base Integrada:</span> <strong style={{color:"#fff"}}>{st.lastImport === 0 ? "-" : "Mês " + st.lastImport.toString().padStart(2, "0")}</strong>
+              </div>
+              <div style={{ fontSize: "0.85rem", color: "#ccc", display: "flex", justifyContent: "space-between" }}>
+                <span>IRPJ Apurado:</span> <strong style={{color:"#fff"}}>{st.lastTax === 0 ? "-" : "Mês " + st.lastTax.toString().padStart(2, "0")}</strong>
+              </div>
+              <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", textAlign: "center", fontWeight: "bold", color: st.lastImport === 0 ? "#888" : pendente ? "#FFCA28" : "#4CAF50", padding: "4px", background: st.lastImport === 0 ? "transparent" : pendente ? "rgba(255,202,40,0.1)" : "rgba(76,175,80,0.1)", borderRadius: "4px" }}>
+                {st.lastImport === 0 ? "SEM DADOS" : pendente ? "FALTA APURAR!" : "EM DIA"}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function ProtheusModule({ userRole, userPermissions, username }) {
   const [activeTab, setActiveTab] = useState('resultados');
@@ -68,7 +141,7 @@ function ProtheusModule({ userRole, userPermissions, username }) {
     const initPanel = async () => {
       try {
         const dbMod = await import('../utils/db');
-        const records = await dbMod.db.dre_history.toArray();
+        const records = await dbMod.checkAvailableMonths();
         if (records && records.length > 0) {
           // Achar o registro com o maior ano
           const maxAno = Math.max(...records.map(r => r.ano));
@@ -82,10 +155,11 @@ function ProtheusModule({ userRole, userPermissions, username }) {
           setLatestAvailable(`${maxMes.toString().padStart(2, '0')}/${maxAno}`);
           
           try {
-            const cmRes = await fetch(`http://${window.location.hostname}:3001/api/settings/customMapping`);
-            const cmData = await cmRes.json();
-            if (cmData) setCustomMappings(cmData);
-          } catch (e) {
+            const { data: _cmData } = await supabase.from("settings").select("value").eq("key", "customMapping").single();
+          if (_cmData && _cmData.value) {
+              try { setCustomMappings(JSON.parse(_cmData.value)); } catch(e){}
+          }
+        } catch (e) {
             console.error('Erro ao carregar customMappings', e);
           }
           
@@ -1588,6 +1662,8 @@ function ProtheusModule({ userRole, userPermissions, username }) {
 
       {activeTab === "resultados" && results && (
         <div className="results-section">
+          <PendencyWidget companies={companies} ano={selectedAno} />
+
           
           <div className="print-hide" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem", flexWrap: "wrap", gap: "1rem" }}>
             <div>
@@ -1652,7 +1728,7 @@ function ProtheusModule({ userRole, userPermissions, username }) {
           </div>
 
           <nav className="secondary-nav" style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid #333', marginBottom: '2rem' }}>
-            {['dash', 'dre', 'balanco', 'dfc', 'faturamento'].map(tab => (
+            {['dash', 'dre', 'balanco', 'dfc', 'faturamento', 'perdcomp'].map(tab => (
               <button
                 key={tab}
                 onClick={() => setSecondaryTab(tab)}
@@ -1667,7 +1743,7 @@ function ProtheusModule({ userRole, userPermissions, username }) {
                   fontWeight: secondaryTab === tab ? 'bold' : 'normal'
                 }}
               >
-                {tab === 'dash' ? '📊 Dashboard' : tab === 'dre' ? '📄 DRE' : tab === 'balanco' ? '⚖️ Balanço Patrimonial' : tab === 'dfc' ? '💸 Fluxo de Caixa (DFC)' : '📈 Relação de Faturamento'}
+                {tab === 'dash' ? '📊 Dashboard' : tab === 'dre' ? '📄 DRE' : tab === 'balanco' ? '⚖️ Balanço Patrimonial' : tab === 'dfc' ? '💸 Fluxo de Caixa (DFC)' : tab === 'faturamento' ? '📈 Relação de Faturamento' : '📋 PER/DCOMP'}
               </button>
             ))}
           </nav>
@@ -1844,14 +1920,21 @@ function ProtheusModule({ userRole, userPermissions, username }) {
 
           {secondaryTab === 'faturamento' && (
             <div style={{ marginTop: '1rem' }}>
-              <FaturamentoModule 
-                companies={companies}
-                selectedCompany={selectedCompany}
-                selectedAno={selectedAno}
-                selectedMes={selectedMes}
-              />
-            </div>
-          )}
+              <FaturamentoModule
+              companies={companies}
+              selectedCompany={selectedCompany}
+              selectedAno={selectedAno}
+              selectedMes={selectedMes}
+            />
+          </div>
+        )}
+
+        {secondaryTab === 'perdcomp' && (
+          <PerdcompModule 
+            companies={companies} 
+            canEdit={userPermissions?.includes('contabil') || ['danilo', 'ryan.santos'].includes(username)} 
+          />
+        )}
         </div>
       )}
 
@@ -1959,11 +2042,7 @@ function ProtheusModule({ userRole, userPermissions, username }) {
                   setCustomMappings(newMap);
                   
                   try {
-                      await fetch(`http://${window.location.hostname}:3001/api/settings/customMapping`, {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ value: newMap })
-                      });
+await supabase.from("settings").upsert({ key: "customMapping", value: JSON.stringify(newMap) });
                       
                       // RELOAD DATA AFTER SAVE
                       loadPanelData();

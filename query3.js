@@ -1,0 +1,1 @@
+const sqlite3 = require('sqlite3'); const db = new sqlite3.Database('database.sqlite'); db.all(SELECT empresaId, mes, conta, descricao, valorMensal FROM dre_history WHERE ano=2026 AND (conta LIKE '4.9.1.1%' OR conta LIKE '4.9.1.2%' OR conta LIKE '4.3.1.1.01%') AND valorMensal > 0, (e, r) => console.log(r));

@@ -9,6 +9,12 @@ export default defineConfig({
     allowedHosts: true,
     watch: {
       ignored: ['**/*.xlsx', '**/*.xlsm', '**/scratch/**']
+    },
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:3001',
+        changeOrigin: true
+      }
     }
   }
 })

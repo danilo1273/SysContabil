@@ -27,7 +27,7 @@ function App() {
     if (user) {
         const fetchNotifs = async () => {
             try {
-                const res = await fetch(`http://${window.location.hostname}:3001/api/notifications?username=${user.username}`);
+                const res = await fetch(`/api/notifications?username=${user.username}`);
                 const data = await res.json();
                 setNotifications(data);
             } catch(e){}

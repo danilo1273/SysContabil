@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import RelatoriosContabeis from './RelatoriosContabeis';
+import { getRawRecords } from '../utils/db';
 
 function GestaoContabilModule({ userRole, userName, companies }) {
     const [activeTab, setActiveTab] = useState('integracoes');
+    const [taxDataStore, setTaxDataStore] = useState({});
+    const [dreCambioRealizado, setDreCambioRealizado] = useState({});
     const [selectedMes, setSelectedMes] = useState(new Date().getMonth() + 1);
     const [selectedAno, setSelectedAno] = useState(new Date().getFullYear());
     
@@ -25,33 +28,33 @@ function GestaoContabilModule({ userRole, userName, companies }) {
         setIsProcessing(true);
         try {
             // Load Users
-            const uRes = await fetch(`http://${window.location.hostname}:3001/api/settings/agf_users`);
+            const uRes = await fetch(`/api/settings/agf_users`);
             if (uRes.ok) {
                 const uData = await uRes.json();
                 setUsers(uData || []);
             }
 
             // Load Integrações
-            const intRes = await fetch(`http://${window.location.hostname}:3001/api/gestao/integracoes?ano=${selectedAno}&mes=${selectedMes}`);
+            const intRes = await fetch(`/api/gestao/integracoes?ano=${selectedAno}&mes=${selectedMes}`);
             const intData = await intRes.json();
             const intMap = {};
             intData.forEach(d => intMap[d.tipo] = d);
             setIntegracoes(intMap);
 
             // Load Obrigações
-            const obRes = await fetch(`http://${window.location.hostname}:3001/api/gestao/obrigacoes?ano=${selectedAno}&mes=${selectedMes}`);
+            const obRes = await fetch(`/api/gestao/obrigacoes?ano=${selectedAno}&mes=${selectedMes}`);
             const obData = await obRes.json();
             const obMap = {};
             obData.forEach(d => obMap[d.tipo] = d);
             setObrigacoes(obMap);
 
             // Load Pendências
-            const penRes = await fetch(`http://${window.location.hostname}:3001/api/gestao/pendencias`);
+            const penRes = await fetch(`/api/gestao/pendencias`);
             const penData = await penRes.json();
             setPendencias(penData);
             
             // Load Obrigações Tipos
-            const tipRes = await fetch(`http://${window.location.hostname}:3001/api/settings/agf_obrigacoes_tipos`);
+            const tipRes = await fetch(`/api/settings/agf_obrigacoes_tipos`);
             if (tipRes.ok) {
                 const tipData = await tipRes.json();
                 if (tipData && Array.isArray(tipData) && tipData.length > 0) {
@@ -66,6 +69,28 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                         { tipo: 'efd_reinf', nome: 'EFD Reinf' }
                     ]);
                 }
+            }
+
+            // Load Tax Data Store
+            const tRes = await fetch(`/api/settings/agf_tax_store`);
+            if (tRes.ok) {
+                const tData = await tRes.json();
+                setTaxDataStore(tData || {});
+            }
+
+            try {
+                const rawRecs = await getRawRecords(selectedAno, selectedMes);
+                if (rawRecs && rawRecs.dre) {
+                    const dreCambioMap = {};
+                    for (const r of rawRecs.dre) {
+                        if (r.conta && r.conta.startsWith('4.3.1.1.03') && r.valorMensal) {
+                            dreCambioMap[r.empresaId] = (dreCambioMap[r.empresaId] || 0) + r.valorMensal;
+                        }
+                    }
+                    setDreCambioRealizado(dreCambioMap);
+                }
+            } catch (e) {
+                console.warn("Could not fetch DRE for variacao cambial", e);
             }
         } catch (e) {
             console.error(e);
@@ -105,7 +130,7 @@ function GestaoContabilModule({ userRole, userName, companies }) {
             responsavel,
             updated_at: new Date().toISOString()
         };
-        await fetch(`http://${window.location.hostname}:3001/api/gestao/integracoes`, {
+        await fetch(`/api/gestao/integracoes`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -124,7 +149,7 @@ function GestaoContabilModule({ userRole, userName, companies }) {
             responsavel,
             updated_at: new Date().toISOString()
         };
-        await fetch(`http://${window.location.hostname}:3001/api/gestao/obrigacoes`, {
+        await fetch(`/api/gestao/obrigacoes`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -151,7 +176,7 @@ function GestaoContabilModule({ userRole, userName, companies }) {
             historico: JSON.stringify([{ action: 'Criado', user: userName || 'Sistema', date: new Date().toISOString() }])
         };
 
-        await fetch(`http://${window.location.hostname}:3001/api/gestao/pendencias`, {
+        await fetch(`/api/gestao/pendencias`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -171,7 +196,7 @@ function GestaoContabilModule({ userRole, userName, companies }) {
         try { hist = JSON.parse(resolvingPendencia.historico); } catch (e) {}
         hist.push({ action: 'Resolvido: ' + objectiveText, user: userName || 'Sistema', date: new Date().toISOString() });
 
-        await fetch(`http://${window.location.hostname}:3001/api/gestao/pendencias/${resolvingPendencia.id}`, {
+        await fetch(`/api/gestao/pendencias/${resolvingPendencia.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -190,7 +215,7 @@ function GestaoContabilModule({ userRole, userName, companies }) {
         if (!newObrigacaoTipo || !newObrigacaoNome) return;
         const newTipos = [...obrigacoesTipos, { tipo: newObrigacaoTipo, nome: newObrigacaoNome }];
         
-        await fetch(`http://${window.location.hostname}:3001/api/settings/agf_obrigacoes_tipos`, {
+        await fetch(`/api/settings/agf_obrigacoes_tipos`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ value: newTipos })
@@ -200,9 +225,24 @@ function GestaoContabilModule({ userRole, userName, companies }) {
         setNewObrigacaoNome('');
     };
 
+    const saveVariacaoCambial = async (compId, val) => {
+        const key = `${compId}_${selectedAno}_${selectedMes}`;
+        const oldData = taxDataStore[key] || {};
+        const newData = { ...oldData, presumidoCambioRealizado: val, lalurCambioRealizado: val };
+        const newStore = { ...taxDataStore, [key]: newData };
+        setTaxDataStore(newStore);
+        try {
+            await fetch(`/api/settings/agf_tax_store`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ value: newStore })
+            });
+        } catch (e) { console.error(e); }
+    };
+
     const handleRemoveTipo = async (tipoKey) => {
         const newTipos = obrigacoesTipos.filter(t => t.tipo !== tipoKey);
-        await fetch(`http://${window.location.hostname}:3001/api/settings/agf_obrigacoes_tipos`, {
+        await fetch(`/api/settings/agf_obrigacoes_tipos`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ value: newTipos })
@@ -332,6 +372,7 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                 <button className={activeTab === 'obrigacoes' ? 'btn-primary' : 'btn-secondary'} onClick={() => setActiveTab('obrigacoes')}>Obrigações Acessórias</button>
                 <button className={activeTab === 'pendencias' ? 'btn-primary' : 'btn-secondary'} onClick={() => setActiveTab('pendencias')}>Documentos Pendentes</button>
                 <button className={activeTab === 'relatorios' ? 'btn-primary' : 'btn-secondary'} onClick={() => setActiveTab('relatorios')}>Relatórios</button>
+                <button className={activeTab === 'variacao' ? 'btn-primary' : 'btn-secondary'} onClick={() => setActiveTab('variacao')}>Variação Cambial</button>
             </div>
 
             {activeTab === 'relatorios' && (
@@ -440,6 +481,46 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                             {pendencias.filter(p => p.status === 'corrigido').length === 0 && <p style={{ color: '#666', textAlign: 'center' }}>Nenhum histórico recente.</p>}
                         </div>
                     </div>
+                </div>
+            )}
+
+            {activeTab === 'variacao' && (
+                <div style={{ background: 'rgba(0,0,0,0.2)', padding: '1.5rem', borderRadius: '8px', border: '1px solid #333' }}>
+                    <h3 style={{ margin: '0 0 1rem 0', color: '#fff' }}>Lançamento de Variação Cambial Realizada</h3>
+                    <p style={{ color: '#888', fontSize: '0.9rem', marginBottom: '1.5rem' }}>Os valores lançados aqui serão utilizados na DRE para cálculo de Lucro Presumido e Lucro Real.</p>
+                    
+                    <table style={{ width: '100%', borderCollapse: 'collapse', color: '#ddd' }}>
+                        <thead>
+                            <tr style={{ background: 'rgba(0,0,0,0.4)', color: '#ccc', textAlign: 'left' }}>
+                                <th style={{ padding: '12px', borderBottom: '1px solid #444' }}>Empresa</th>
+                                <th style={{ padding: '12px', borderBottom: '1px solid #444', width: '250px', textAlign: 'right' }}>Variação Cambial (DRE)</th>
+                                <th style={{ padding: '12px', borderBottom: '1px solid #444', width: '300px' }}>Variação Cambial Realizada (Efetivo)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {companies.map(c => {
+                                const key = `${c.id}_${selectedAno}_${selectedMes}`;
+                                const val = taxDataStore[key]?.presumidoCambioRealizado || '';
+                                const dreVal = dreCambioRealizado[c.id] || 0;
+                                return (
+                                    <tr key={c.id} style={{ borderBottom: '1px solid #2a2a2a' }}>
+                                        <td style={{ padding: '12px' }}>{c.name}</td>
+                                        <td style={{ padding: '12px', textAlign: 'right', color: '#aaa' }}>{dreVal.toLocaleString('pt-BR', {style:'currency', currency:'BRL'})}</td>
+                                        <td style={{ padding: '12px' }}>
+                                            <input 
+                                                type="number" 
+                                                className="text-input" 
+                                                value={val} 
+                                                onChange={(e) => saveVariacaoCambial(c.id, e.target.value)} 
+                                                placeholder="0.00" 
+                                                style={{ width: '100%' }} 
+                                            />
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
                 </div>
             )}
 
