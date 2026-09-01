@@ -71,7 +71,7 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
       } else {
         if (!inPeriod(row.mes)) return acc;
       }
-      if (row.conta.startsWith(prefix)) return acc + row.total;
+      if (row.conta.startsWith(prefix)) return acc + (row.total || row.valorMensal || row.saldoAcumulado || 0);
       return acc;
     }, 0);
   };

@@ -193,8 +193,16 @@ export async function bulkPutRecords(table, entries) {
 }
 
 export async function getHistorySeries(empresaId, ano) {
-  const dre = await fetchAll(supabase.from("dre_history").select("*").eq("empresaId", empresaId).eq("ano", ano));
-  const balanco = await fetchAll(supabase.from("balanco_history").select("*").eq("empresaId", empresaId).eq("ano", ano));
+  let dreQuery = supabase.from("dre_history").select("*").eq("ano", ano);
+  let balancoQuery = supabase.from("balanco_history").select("*").eq("ano", ano);
+
+  if (empresaId && empresaId !== "consolidado" && empresaId !== "todas") {
+    dreQuery = dreQuery.eq("empresaId", empresaId);
+    balancoQuery = balancoQuery.eq("empresaId", empresaId);
+  }
+
+  const dre = await fetchAll(dreQuery);
+  const balanco = await fetchAll(balancoQuery);
   return { dre: dre || [], balanco: balanco || [] };
 }
 
