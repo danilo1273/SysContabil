@@ -279,7 +279,7 @@ export default function TaxModule({ companies }) {
     const currentInputs = {
       outrasReceitas: presumidoOutrasReceitas,
       cambioRealizado: presumidoCambioRealizado,
-      retencoesIR: presumidoRetencoesIR,
+      retencoesIR: parseFloat(presumidoRetencoesIR || 0) + parseFloat(presumidoRetencoesIR_AppFin || 0),
       retencoesCS: presumidoRetencoesCS,
       impostosDevolucao: presumidoImpostosDevolucao,
       majoracao: !isEstimativa && presumidoMajoracao
