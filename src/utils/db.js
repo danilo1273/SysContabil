@@ -197,8 +197,12 @@ export async function saveSettings(key, value) {
 
 
 export async function getRawRecords(ano, mes) {
-  const dre = await fetchAll(supabase.from("dre_history").select("*").eq("ano", ano).eq("mes", mes));
-  const balanco = await fetchAll(supabase.from("balanco_history").select("*").eq("ano", ano).eq("mes", mes));
+  let dre = await fetchAll(supabase.from("dre_history").select("*").eq("ano", ano).eq("mes", mes));
+  let balanco = await fetchAll(supabase.from("balanco_history").select("*").eq("ano", ano).eq("mes", mes));
+  
+  if (dre) dre = dre.filter(r => !( (r.conta.startsWith("7") || r.conta.startsWith("6") || r.conta.startsWith("5.1.1.1.01")) && !r.id.includes("tax-dre") && !r.id.includes("manual_") ));
+  if (balanco) balanco = balanco.filter(r => !( r.conta.startsWith("2.1.1.6") && !r.id.includes("tax-bal") && !r.id.includes("manual_") ));
+  
   return { dre: dre || [], balanco: balanco || [] };
 }
 
