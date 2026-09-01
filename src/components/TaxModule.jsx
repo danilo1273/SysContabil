@@ -443,44 +443,53 @@ export default function TaxModule({ companies }) {
       }
 
       if (selectedMes > startMonth) {
-          // Soma despesas na DRE (ignorando os lançamentos deste mesmo mês que vamos recriar)
-          const idIrpjDreThisMonth = 'tax-dre-irpj-' + selectedComp + '-' + selectedAno + '-' + selectedMes;
-          const idCsllDreThisMonth = 'tax-dre-csll-' + selectedComp + '-' + selectedAno + '-' + selectedMes;
-          
-          const isDespesaIR = (r) => r.id.startsWith('tax-dre-irpj-') && r.id !== idIrpjDreThisMonth && r.mes >= startMonth && r.mes < selectedMes;
-          const isDespesaCS = (r) => r.id.startsWith('tax-dre-csll-') && r.id !== idCsllDreThisMonth && r.mes >= startMonth && r.mes < selectedMes;
-          
-          despesaDreIRAnterior = dreAcumulada.filter(isDespesaIR).reduce((acc, r) => acc + Math.abs(r.valorMensal || 0), 0);
-          despesaDreCSAnterior = dreAcumulada.filter(isDespesaCS).reduce((acc, r) => acc + Math.abs(r.valorMensal || 0), 0);
+        const { data: prevDre } = await supabase.from("dre_history")
+          .select("id, valorMensal")
+          .eq("empresaId", selectedComp)
+          .eq("ano", selectedAno)
+          .gte("mes", startMonth)
+          .lt("mes", selectedMes)
+          .like("id", "tax-dre-%");
+        (prevDre || []).forEach(r => {
+          if (r.id.startsWith("tax-dre-irpj-")) despesaDreIRAnterior += Math.abs(r.valorMensal || 0);
+          if (r.id.startsWith("tax-dre-csll-")) despesaDreCSAnterior += Math.abs(r.valorMensal || 0);
+        });
       }
 
-    let valorIrpjDreMes = 0;
-    let valorCsllDreMes = 0;
-    if (regime === 'presumido') {
-      valorIrpjDreMes = Math.max(0, vIrpjGross - despesaDreIRAnterior);
-      valorCsllDreMes = Math.max(0, vCsllGross - despesaDreCSAnterior);
-    } else {
-      // Como o Lucro Real agora é calculado apenas com a base do mês isolado (dreMensal),
-      // o valor calculado (vIrpj) já é a provisão do mês, não devemos abater o acumulado anterior.
-      valorIrpjDreMes = Math.max(0, vIrpjGross);
-      valorCsllDreMes = Math.max(0, vCsllGross);
-    }
-
-      // Buscar Passivo atual
-      const currBal = await getRawRecords(selectedAno, selectedMes);
-      const currComp = currBal.balanco.filter(r => r.empresaId === selectedComp);
+      let valorIrpjDreMes = 0;
+      let valorCsllDreMes = 0;
+      if (regime === 'presumido') {
+        valorIrpjDreMes = Math.max(0, vIrpjGross - despesaDreIRAnterior);
+        valorCsllDreMes = Math.max(0, vCsllGross - despesaDreCSAnterior);
+      } else {
+        // Como o Lucro Real agora é calculado apenas com a base do mês isolado (dreMensal),
+        // o valor calculado (vIrpj) já é a provisão do mês, não devemos abater o acumulado anterior.
+        valorIrpjDreMes = Math.max(0, vIrpjGross);
+        valorCsllDreMes = Math.max(0, vCsllGross);
+      }
 
       const idIrpjBal = 'tax-bal-irpj-' + selectedComp + '-' + selectedAno + '-' + selectedMes;
       const idCsllBal = 'tax-bal-csll-' + selectedComp + '-' + selectedAno + '-' + selectedMes;
 
       let passivoIRAnterior = 0;
-let passivoCSAnterior = 0;
-if (regime === "presumido") {
-  passivoIRAnterior = balancoAnualTotal.filter(r => r.mes >= startMonth && r.mes < selectedMes && r.id.startsWith("tax-bal-irpj-")).reduce((acc, r) => acc + (r.saldoAcumulado || 0), 0);
-  passivoCSAnterior = balancoAnualTotal.filter(r => r.mes >= startMonth && r.mes < selectedMes && r.id.startsWith("tax-bal-csll-")).reduce((acc, r) => acc + (r.saldoAcumulado || 0), 0);
-}
-const ajusteBalancoIrpj = Math.max(0, vIrpj - passivoIRAnterior);
-const ajusteBalancoCsll = Math.max(0, vCsll - passivoCSAnterior);
+      let passivoCSAnterior = 0;
+      if (regime === "presumido" || regime === "real_trimestral") {
+        if (selectedMes > startMonth) {
+          const { data: prevBal } = await supabase.from("balanco_history")
+            .select("id, saldoAcumulado")
+            .eq("empresaId", selectedComp)
+            .eq("ano", selectedAno)
+            .gte("mes", startMonth)
+            .lt("mes", selectedMes)
+            .like("id", "tax-bal-%");
+          (prevBal || []).forEach(r => {
+            if (r.id.startsWith("tax-bal-irpj-")) passivoIRAnterior += (r.saldoAcumulado || 0);
+            if (r.id.startsWith("tax-bal-csll-")) passivoCSAnterior += (r.saldoAcumulado || 0);
+          });
+        }
+      }
+      const ajusteBalancoIrpj = Math.max(0, vIrpj - passivoIRAnterior);
+      const ajusteBalancoCsll = Math.max(0, vCsll - passivoCSAnterior);
 
       const idIrpjDre = 'tax-dre-irpj-' + selectedComp + '-' + selectedAno + '-' + selectedMes;
       const idCsllDre = 'tax-dre-csll-' + selectedComp + '-' + selectedAno + '-' + selectedMes;
