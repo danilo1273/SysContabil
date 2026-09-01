@@ -315,8 +315,9 @@ export default function TaxModule({ companies }) {
       acumulado.csllTotalPago = sumCsllPago;
       return { mensal, acumulado };
     } else {
+      const mensal = calcPresumidoData(dreAcumulada.filter(r => r.mes === selectedMes), 1, currentInputs);
       const trimestral = calcPresumidoData(dreAcumulada, (selectedMes % 3 === 0) ? 3 : (selectedMes % 3), currentInputs);
-      return { mensal: trimestral, acumulado: trimestral };
+      return { mensal: mensal, acumulado: trimestral };
     }
   };
 
@@ -774,7 +775,7 @@ const ajusteBalancoCsll = Math.max(0, vCsll - passivoCSAnterior);
             
             <div style={{ display: 'grid', gridTemplateColumns: isEstimativa ? '2fr 1fr 1fr' : '2fr 1fr', gap: '1rem', marginBottom: '1rem', color: '#666', fontSize: '0.8rem', borderBottom: '1px solid #444', paddingBottom: '0.5rem' }}>
                <span></span>
-               <span style={{ textAlign: 'right' }}>{isEstimativa ? 'DO MÊS' : 'DO TRIMESTRE'}</span>
+               <span style={{ textAlign: 'right' }}>DO MÊS</span>
                {isEstimativa && <span style={{ textAlign: 'right' }}>ACUMULADO DO ANO</span>}
             </div>
 
@@ -840,7 +841,7 @@ const ajusteBalancoCsll = Math.max(0, vCsll - passivoCSAnterior);
             <h4 style={{ color: '#ccc', marginBottom: '1rem' }}>2. Apuração dos Impostos</h4>
             <div style={{ display: 'grid', gridTemplateColumns: isEstimativa ? '2fr 1fr 1fr' : '2fr 1fr', gap: '1rem', marginBottom: '1rem', color: '#666', fontSize: '0.8rem', borderBottom: '1px solid #444', paddingBottom: '0.5rem' }}>
                <span></span>
-               <span style={{ textAlign: 'right' }}>{isEstimativa ? 'DO MÊS' : 'DO TRIMESTRE'}</span>
+               <span style={{ textAlign: 'right' }}>DO MÊS</span>
                {isEstimativa && <span style={{ textAlign: 'right' }}>ACUMULADO DO ANO</span>}
             </div>
 
@@ -887,7 +888,7 @@ const ajusteBalancoCsll = Math.max(0, vCsll - passivoCSAnterior);
 </div>
 
         <div style={{ marginTop: '2rem', textAlign: 'right' }}>
-            <button className="btn-primary" onClick={() => isEstimativa ? handleSaveInputsOnly() : handleGravar(cM.irpjTotal, cM.csllTotal, cM.irpjNormal + cM.irpjAdicional, cM.csll)} style={{ padding: '1rem 2rem', fontSize: '1.1rem' }} disabled={isProcessing}>
+            <button className="btn-primary" onClick={() => isEstimativa ? handleSaveInputsOnly() : handleGravar(cA.irpjTotal, cA.csllTotal, cA.irpjNormal + cA.irpjAdicional, cA.csll)} style={{ padding: '1rem 2rem', fontSize: '1.1rem' }} disabled={isProcessing}>
                 {isProcessing ? 'Gravando...' : (isEstimativa ? '💾 Salvar Memória de Cálculo (Controle DARF)' : '💾 Lançar Apuração no DRE e Balanço')}
             </button>
         </div>

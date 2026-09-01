@@ -78,6 +78,11 @@ function PendencyWidget({ companies, ano }) {
               <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", textAlign: "center", fontWeight: "bold", color: st.lastImport === 0 ? "#888" : pendente ? "#FFCA28" : "#4CAF50", padding: "4px", background: st.lastImport === 0 ? "transparent" : pendente ? "rgba(255,202,40,0.1)" : "rgba(76,175,80,0.1)", borderRadius: "4px" }}>
                 {st.lastImport === 0 ? "SEM DADOS" : pendente ? "FALTA APURAR!" : "EM DIA"}
               </div>
+              {st.isUnbalanced && (
+                <div style={{ marginTop: "0.5rem", fontSize: "0.75rem", textAlign: "center", fontWeight: "bold", color: "#FF5252", padding: "4px", background: "rgba(255,82,82,0.1)", borderRadius: "4px" }}>
+                  ?? BALAN�O DESEQUILIBRADO! (Dif: {Math.abs(st.diffValue).toLocaleString("pt-BR", {style:"currency", currency:"BRL"})})
+                </div>
+              )}
             </div>
           );
         })}
