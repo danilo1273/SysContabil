@@ -934,7 +934,7 @@ const ajusteBalancoCsll = Math.max(0, vCsll - passivoCSAnterior);
     const c1 = calcForMonth(months[0]);
     const c2 = calcForMonth(months[1]);
     const c3 = calcForMonth(months[2]);
-    const cTotal = calcPresumido().mensal;
+    const cTotal = calcPresumido().acumulado;
 
     const fmt = (v) => (v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
