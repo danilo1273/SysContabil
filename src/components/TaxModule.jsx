@@ -494,6 +494,21 @@ const ajusteBalancoCsll = Math.max(0, vCsll - passivoCSAnterior);
         { id: idCsllBal, empresaId: selectedComp, ano: selectedAno, mes: selectedMes, trimestre: Math.ceil(selectedMes/3), tipo: 'passivo', conta: '2.1.1.6.02.00001', descricao: 'CSLL A RECOLHER', saldoAcumulado: ajusteBalancoCsll }
       ];
 
+      const irrfServicos = parseFloat(regime === 'presumido' ? presumidoRetencoesIR : lalurRetencoesIR) || 0;
+      if (irrfServicos > 0) {
+        balancoEntries.push({ id: 'tax-bal-ret-ir-serv-' + selectedComp + '-' + selectedAno + '-' + selectedMes, empresaId: selectedComp, ano: selectedAno, mes: selectedMes, trimestre: Math.ceil(selectedMes/3), tipo: 'ativo', conta: '1.1.1.5.01.00003', descricao: 'IRRF S/ PRESTACAO SERVICOS', saldoAcumulado: -irrfServicos });
+      }
+
+      const irrfApp = parseFloat(regime === 'presumido' ? presumidoRetencoesIR_AppFin : lalurRetencoesIR_AppFin) || 0;
+      if (irrfApp > 0) {
+        balancoEntries.push({ id: 'tax-bal-ret-ir-app-' + selectedComp + '-' + selectedAno + '-' + selectedMes, empresaId: selectedComp, ano: selectedAno, mes: selectedMes, trimestre: Math.ceil(selectedMes/3), tipo: 'ativo', conta: '1.1.1.5.01.00001', descricao: 'IRRF S/ APLICACOES FINANCEIRAS', saldoAcumulado: -irrfApp });
+      }
+
+      const csllRetida = parseFloat(regime === 'presumido' ? presumidoRetencoesCS : lalurRetencoesCS) || 0;
+      if (csllRetida > 0) {
+        balancoEntries.push({ id: 'tax-bal-ret-csll-' + selectedComp + '-' + selectedAno + '-' + selectedMes, empresaId: selectedComp, ano: selectedAno, mes: selectedMes, trimestre: Math.ceil(selectedMes/3), tipo: 'ativo', conta: '1.1.1.5.02.00003', descricao: 'CSLL RETIDA NA FONTE', saldoAcumulado: -csllRetida });
+      }
+
       await bulkPutRecords('dre_history', dreEntries);
       await bulkPutRecords('balanco_history', balancoEntries);
       alert('Apuração gravada com sucesso! O Balanço e a DRE já foram atualizados.');
