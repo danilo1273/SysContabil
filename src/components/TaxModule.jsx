@@ -419,7 +419,7 @@ export default function TaxModule({ companies }) {
         }
     };
 
-  const handleGravar = async (vIrpj, vCsll) => {
+  const handleGravar = async (vIrpj, vCsll, vIrpjGross, vCsllGross) => {
     if (!selectedComp) { alert('Selecione uma empresa.'); return; }
     
     setIsProcessing(true);
@@ -455,13 +455,13 @@ export default function TaxModule({ companies }) {
     let valorIrpjDreMes = 0;
     let valorCsllDreMes = 0;
     if (regime === 'presumido') {
-      valorIrpjDreMes = Math.max(0, vIrpj - despesaDreIRAnterior);
-      valorCsllDreMes = Math.max(0, vCsll - despesaDreCSAnterior);
+      valorIrpjDreMes = Math.max(0, vIrpjGross - despesaDreIRAnterior);
+      valorCsllDreMes = Math.max(0, vCsllGross - despesaDreCSAnterior);
     } else {
       // Como o Lucro Real agora é calculado apenas com a base do mês isolado (dreMensal),
       // o valor calculado (vIrpj) já é a provisão do mês, não devemos abater o acumulado anterior.
-      valorIrpjDreMes = Math.max(0, vIrpj);
-      valorCsllDreMes = Math.max(0, vCsll);
+      valorIrpjDreMes = Math.max(0, vIrpjGross);
+      valorCsllDreMes = Math.max(0, vCsllGross);
     }
 
       // Buscar Passivo atual
@@ -471,8 +471,8 @@ export default function TaxModule({ companies }) {
       const idIrpjBal = 'tax-bal-irpj-' + selectedComp + '-' + selectedAno + '-' + selectedMes;
       const idCsllBal = 'tax-bal-csll-' + selectedComp + '-' + selectedAno + '-' + selectedMes;
 
-      const ajusteBalancoIrpj = valorIrpjDreMes;
-      const ajusteBalancoCsll = valorCsllDreMes;
+      const ajusteBalancoIrpj = Math.max(0, vIrpj);
+      const ajusteBalancoCsll = Math.max(0, vCsll);
 
       const idIrpjDre = 'tax-dre-irpj-' + selectedComp + '-' + selectedAno + '-' + selectedMes;
       const idCsllDre = 'tax-dre-csll-' + selectedComp + '-' + selectedAno + '-' + selectedMes;
@@ -865,7 +865,7 @@ export default function TaxModule({ companies }) {
 </div>
 
         <div style={{ marginTop: '2rem', textAlign: 'right' }}>
-            <button className="btn-primary" onClick={() => isEstimativa ? handleSaveInputsOnly() : handleGravar(cM.irpjTotal, cM.csllTotal)} style={{ padding: '1rem 2rem', fontSize: '1.1rem' }} disabled={isProcessing}>
+            <button className="btn-primary" onClick={() => isEstimativa ? handleSaveInputsOnly() : handleGravar(cM.irpjTotal, cM.csllTotal, cM.irpjNormal + cM.irpjAdicional, cM.csll)} style={{ padding: '1rem 2rem', fontSize: '1.1rem' }} disabled={isProcessing}>
                 {isProcessing ? 'Gravando...' : (isEstimativa ? '💾 Salvar Memória de Cálculo (Controle DARF)' : '💾 Lançar Apuração no DRE e Balanço')}
             </button>
         </div>
@@ -979,7 +979,7 @@ export default function TaxModule({ companies }) {
         </div>
 
         <div style={{ marginTop: '2rem', textAlign: 'right' }}>
-            <button className="btn-primary" onClick={() => handleGravar(calc.irpjTotal, calc.csllTotal)} style={{ padding: '1rem 2rem', fontSize: '1.1rem' }} disabled={isProcessing}>
+            <button className="btn-primary" onClick={() => handleGravar(calc.irpjTotal, calc.csllTotal, calc.irpjNormal + calc.irpjAdicional, calc.csll)} style={{ padding: '1rem 2rem', fontSize: '1.1rem' }} disabled={isProcessing}>
               {isProcessing ? 'Gravando...' : (isAnual ? '💾 Lançar Balanço de Suspensão/Redução no DRE e Balanço' : '💾 Lançar Apuração no DRE e Balanço')}
             </button>
             {isAnual && (
