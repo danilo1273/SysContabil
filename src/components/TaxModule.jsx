@@ -24,11 +24,13 @@ export default function TaxModule({ companies }) {
   const [lalurCompensacaoPrejuizo, setLalurCompensacaoPrejuizo] = useState(0);
   const [lalurRetencoesIR, setLalurRetencoesIR] = useState(0);
   const [lalurRetencoesCS, setLalurRetencoesCS] = useState(0);
+  const [lalurRetencoesIR_AppFin, setLalurRetencoesIR_AppFin] = useState(0);
   const [lalurCambioRealizado, setLalurCambioRealizado] = useState(0);
 
   // Inputs Manuais Presumido
   const [presumidoRetencoesIR, setPresumidoRetencoesIR] = useState(0);
   const [presumidoRetencoesCS, setPresumidoRetencoesCS] = useState(0);
+  const [presumidoRetencoesIR_AppFin, setPresumidoRetencoesIR_AppFin] = useState(0);
   
   const [presumidoOutrasReceitas, setPresumidoOutrasReceitas] = useState('');
   const [presumidoImpostosDevolucao, setPresumidoImpostosDevolucao] = useState('');
@@ -83,10 +85,12 @@ export default function TaxModule({ companies }) {
     setLalurExclusoes(data.lalurExclusoes || 0);
     setLalurCompensacaoPrejuizo(data.lalurCompensacaoPrejuizo || 0);
     setLalurRetencoesIR(data.lalurRetencoesIR || 0);
+        setLalurRetencoesIR_AppFin(data.lalurRetencoesIR_AppFin || 0);
     setLalurRetencoesCS(data.lalurRetencoesCS || 0);
     setLalurCambioRealizado(data.lalurCambioRealizado || 0);
     
     setPresumidoRetencoesIR(data.presumidoRetencoesIR || 0);
+        setPresumidoRetencoesIR_AppFin(data.presumidoRetencoesIR_AppFin || 0);
     setPresumidoRetencoesCS(data.presumidoRetencoesCS || 0); setPresumidoImpostosDevolucao(data.presumidoImpostosDevolucao || 0);
     setPresumidoOutrasReceitas(data.presumidoOutrasReceitas || 0);
     setPresumidoCambioRealizado(data.presumidoCambioRealizado || 0);
@@ -289,14 +293,14 @@ export default function TaxModule({ companies }) {
           if (m === selectedMes) {
             sumOutras += parseFloat(presumidoOutrasReceitas || 0);
             sumCambio += parseFloat(presumidoCambioRealizado || 0);
-            sumRetIR += parseFloat(presumidoRetencoesIR || 0);
+            sumRetIR += parseFloat(presumidoRetencoesIR || 0) + parseFloat(presumidoRetencoesIR_AppFin || 0);
             sumRetCS += parseFloat(presumidoRetencoesCS || 0); sumImpDev += parseFloat(presumidoImpostosDevolucao || 0); sumIrpjPago += parseFloat(darfIrpjReduzido || 0); sumCsllPago += parseFloat(darfCsllReduzida || 0);
          } else {
             const key = `${selectedComp}_${selectedAno}_${m}`;
             const data = taxDataStore[key] || {};
             sumOutras += parseFloat(data.presumidoOutrasReceitas || 0);
             sumCambio += parseFloat(data.presumidoCambioRealizado || 0);
-            sumRetIR += parseFloat(data.presumidoRetencoesIR || 0);
+            sumRetIR += parseFloat(data.presumidoRetencoesIR || 0) + parseFloat(data.presumidoRetencoesIR_AppFin || 0);
             sumRetCS += parseFloat(data.presumidoRetencoesCS || 0); sumImpDev += parseFloat(data.presumidoImpostosDevolucao || 0); sumIrpjPago += parseFloat(data.darfIrpjReduzido || 0); sumCsllPago += parseFloat(data.darfCsllReduzida || 0);
          }
       }
@@ -392,7 +396,7 @@ export default function TaxModule({ companies }) {
       csll = baseAjustada * 0.09;
     }
 
-    const irpjTotal = irpjNormal + irpjAdicional - parseFloat(lalurRetencoesIR || 0);
+    const irpjTotal = irpjNormal + irpjAdicional - parseFloat(lalurRetencoesIR || 0) - parseFloat(lalurRetencoesIR_AppFin || 0);
     const csllTotal = csll - parseFloat(lalurRetencoesCS || 0);
 
     return { lair, baseCalculo, compensacao, baseAjustada, irpjNormal, irpjAdicional, irpjTotal, csll, csllTotal, variacaoCambial, equivalenciaPatrimonial, adicoesAuto, exclusoesAuto, adicoes, exclusoes };
@@ -403,8 +407,8 @@ export default function TaxModule({ companies }) {
         setIsProcessing(true);
         try {
             await persistTaxData(selectedComp, selectedAno, selectedMes, {
-                lalurAdicoes, lalurExclusoes, lalurCompensacaoPrejuizo, lalurRetencoesIR, lalurRetencoesCS, lalurCambioRealizado,
-                presumidoRetencoesIR, presumidoRetencoesCS, presumidoOutrasReceitas, presumidoCambioRealizado, presumidoIpi, presumidoIcmsSt, presumidoMajoracao, presumidoImpostosDevolucao, darfIrpjReduzido, darfCsllReduzida
+                lalurAdicoes, lalurExclusoes, lalurCompensacaoPrejuizo, lalurRetencoesIR, lalurRetencoesIR_AppFin, lalurRetencoesCS, lalurCambioRealizado,
+                presumidoRetencoesIR, presumidoRetencoesIR_AppFin, presumidoRetencoesCS, presumidoOutrasReceitas, presumidoCambioRealizado, presumidoIpi, presumidoIcmsSt, presumidoMajoracao, presumidoImpostosDevolucao, darfIrpjReduzido, darfCsllReduzida
             });
             alert('Memória de cálculo salva com sucesso! (Apenas para controle da DARF, sem impacto no Balanço/DRE)');
         } catch (e) {
@@ -422,8 +426,8 @@ export default function TaxModule({ companies }) {
     try {
       // Salva os inputs no state/db
       await persistTaxData(selectedComp, selectedAno, selectedMes, {
-        lalurAdicoes, lalurExclusoes, lalurCompensacaoPrejuizo, lalurRetencoesIR, lalurRetencoesCS, lalurCambioRealizado,
-        presumidoRetencoesIR, presumidoRetencoesCS, presumidoOutrasReceitas, presumidoCambioRealizado, presumidoIpi, presumidoIcmsSt, presumidoMajoracao
+        lalurAdicoes, lalurExclusoes, lalurCompensacaoPrejuizo, lalurRetencoesIR, lalurRetencoesIR_AppFin, lalurRetencoesCS, lalurCambioRealizado,
+        presumidoRetencoesIR, presumidoRetencoesIR_AppFin, presumidoRetencoesCS, presumidoOutrasReceitas, presumidoCambioRealizado, presumidoIpi, presumidoIcmsSt, presumidoMajoracao
       });
 
       const regime = taxConfig[selectedComp];
@@ -620,18 +624,18 @@ export default function TaxModule({ companies }) {
                   if (!dreAnualTotal.some(r => r.mes === m)) return null;
                   const isCurrent = m === selectedMes;
                   const key = `${selectedComp}_${selectedAno}_${m}`;
-                  const data = isCurrent ? { presumidoOutrasReceitas, presumidoCambioRealizado, presumidoRetencoesIR, presumidoRetencoesCS, presumidoImpostosDevolucao, presumidoMajoracao, darfIrpjReduzido, darfCsllReduzida, lalurAdicoes, lalurExclusoes, lalurCompensacaoPrejuizo, lalurRetencoesIR, lalurRetencoesCS, lalurCambioRealizado } : (taxDataStore[key] || {});
+                  const data = isCurrent ? { presumidoOutrasReceitas, presumidoCambioRealizado, presumidoRetencoesIR, presumidoRetencoesIR_AppFin, presumidoRetencoesCS, presumidoImpostosDevolucao, presumidoMajoracao, darfIrpjReduzido, darfCsllReduzida, lalurAdicoes, lalurExclusoes, lalurCompensacaoPrejuizo, lalurRetencoesIR, lalurRetencoesIR_AppFin, lalurRetencoesCS, lalurCambioRealizado } : (taxDataStore[key] || {});
                   
-                  const cInputsM = { outrasReceitas: parseFloat(data.presumidoOutrasReceitas || 0), cambioRealizado: parseFloat(data.presumidoCambioRealizado || 0), retencoesIR: parseFloat(data.presumidoRetencoesIR || 0), retencoesCS: parseFloat(data.presumidoRetencoesCS || 0), impostosDevolucao: parseFloat(data.presumidoImpostosDevolucao || 0), majoracao: !isEstimativa && (data.presumidoMajoracao !== undefined ? data.presumidoMajoracao : true) };
+                  const cInputsM = { outrasReceitas: parseFloat(data.presumidoOutrasReceitas || 0), cambioRealizado: parseFloat(data.presumidoCambioRealizado || 0), retencoesIR: parseFloat(data.presumidoRetencoesIR || 0) + parseFloat(data.presumidoRetencoesIR_AppFin || 0), retencoesCS: parseFloat(data.presumidoRetencoesCS || 0), impostosDevolucao: parseFloat(data.presumidoImpostosDevolucao || 0), majoracao: !isEstimativa && (data.presumidoMajoracao !== undefined ? data.presumidoMajoracao : true) };
                   let sumOutras = 0; let sumCambio = 0; let sumRetIR = 0; let sumRetCS = 0; let sumImpDev = 0;
                   let sumIrpjPagoPrev = 0; let sumCsllPagoPrev = 0;
                   for (let prevM = 1; prevM <= m; prevM++) {
                     const isC = prevM === selectedMes;
                     const k = `${selectedComp}_${selectedAno}_${prevM}`;
-                    const d = isC ? { presumidoOutrasReceitas, presumidoCambioRealizado, presumidoRetencoesIR, presumidoRetencoesCS, presumidoImpostosDevolucao, darfIrpjReduzido, darfCsllReduzida } : (taxDataStore[k] || {});
+                    const d = isC ? { presumidoOutrasReceitas, presumidoCambioRealizado, presumidoRetencoesIR, presumidoRetencoesIR_AppFin, presumidoRetencoesCS, presumidoImpostosDevolucao, darfIrpjReduzido, darfCsllReduzida } : (taxDataStore[k] || {});
                     sumOutras += parseFloat(d.presumidoOutrasReceitas || 0);
                     sumCambio += parseFloat(d.presumidoCambioRealizado || 0);
-                    sumRetIR += parseFloat(d.presumidoRetencoesIR || 0);
+                    sumRetIR += parseFloat(d.presumidoRetencoesIR || 0) + parseFloat(d.presumidoRetencoesIR_AppFin || 0);
                     sumRetCS += parseFloat(d.presumidoRetencoesCS || 0);
                     sumImpDev += parseFloat(d.presumidoImpostosDevolucao || 0);
                     
@@ -668,7 +672,7 @@ export default function TaxModule({ companies }) {
                   const baseAjustada = baseCalculo - Math.min(parseFloat(data.lalurCompensacaoPrejuizo || 0), baseCalculo > 0 ? baseCalculo * 0.30 : 0);
                   let irpjNormal = 0; let irpjAdicional = 0; let csll = 0;
                   if (baseAjustada > 0) { irpjNormal = baseAjustada * 0.15; irpjAdicional = Math.max(0, baseAjustada - 20000 * m) * 0.10; csll = baseAjustada * 0.09; }
-                  const realIrpjAcum = irpjNormal + irpjAdicional - parseFloat(data.lalurRetencoesIR || 0);
+                  const realIrpjAcum = irpjNormal + irpjAdicional - parseFloat(data.lalurRetencoesIR || 0) - parseFloat(data.lalurRetencoesIR_AppFin || 0);
                   const realCsllAcum = csll - parseFloat(data.lalurRetencoesCS || 0);
                   
                   const displayEstIrpj = data.darfIrpjReduzido !== undefined && data.darfIrpjReduzido !== '' ? parseFloat(data.darfIrpjReduzido) : estIrpj;
@@ -822,8 +826,10 @@ export default function TaxModule({ companies }) {
             <Row label="IRPJ Adicional (10%):" m={cM.irpjAdicional} a={cA.irpjAdicional} />
             
             <div style={{ marginBottom: '1rem', marginTop: '1.5rem' }}>
-              <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(-) Imposto de Renda Retido (IRRF) - <b>Valor do Mês</b></label>
+              <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(-) IRRF s/ Servi�os - <b>Valor do Mês</b></label>
               <input type="number" className="text-input" value={presumidoRetencoesIR} onChange={e => setPresumidoRetencoesIR(e.target.value)} style={{ width: '100%' }} />
+            <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginTop: '1rem', marginBottom: '0.3rem' }}>(-) IRRF s/ Aplica��es - <b>Valor do M�s</b></label>
+            <input type="number" className="text-input" value={presumidoRetencoesIR_AppFin} onChange={e => setPresumidoRetencoesIR_AppFin(e.target.value)} style={{ width: '100%' }} />
             </div>
 
             <Row label="IRPJ DEVIDO CALCULADO:" m={Math.max(0, cM.irpjTotal)} a={Math.max(0, cA.irpjTotal)} color="#81C784" bold={true} />
@@ -946,8 +952,10 @@ export default function TaxModule({ companies }) {
                 <span>{calc.irpjAdicional.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
              </div>
              <div style={{ marginBottom: '1rem', marginTop: '0.5rem' }}>
-               <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(-) Imposto de Renda Retido (IRRF)</label>
+               <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(-) IRRF s/ Servi�os</label>
                <input type="number" className="text-input" value={lalurRetencoesIR} onChange={e => setLalurRetencoesIR(e.target.value)} style={{ width: '100%' }} />
+            <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginTop: '1rem', marginBottom: '0.3rem' }}>(-) IRRF s/ Aplica��es</label>
+            <input type="number" className="text-input" value={lalurRetencoesIR_AppFin} onChange={e => setLalurRetencoesIR_AppFin(e.target.value)} style={{ width: '100%' }} />
              </div>
              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1rem', borderTop: '1px solid #444', paddingTop: '1rem', color: '#81C784', fontSize: '1.1rem', fontWeight: 'bold' }}>
                 <span>IRPJ Devido {isAnual ? 'no Acumulado' : 'no Trimestre'}:</span>
