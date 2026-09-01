@@ -17,6 +17,7 @@ export default function TaxModule({ companies }) {
   const [dreMensal, setDreMensal] = useState([]);
   const [dreAcumulada, setDreAcumulada] = useState([]);
   const [dreAnualTotal, setDreAnualTotal] = useState([]);
+  const [balancoAnualTotal, setBalancoAnualTotal] = useState([]);
   
   // Inputs Manuais LALUR
   const [lalurAdicoes, setLalurAdicoes] = useState(0);
@@ -471,8 +472,14 @@ export default function TaxModule({ companies }) {
       const idIrpjBal = 'tax-bal-irpj-' + selectedComp + '-' + selectedAno + '-' + selectedMes;
       const idCsllBal = 'tax-bal-csll-' + selectedComp + '-' + selectedAno + '-' + selectedMes;
 
-      const ajusteBalancoIrpj = Math.max(0, vIrpj);
-      const ajusteBalancoCsll = Math.max(0, vCsll);
+      let passivoIRAnterior = 0;
+let passivoCSAnterior = 0;
+if (regime === "presumido") {
+  passivoIRAnterior = balancoAnualTotal.filter(r => r.mes >= startMonth && r.mes < selectedMes && r.id.startsWith("tax-bal-irpj-")).reduce((acc, r) => acc + (r.saldoAcumulado || 0), 0);
+  passivoCSAnterior = balancoAnualTotal.filter(r => r.mes >= startMonth && r.mes < selectedMes && r.id.startsWith("tax-bal-csll-")).reduce((acc, r) => acc + (r.saldoAcumulado || 0), 0);
+}
+const ajusteBalancoIrpj = Math.max(0, vIrpj - passivoIRAnterior);
+const ajusteBalancoCsll = Math.max(0, vCsll - passivoCSAnterior);
 
       const idIrpjDre = 'tax-dre-irpj-' + selectedComp + '-' + selectedAno + '-' + selectedMes;
       const idCsllDre = 'tax-dre-csll-' + selectedComp + '-' + selectedAno + '-' + selectedMes;
