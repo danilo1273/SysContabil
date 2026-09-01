@@ -95,7 +95,6 @@ export async function getDREFromDB(empresaId, ano, mes, tipoConsulta = "mensal")
   }
 
   const records = await fetchAll(query);
-  if (error) throw error;
 
   const consolidated = {};
   for (const r of records || []) {
@@ -108,11 +107,7 @@ export async function getDREFromDB(empresaId, ano, mes, tipoConsulta = "mensal")
 }
 
 export async function getBalancoFromDB(empresaId, ano, mes) {
-  let { data: records, error } = await supabase.from("balanco_history")
-    .select("*").eq("empresaId", empresaId).eq("ano", ano).eq("mes", mes);
-  
-  if (error) throw error;
-  records = records || [];
+  let records = await fetchAll(supabase.from("balanco_history").select("*").eq("empresaId", empresaId).eq("ano", ano).eq("mes", mes));
 
   if (mes > 1) {
     // Carry over manual and tax entries
