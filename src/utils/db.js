@@ -1,5 +1,21 @@
 import { supabase } from "../supabaseClient";
 
+async function fetchAll(queryBuilder) {
+  let allData = [];
+  let from = 0;
+  const step = 1000;
+  while (true) {
+    const { data, error } = await queryBuilder.range(from, from + step - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    allData = allData.concat(data);
+    if (data.length < step) break;
+    from += step;
+  }
+  return allData;
+}
+
+
 export async function saveBalanceteToDB(fileData, empresaId, ano, mes, userConfigs) {
   const dreEntries = [];
   const balancoEntries = [];
@@ -78,7 +94,7 @@ export async function getDREFromDB(empresaId, ano, mes, tipoConsulta = "mensal")
     query = query.lte("mes", mes);
   }
 
-  const { data: records, error } = await query;
+  const records = await fetchAll(query);
   if (error) throw error;
 
   const consolidated = {};
@@ -100,9 +116,9 @@ export async function getBalancoFromDB(empresaId, ano, mes) {
 
   if (mes > 1) {
     // Carry over manual and tax entries
-    const { data: carryOvers } = await supabase.from("balanco_history")
+    const carryOvers = await fetchAll(supabase.from("balanco_history")
       .select("*").eq("empresaId", empresaId).eq("ano", ano).lt("mes", mes)
-      .or("id.like.manual_%,id.like.tax-bal-%");
+      .or("id.like.manual_%,id.like.tax-bal-%"));
       
     if (carryOvers) {
       records = records.concat(carryOvers);
@@ -168,8 +184,8 @@ export async function saveSettings(key, value) {
 
 
 export async function getRawRecords(ano, mes) {
-  const { data: dre } = await supabase.from("dre_history").select("*").eq("ano", ano).eq("mes", mes);
-  const { data: balanco } = await supabase.from("balanco_history").select("*").eq("ano", ano).eq("mes", mes);
+  const dre = await fetchAll(supabase.from("dre_history").select("*").eq("ano", ano).eq("mes", mes));
+  const balanco = await fetchAll(supabase.from("balanco_history").select("*").eq("ano", ano).eq("mes", mes));
   return { dre: dre || [], balanco: balanco || [] };
 }
 
@@ -182,8 +198,8 @@ export async function bulkPutRecords(table, entries) {
 }
 
 export async function getHistorySeries(empresaId, ano) {
-  const { data: dre } = await supabase.from("dre_history").select("*").eq("empresaId", empresaId).eq("ano", ano);
-  const { data: balanco } = await supabase.from("balanco_history").select("*").eq("empresaId", empresaId).eq("ano", ano);
+  const dre = await fetchAll(supabase.from("dre_history").select("*").eq("empresaId", empresaId).eq("ano", ano));
+  const balanco = await fetchAll(supabase.from("balanco_history").select("*").eq("empresaId", empresaId).eq("ano", ano));
   return { dre: dre || [], balanco: balanco || [] };
 }
 
