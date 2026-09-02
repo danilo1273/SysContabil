@@ -546,6 +546,7 @@ export default function TaxModule({ companies }) {
 
       await bulkPutRecords('dre_history', dreEntries);
       await bulkPutRecords('balanco_history', balancoEntries);
+      await loadFinancialData();
       alert('Apuração gravada com sucesso! O Balanço e a DRE já foram atualizados.');
     } catch (err) {
       alert('Erro ao gravar: ' + err.message);
@@ -563,9 +564,17 @@ export default function TaxModule({ companies }) {
     const cA = calcPres.acumulado;
     const calcR = calcReal();
 
-    // Acumulados
-    const acumuladoRealIrpj = Math.max(0, calcR.irpjTotal);
-    const acumuladoRealCsll = Math.max(0, calcR.csllTotal);
+    // Acumulados da DRE (provisões já lançadas no ano até o mês)
+    const irpjDREAcumulado = dreAnualTotal
+      .filter(r => r.mes <= selectedMes && (r.id?.startsWith("tax-dre-irpj-") || r.conta === '7' || r.conta === '5.1.1.1.01.00001'))
+      .reduce((sum, r) => sum + Math.abs(r.valorMensal || 0), 0);
+
+    const csllDREAcumulado = dreAnualTotal
+      .filter(r => r.mes <= selectedMes && (r.id?.startsWith("tax-dre-csll-") || r.conta === '6' || r.conta === '5.1.1.1.01.00002'))
+      .reduce((sum, r) => sum + Math.abs(r.valorMensal || 0), 0);
+
+    const acumuladoRealIrpj = irpjDREAcumulado > 0 ? irpjDREAcumulado : Math.max(0, calcR.irpjTotal);
+    const acumuladoRealCsll = csllDREAcumulado > 0 ? csllDREAcumulado : Math.max(0, calcR.csllTotal);
     const darfPagoAnteriorIrpj = (cA.irpjTotalPago || 0) - parseFloat(darfIrpjReduzido || 0);
     const darfPagoAnteriorCsll = (cA.csllTotalPago || 0) - parseFloat(darfCsllReduzida || 0);
 
@@ -731,8 +740,15 @@ export default function TaxModule({ companies }) {
                   const baseAjustada = baseCalculo - Math.min(parseFloat(data.lalurCompensacaoPrejuizo || 0), baseCalculo > 0 ? baseCalculo * 0.30 : 0);
                   let irpjNormal = 0; let irpjAdicional = 0; let csll = 0;
                   if (baseAjustada > 0) { irpjNormal = baseAjustada * 0.15; irpjAdicional = Math.max(0, baseAjustada - 20000 * m) * 0.10; csll = baseAjustada * 0.09; }
-                  const realIrpjAcum = irpjNormal + irpjAdicional - parseFloat(data.lalurRetencoesIR || 0) - parseFloat(data.lalurRetencoesIR_AppFin || 0);
-                  const realCsllAcum = csll - parseFloat(data.lalurRetencoesCS || 0);
+                  const dreIrpjM = dreAnualTotal
+                    .filter(r => r.mes <= m && (r.id?.startsWith("tax-dre-irpj-") || r.conta === '7' || r.conta === '5.1.1.1.01.00001'))
+                    .reduce((sum, r) => sum + Math.abs(r.valorMensal || 0), 0);
+                  const dreCsllM = dreAnualTotal
+                    .filter(r => r.mes <= m && (r.id?.startsWith("tax-dre-csll-") || r.conta === '6' || r.conta === '5.1.1.1.01.00002'))
+                    .reduce((sum, r) => sum + Math.abs(r.valorMensal || 0), 0);
+
+                  const realIrpjAcum = dreIrpjM > 0 ? dreIrpjM : (irpjNormal + irpjAdicional - parseFloat(data.lalurRetencoesIR || 0) - parseFloat(data.lalurRetencoesIR_AppFin || 0));
+                  const realCsllAcum = dreCsllM > 0 ? dreCsllM : (csll - parseFloat(data.lalurRetencoesCS || 0));
                   
                   const displayEstIrpj = data.darfIrpjReduzido !== undefined && data.darfIrpjReduzido !== '' ? parseFloat(data.darfIrpjReduzido) : estIrpj;
                   const displayEstCsll = data.darfCsllReduzida !== undefined && data.darfCsllReduzida !== '' ? parseFloat(data.darfCsllReduzida) : estCsll;
@@ -1100,9 +1116,15 @@ const renderReal = () => {
             <input type="number" className="text-input" value={lalurRetencoesIR_AppFin} onChange={e => setLalurRetencoesIR_AppFin(e.target.value)} style={{ width: '100%' }} />
              </div>
              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1rem', borderTop: '1px solid #444', paddingTop: '1rem', color: '#81C784', fontSize: '1.1rem', fontWeight: 'bold' }}>
-                <span>IRPJ Devido {isAnual ? 'no Acumulado' : 'no Trimestre'}:</span>
+                <span>IRPJ Devido no Mês:</span>
                 <span>{Math.max(0, calc.irpjTotal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
              </div>
+             {isAnual && (
+               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.3rem', color: '#CE93D8', fontSize: '0.95rem' }}>
+                  <span>IRPJ Acumulado no Ano (DRE):</span>
+                  <strong>{dreAnualTotal.filter(r => r.mes <= selectedMes && (r.id?.startsWith("tax-dre-irpj-") || r.conta === '7' || r.conta === '5.1.1.1.01.00001')).reduce((sum, r) => sum + Math.abs(r.valorMensal || 0), 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
+               </div>
+             )}
 
              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', marginTop: '1.5rem' }}>
                 <span>CSLL Normal (9%):</span>
@@ -1113,9 +1135,15 @@ const renderReal = () => {
                <input type="number" className="text-input" value={lalurRetencoesCS} onChange={e => setLalurRetencoesCS(e.target.value)} style={{ width: '100%' }} />
              </div>
              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1rem', borderTop: '1px solid #444', paddingTop: '1rem', color: '#81C784', fontSize: '1.1rem', fontWeight: 'bold' }}>
-                <span>CSLL Devida {isAnual ? 'no Acumulado' : 'no Trimestre'}:</span>
+                <span>CSLL Devida no Mês:</span>
                 <span>{Math.max(0, calc.csllTotal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
              </div>
+             {isAnual && (
+               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.3rem', color: '#CE93D8', fontSize: '0.95rem' }}>
+                  <span>CSLL Acumulada no Ano (DRE):</span>
+                  <strong>{dreAnualTotal.filter(r => r.mes <= selectedMes && (r.id?.startsWith("tax-dre-csll-") || r.conta === '6' || r.conta === '5.1.1.1.01.00002')).reduce((sum, r) => sum + Math.abs(r.valorMensal || 0), 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
+               </div>
+             )}
           </div>
           
         </div>
