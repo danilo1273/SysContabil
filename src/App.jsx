@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import ProtheusModule from './components/ProtheusModule';
 import LoginScreen from './components/LoginScreen';
+import ModuleSelectionScreen from './components/ModuleSelectionScreen';
 import UserPanel from './components/UserPanel';
 import UserProfileModal from './components/UserProfileModal';
 import './App.css';
@@ -18,6 +19,7 @@ function App() {
       return null;
     }
   });
+  const [selectedModule, setSelectedModule] = useState(null); // 'indicadores' | 'contabil' | null
   const [showUserPanel, setShowUserPanel] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -49,6 +51,7 @@ function App() {
 
   const handleLogout = useCallback(() => {
     setUser(null);
+    setSelectedModule(null);
     localStorage.removeItem('agf_session');
   }, []);
 
@@ -85,11 +88,49 @@ function App() {
     <div className="app-container">
       <header className="app-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <div className="logo-placeholder">AGF</div>
+          <div className="logo-placeholder" style={{ cursor: 'pointer' }} onClick={() => setSelectedModule(null)} title="Menu de Módulos">AGF</div>
           <div>
-            <h1>AGF GROUP - Contabilidade</h1>
+            <h1 style={{ cursor: 'pointer' }} onClick={() => setSelectedModule(null)}>AGF GROUP - Contabilidade</h1>
             <p style={{ color: '#aaa', margin: 0 }}>Módulo de BI e Auditoria</p>
           </div>
+
+          {selectedModule && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginLeft: '1rem', borderLeft: '1px solid rgba(255,255,255,0.15)', paddingLeft: '1rem' }}>
+              <button 
+                onClick={() => setSelectedModule(null)}
+                style={{
+                  background: 'rgba(255,255,255,0.06)',
+                  border: '1px solid rgba(255,255,255,0.15)',
+                  color: '#ccc',
+                  padding: '0.35rem 0.75rem',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '0.85rem'
+                }}
+                title="Voltar para a seleção de módulos"
+              >
+                <span>⊞</span> Módulos
+              </button>
+
+              <span style={{ 
+                background: selectedModule === 'indicadores' ? 'rgba(33, 150, 243, 0.15)' : 'rgba(255, 193, 7, 0.15)',
+                color: selectedModule === 'indicadores' ? '#64B5F6' : '#FFD54F',
+                border: `1px solid ${selectedModule === 'indicadores' ? 'rgba(33, 150, 243, 0.4)' : 'rgba(255, 193, 7, 0.4)'}`,
+                padding: '0.35rem 0.8rem',
+                borderRadius: '6px',
+                fontSize: '0.85rem',
+                fontWeight: 'bold',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}>
+                {selectedModule === 'indicadores' ? '📊 Indicadores' : '💼 Sistema Contábil'}
+              </span>
+            </div>
+          )}
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '1rem' }}>
             {user.role === 'superadmin' && (
@@ -148,7 +189,17 @@ function App() {
       </div>
     </header>
     <main className="main-content">
-      <ProtheusModule userRole={user.role} userPermissions={user.permissions || []} username={user.username} />
+      {!selectedModule ? (
+        <ModuleSelectionScreen user={user} onSelectModule={(mod) => setSelectedModule(mod)} />
+      ) : (
+        <ProtheusModule 
+          userRole={user.role} 
+          userPermissions={user.permissions || []} 
+          username={user.username} 
+          moduleMode={selectedModule} 
+          onBackToModules={() => setSelectedModule(null)} 
+        />
+      )}
     </main>
     {showUserPanel && <UserPanel onClose={() => setShowUserPanel(false)} />}
     {showProfile && <UserProfileModal user={user} onClose={() => setShowProfile(false)} />}

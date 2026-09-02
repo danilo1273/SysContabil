@@ -106,8 +106,20 @@ function PendencyWidget({ companies, ano }) {
   );
 }
 
-function ProtheusModule({ userRole, userPermissions, username }) {
-  const [activeTab, setActiveTab] = useState('resultados');
+function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBackToModules }) {
+  const [activeTab, setActiveTab] = useState(moduleMode === 'contabil' ? 'apuracao' : 'resultados');
+
+  useEffect(() => {
+    if (moduleMode === 'indicadores') {
+      if (activeTab !== 'resultados' && activeTab !== 'cc') {
+        setActiveTab('resultados');
+      }
+    } else if (moduleMode === 'contabil') {
+      if (activeTab !== 'apuracao' && activeTab !== 'rateio' && activeTab !== 'gestao' && activeTab !== 'db') {
+        setActiveTab('apuracao');
+      }
+    }
+  }, [moduleMode]);
   const [secondaryTab, setSecondaryTab] = useState('dash');
   const [dbTabRecords, setDbTabRecords] = useState([]);
   const [loadingDb, setLoadingDb] = useState(false);
@@ -1451,8 +1463,8 @@ function ProtheusModule({ userRole, userPermissions, username }) {
 
   return (
     <div className="protheus-module">
-      <nav className="module-tabs glass-panel" style={{ marginBottom: '2rem' }}>
-          {(userPermissions?.includes('dash') || (['danilo', 'ryan.santos'].includes(username))) && (
+      <nav className="module-tabs glass-panel" style={{ marginBottom: '2rem', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+          {(!moduleMode || moduleMode === 'indicadores') && (userPermissions?.includes('dash') || (['danilo', 'ryan.santos'].includes(username))) && (
             <>
               <button
                 className={`tab-btn ${activeTab === 'resultados' ? 'active' : ''}`}
@@ -1473,7 +1485,7 @@ function ProtheusModule({ userRole, userPermissions, username }) {
             </>
           )}
 
-          {(userPermissions?.includes('contabil') || (['danilo', 'ryan.santos'].includes(username))) && (
+          {(!moduleMode || moduleMode === 'contabil') && (userPermissions?.includes('contabil') || (['danilo', 'ryan.santos'].includes(username))) && (
             <>
               <button
                 className={`tab-btn ${activeTab === 'apuracao' ? 'active' : ''}`}
@@ -1498,12 +1510,37 @@ function ProtheusModule({ userRole, userPermissions, username }) {
             </>
           )}
 
-          {(userPermissions?.includes('db') || (['danilo', 'ryan.santos'].includes(username))) && (
+          {(!moduleMode || moduleMode === 'contabil') && (userPermissions?.includes('db') || (['danilo', 'ryan.santos'].includes(username))) && (
             <button
               className={`tab-btn ${activeTab === 'db' ? 'active' : ''}`}
               onClick={() => setActiveTab('db')}
             >
               <Database size={20} /> Banco de Dados
+            </button>
+          )}
+
+          {onBackToModules && (
+            <button
+              onClick={onBackToModules}
+              style={{
+                marginLeft: 'auto',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                background: 'rgba(255,255,255,0.06)',
+                border: '1px solid rgba(255,255,255,0.15)',
+                color: '#aaa',
+                padding: '0.45rem 0.9rem',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontSize: '0.85rem',
+                fontWeight: '500'
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = '#fff'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = '#aaa'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)'; }}
+              title="Voltar para a tela de seleção de módulos"
+            >
+              <span>⊞</span> Alternar Módulo
             </button>
           )}
         </nav>
