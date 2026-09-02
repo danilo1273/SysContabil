@@ -144,8 +144,71 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
     });
   }
 
+  
+  // Insights Calculations
+  let maxFat = 0; let melhorMesFat = '';
+  let maxEbit = -999; let melhorMesEbit = '';
+  
+  chartData.forEach(d => {
+    if (d.Faturamento > 0) {
+      if (d.Faturamento > maxFat) {
+        maxFat = d.Faturamento;
+        melhorMesFat = d.mes;
+      }
+      if (d.EBIT > maxEbit) {
+        maxEbit = d.EBIT;
+        melhorMesEbit = d.mes;
+      }
+    }
+  });
+
+  const getDiffInsight = (atual, ant) => {
+    if (!ant || ant === 0) return 0;
+    return ((atual - ant) / Math.abs(ant)) * 100;
+  };
+
+  const diffFat = getDiffInsight(recVendaAtual, recVendaAnt);
+  const diffCusto = getDiffInsight(Math.abs(custoMesAtual), Math.abs(custoMesAnt));
+  const diffDesp = getDiffInsight(Math.abs(despMesAtual), Math.abs(despMesAnt));
+
+  const getInsightLabel = (diff, isCost) => {
+    if (diff > 0) return <span style={{color: isCost ? '#f44336' : '#4CAF50', fontWeight:'bold'}}>{diff.toFixed(1)}% MAIOR</span>;
+    if (diff < 0) return <span style={{color: isCost ? '#4CAF50' : '#f44336', fontWeight:'bold'}}>{Math.abs(diff).toFixed(1)}% MENOR</span>;
+    return <span style={{color:'#aaa', fontWeight:'bold'}}>IGUAL</span>;
+  };
+
   return (
     <div className="dashboard-view" style={{ paddingBottom: '2rem' }}>
+
+      {/* INSIGHTS PANEL */}
+      <div className="glass-panel" style={{ padding: '1.5rem', marginBottom: '2rem', borderLeft: '4px solid #9C27B0' }}>
+        <h3 style={{ marginBottom: '1rem', color: '#fff', fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span>💡</span> Insights & Destaques
+        </h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1rem' }}>
+          
+          <div style={{ background: 'rgba(255,255,255,0.05)', padding: '1rem', borderRadius: '8px' }}>
+            <div style={{ fontSize: '0.85rem', color: '#aaa', marginBottom: '0.5rem' }}>Em relação ao período anterior...</div>
+            <div style={{ marginBottom: '0.3rem' }}>• O Faturamento foi {getInsightLabel(diffFat, false)}</div>
+            <div style={{ marginBottom: '0.3rem' }}>• Os Custos foram {getInsightLabel(diffCusto, true)}</div>
+            <div>• As Despesas foram {getInsightLabel(diffDesp, true)}</div>
+          </div>
+
+          <div style={{ background: 'rgba(255,255,255,0.05)', padding: '1rem', borderRadius: '8px' }}>
+            <div style={{ fontSize: '0.85rem', color: '#aaa', marginBottom: '0.5rem' }}>No ano de {selectedAno}...</div>
+            <div style={{ marginBottom: '0.5rem' }}>
+              • O melhor mês de <b>Faturamento</b> foi <span style={{color:'#4CAF50', fontWeight:'bold'}}>{melhorMesFat || '-'}</span> 
+              {melhorMesFat && <span style={{fontSize:'0.9rem', color:'#ccc'}}> ({formatCurrency(maxFat)})</span>}
+            </div>
+            <div>
+              • O mês mais eficiente <b>(Margem EBIT)</b> foi <span style={{color:'#2196F3', fontWeight:'bold'}}>{melhorMesEbit || '-'}</span>
+              {melhorMesEbit && <span style={{fontSize:'0.9rem', color:'#ccc'}}> ({maxEbit.toFixed(1)}%)</span>}
+            </div>
+          </div>
+
+        </div>
+      </div>
+
       <div className="kpi-grid" style={{ marginBottom: '2rem' }}>
         <div className="glass-panel" style={{ padding: '1.5rem', borderLeft: '4px solid #4CAF50' }}>
           <h3 style={{ marginBottom: '1rem', color: '#fff', fontSize: '1.2rem', textAlign: 'center' }}>Receitas: {periodLabel}</h3>

@@ -32,6 +32,8 @@ export default function TaxModule({ companies }) {
   // Inputs Manuais Presumido
   const [presumidoRetencoesIR, setPresumidoRetencoesIR] = useState(0);
   const [presumidoRetencoesCS, setPresumidoRetencoesCS] = useState(0);
+  const [presumidoAjusteIrpj, setPresumidoAjusteIrpj] = useState(0);
+  const [presumidoAjusteCsll, setPresumidoAjusteCsll] = useState(0);
   const [presumidoRetencoesIR_AppFin, setPresumidoRetencoesIR_AppFin] = useState(0);
   
   const [presumidoOutrasReceitas, setPresumidoOutrasReceitas] = useState('');
@@ -74,33 +76,59 @@ export default function TaxModule({ companies }) {
 
   const persistTaxData = async (compId, ano, mes, data) => {
     const key = `${compId}_${ano}_${mes}`;
-    const updated = { ...taxDataStore, [key]: data };
-    setTaxDataStore(updated);
-    try { await saveSettings('agf_tax_store', updated); } catch(e) {}
+    let updated;
+    setTaxDataStore(prev => {
+      updated = { ...prev, [key]: { ...(prev[key] || {}), ...data } };
+      return updated;
+    });
+    try { await saveSettings('agf_tax_store', updated); } catch(e) { console.error(e); }
   };
 
-  const loadTaxData = (compId, ano, mes) => {
+  const loadTaxData = (compId, ano, mes, store = taxDataStore) => {
     const key = `${compId}_${ano}_${mes}`;
-    const data = taxDataStore[key] || {};
+    const data = store[key] || {};
     
-    setLalurAdicoes(data.lalurAdicoes || 0);
-    setLalurExclusoes(data.lalurExclusoes || 0);
-    setLalurCompensacaoPrejuizo(data.lalurCompensacaoPrejuizo || 0);
-    setLalurRetencoesIR(data.lalurRetencoesIR || 0);
-        setLalurRetencoesIR_AppFin(data.lalurRetencoesIR_AppFin || 0);
-    setLalurRetencoesCS(data.lalurRetencoesCS || 0);
-    setLalurCambioRealizado(data.lalurCambioRealizado || 0);
+    setLalurAdicoes(data.lalurAdicoes !== undefined ? data.lalurAdicoes : 0);
+    setLalurExclusoes(data.lalurExclusoes !== undefined ? data.lalurExclusoes : 0);
+    setLalurCompensacaoPrejuizo(data.lalurCompensacaoPrejuizo !== undefined ? data.lalurCompensacaoPrejuizo : 0);
+    setLalurRetencoesIR(data.lalurRetencoesIR !== undefined ? data.lalurRetencoesIR : 0);
+    setLalurRetencoesIR_AppFin(data.lalurRetencoesIR_AppFin !== undefined ? data.lalurRetencoesIR_AppFin : 0);
+    setLalurRetencoesCS(data.lalurRetencoesCS !== undefined ? data.lalurRetencoesCS : 0);
+    setLalurCambioRealizado(data.lalurCambioRealizado !== undefined ? data.lalurCambioRealizado : 0);
     
-    setPresumidoRetencoesIR(data.presumidoRetencoesIR || 0);
-        setPresumidoRetencoesIR_AppFin(data.presumidoRetencoesIR_AppFin || 0);
-    setPresumidoRetencoesCS(data.presumidoRetencoesCS || 0); setPresumidoImpostosDevolucao(data.presumidoImpostosDevolucao || 0);
-    setPresumidoOutrasReceitas(data.presumidoOutrasReceitas || 0);
-    setPresumidoCambioRealizado(data.presumidoCambioRealizado || 0);
-    setPresumidoIpi(data.presumidoIpi || 0);
-    setPresumidoIcmsSt(data.presumidoIcmsSt || 0);
+    setPresumidoRetencoesIR(data.presumidoRetencoesIR !== undefined ? data.presumidoRetencoesIR : 0);
+    setPresumidoRetencoesIR_AppFin(data.presumidoRetencoesIR_AppFin !== undefined ? data.presumidoRetencoesIR_AppFin : 0);
+    setPresumidoRetencoesCS(data.presumidoRetencoesCS !== undefined ? data.presumidoRetencoesCS : 0);
+    setPresumidoImpostosDevolucao(data.presumidoImpostosDevolucao !== undefined ? data.presumidoImpostosDevolucao : '');
+    setPresumidoAjusteIrpj(data.presumidoAjusteIrpj !== undefined ? data.presumidoAjusteIrpj : '');
+    setPresumidoAjusteCsll(data.presumidoAjusteCsll !== undefined ? data.presumidoAjusteCsll : '');
+    setPresumidoOutrasReceitas(data.presumidoOutrasReceitas !== undefined ? data.presumidoOutrasReceitas : '');
+    setPresumidoCambioRealizado(data.presumidoCambioRealizado !== undefined ? data.presumidoCambioRealizado : 0);
+    setPresumidoIpi(data.presumidoIpi !== undefined ? data.presumidoIpi : '');
+    setPresumidoIcmsSt(data.presumidoIcmsSt !== undefined ? data.presumidoIcmsSt : '');
     setPresumidoMajoracao(data.presumidoMajoracao !== undefined ? data.presumidoMajoracao : true);
     setDarfIrpjReduzido(data.darfIrpjReduzido !== undefined ? data.darfIrpjReduzido : '');
     setDarfCsllReduzida(data.darfCsllReduzida !== undefined ? data.darfCsllReduzida : '');
+  };
+
+  const handleMonthChange = (newMes) => {
+    if (selectedComp) {
+      persistTaxData(selectedComp, selectedAno, selectedMes, {
+        lalurAdicoes, lalurExclusoes, lalurCompensacaoPrejuizo, lalurRetencoesIR, lalurRetencoesIR_AppFin, lalurRetencoesCS, lalurCambioRealizado,
+        presumidoRetencoesIR, presumidoRetencoesIR_AppFin, presumidoAjusteIrpj, presumidoAjusteCsll, presumidoRetencoesCS, presumidoOutrasReceitas, presumidoCambioRealizado, presumidoIpi, presumidoIcmsSt, presumidoMajoracao, presumidoImpostosDevolucao, darfIrpjReduzido, darfCsllReduzida
+      });
+    }
+    setSelectedMes(newMes);
+  };
+
+  const handleCompanyChange = (newComp) => {
+    if (selectedComp) {
+      persistTaxData(selectedComp, selectedAno, selectedMes, {
+        lalurAdicoes, lalurExclusoes, lalurCompensacaoPrejuizo, lalurRetencoesIR, lalurRetencoesIR_AppFin, lalurRetencoesCS, lalurCambioRealizado,
+        presumidoRetencoesIR, presumidoRetencoesIR_AppFin, presumidoAjusteIrpj, presumidoAjusteCsll, presumidoRetencoesCS, presumidoOutrasReceitas, presumidoCambioRealizado, presumidoIpi, presumidoIcmsSt, presumidoMajoracao, presumidoImpostosDevolucao, darfIrpjReduzido, darfCsllReduzida
+      });
+    }
+    setSelectedComp(newComp);
   };
 
   const loadFinancialData = async () => {
@@ -136,13 +164,14 @@ export default function TaxModule({ companies }) {
 
   useEffect(() => {
     loadFinancialData();
-  }, [selectedComp, selectedMes, selectedAno, taxConfig]);
+  }, [selectedComp, selectedMes, selectedAno, taxConfig, taxDataStore]);
 
 
   // ---- FUNÇÕES DE CÁLCULO ----
 
   // Lucro Presumido Genérico (pode ser mensal, acumulado ou trimestral)
   const calcPresumidoData = (records, numMeses, inputs) => {
+    const isEstimativa = inputs?.isEstimativa !== undefined ? inputs.isEstimativa : (taxConfig[selectedComp] === 'real_anual');
     let recRevenda = 0;
     let recServico = 0;
     let variacaoCambial = 0;
@@ -196,18 +225,19 @@ export default function TaxModule({ companies }) {
         icmsStDevolucao += Math.abs(r.valorMensal || 0);
         if (r.valorMensal !== 0) ipiIcmsDevolucaoBreakdown.push(`${r.conta} (${r.descricao}): R$ ${Math.abs(r.valorMensal || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`);
       }
-       if (r.conta.startsWith('4.9.1.1')) {
+      if (r.conta.startsWith('4.9.1.1')) {
         ganhoCapitalNet += (r.valorMensal || 0);
         if (r.valorMensal !== 0) {
           ganhoCapitalBreakdown.push(`${r.conta} (${r.descricao}): R$ ${(r.valorMensal || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`);
         }
-      } else if (r.conta.startsWith('4.9.1.2') || r.conta.startsWith('4.3.1.1.01')) {
-        if ((r.valorMensal || 0) > 0) { 
-           outrasReceitasDre += (r.valorMensal || 0);
-           outrasReceitasDreBreakdown.push(`${r.conta} (${r.descricao}): R$ ${(r.valorMensal || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`);
+      } else if (isEstimativa && (r.conta.startsWith('4.9.1.2') || r.conta.startsWith('4.3.1.1.01'))) {
+        if ((r.valorMensal || 0) > 0) {
+          outrasReceitasDre += (r.valorMensal || 0);
+          outrasReceitasDreBreakdown.push(`${r.conta} (${r.descricao}): R$ ${(r.valorMensal || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`);
         }
       }
     });
+
     if (ganhoCapitalNet > 0) {
       outrasReceitasDre += ganhoCapitalNet;
       outrasReceitasDreBreakdown = outrasReceitasDreBreakdown.concat(ganhoCapitalBreakdown);
@@ -273,7 +303,7 @@ export default function TaxModule({ companies }) {
     const irpjTotal = irpjNormal + irpjAdicional - parseFloat(inputs.retencoesIR || 0);
     const csllTotal = csll - parseFloat(inputs.retencoesCS || 0);
 
-    return { recRevenda, recRevendaLiquida, devolucoes, impostosDevolucaoAuto: ipiDevolucao + icmsStDevolucao, ipi, icmsSt, recServico, baseIrpj, baseCsll, irpjNormal, irpjAdicional, irpjTotal, csll, csllTotal, variacaoCambial, outrasReceitasDre: Math.max(0, outrasReceitasDre), outrasReceitasDreBreakdown, devolucoesBreakdown, ipiIcmsDevolucaoBreakdown, ipiVendasBreakdown, icmsStVendasBreakdown, recRevendaBreakdown, recServicoBreakdown };
+    return { retencoesIR: parseFloat(inputs.retencoesIR || 0), retencoesCS: parseFloat(inputs.retencoesCS || 0), impostosDevolucaoManual: parseFloat(inputs.impostosDevolucao || 0), outrasReceitasManual: parseFloat(inputs.outrasReceitas || 0), ajusteIrpj: parseFloat(inputs.ajusteIrpj || 0), ajusteCsll: parseFloat(inputs.ajusteCsll || 0), recRevenda, recRevendaLiquida, devolucoes, impostosDevolucaoAuto: ipiDevolucao + icmsStDevolucao, ipi, icmsSt, recServico, baseIrpj, baseCsll, irpjNormal, irpjAdicional, irpjTotal, csll, csllTotal, variacaoCambial, outrasReceitasDre: Math.max(0, outrasReceitasDre), outrasReceitasDreBreakdown, devolucoesBreakdown, ipiIcmsDevolucaoBreakdown, ipiVendasBreakdown, icmsStVendasBreakdown, recRevendaBreakdown, recServicoBreakdown };
   };
 
   const calcPresumido = () => {
@@ -290,26 +320,26 @@ export default function TaxModule({ companies }) {
     let startMonth = isEstimativa ? 1 : Math.floor((selectedMes - 1) / 3) * 3 + 1;
     
     // Get accumulated inputs from DB state
-    let sumOutras = 0; let sumCambio = 0; let sumRetIR = 0; let sumRetCS = 0; let sumImpDev = 0; let sumIrpjPago = 0; let sumCsllPago = 0;
+    let sumOutras = 0; let sumCambio = 0; let sumRetIR = 0; let sumRetCS = 0; let sumImpDev = 0; let sumIrpjPago = 0; let sumCsllPago = 0; let sumAjusteIrpj = 0; let sumAjusteCsll = 0;
     for (let m = startMonth; m <= selectedMes; m++) {
       if (!dreAnualTotal.some(r => r.mes === m)) continue;
       if (m === selectedMes) {
         sumOutras += parseFloat(presumidoOutrasReceitas || 0);
         sumCambio += parseFloat(presumidoCambioRealizado || 0);
         sumRetIR += parseFloat(presumidoRetencoesIR || 0) + parseFloat(presumidoRetencoesIR_AppFin || 0);
-        sumRetCS += parseFloat(presumidoRetencoesCS || 0); sumImpDev += parseFloat(presumidoImpostosDevolucao || 0); sumIrpjPago += parseFloat(darfIrpjReduzido || 0); sumCsllPago += parseFloat(darfCsllReduzida || 0);
+        sumRetCS += parseFloat(presumidoRetencoesCS || 0); sumImpDev += parseFloat(presumidoImpostosDevolucao || 0); sumIrpjPago += parseFloat(darfIrpjReduzido || 0); sumCsllPago += parseFloat(darfCsllReduzida || 0); sumAjusteIrpj += parseFloat(presumidoAjusteIrpj || 0); sumAjusteCsll += parseFloat(presumidoAjusteCsll || 0);
       } else {
         const key = `${selectedComp}_${selectedAno}_${m}`;
         const data = taxDataStore[key] || {};
         sumOutras += parseFloat(data.presumidoOutrasReceitas || 0);
         sumCambio += parseFloat(data.presumidoCambioRealizado || 0);
         sumRetIR += parseFloat(data.presumidoRetencoesIR || 0) + parseFloat(data.presumidoRetencoesIR_AppFin || 0);
-        sumRetCS += parseFloat(data.presumidoRetencoesCS || 0); sumImpDev += parseFloat(data.presumidoImpostosDevolucao || 0); sumIrpjPago += parseFloat(data.darfIrpjReduzido || 0); sumCsllPago += parseFloat(data.darfCsllReduzida || 0);
+        sumRetCS += parseFloat(data.presumidoRetencoesCS || 0); sumImpDev += parseFloat(data.presumidoImpostosDevolucao || 0); sumIrpjPago += parseFloat(data.darfIrpjReduzido || 0); sumCsllPago += parseFloat(data.darfCsllReduzida || 0); sumAjusteIrpj += parseFloat(data.presumidoAjusteIrpj || 0); sumAjusteCsll += parseFloat(data.presumidoAjusteCsll || 0);
       }
     }
     
     const acumuladoInputs = {
-      outrasReceitas: sumOutras, cambioRealizado: sumCambio, retencoesIR: sumRetIR, retencoesCS: sumRetCS, impostosDevolucao: sumImpDev, majoracao: !isEstimativa && presumidoMajoracao
+      outrasReceitas: sumOutras, cambioRealizado: sumCambio, retencoesIR: sumRetIR, retencoesCS: sumRetCS, impostosDevolucao: sumImpDev, ajusteIrpj: sumAjusteIrpj, ajusteCsll: sumAjusteCsll, majoracao: !isEstimativa && presumidoMajoracao
     };
 
     const mensal = calcPresumidoData(dreAcumulada.filter(r => r.mes === selectedMes), 1, currentInputs);
@@ -380,15 +410,8 @@ export default function TaxModule({ companies }) {
     
     const baseAjustada = baseCalculo - compensacao;
 
-    const regime = taxConfig[selectedComp] || '';
-    let mesesAcumulados = 1;
-    if (regime === 'real_trimestral') {
-       mesesAcumulados = (selectedMes % 3 === 0) ? 3 : (selectedMes % 3);
-    } else if (regime === 'real_anual') {
-       mesesAcumulados = selectedMes;
-    }
-    
-    const limiteAdicional = 20000 * mesesAcumulados;
+    // Como o cálculo na tela do Lucro Real é mensal (base do mês dreMensal), o limite do adicional é de R$ 20.000/mês
+    const limiteAdicional = 20000;
 
     let irpjNormal = 0;
     let irpjAdicional = 0;
@@ -412,7 +435,7 @@ export default function TaxModule({ companies }) {
         try {
             await persistTaxData(selectedComp, selectedAno, selectedMes, {
                 lalurAdicoes, lalurExclusoes, lalurCompensacaoPrejuizo, lalurRetencoesIR, lalurRetencoesIR_AppFin, lalurRetencoesCS, lalurCambioRealizado,
-                presumidoRetencoesIR, presumidoRetencoesIR_AppFin, presumidoRetencoesCS, presumidoOutrasReceitas, presumidoCambioRealizado, presumidoIpi, presumidoIcmsSt, presumidoMajoracao, presumidoImpostosDevolucao, darfIrpjReduzido, darfCsllReduzida
+                presumidoRetencoesIR, presumidoRetencoesIR_AppFin, presumidoAjusteIrpj, presumidoAjusteCsll, presumidoRetencoesCS, presumidoOutrasReceitas, presumidoCambioRealizado, presumidoIpi, presumidoIcmsSt, presumidoMajoracao, presumidoImpostosDevolucao, darfIrpjReduzido, darfCsllReduzida
             });
             alert('Memória de cálculo salva com sucesso! (Apenas para controle da DARF, sem impacto no Balanço/DRE)');
         } catch (e) {
@@ -431,7 +454,7 @@ export default function TaxModule({ companies }) {
       // Salva os inputs no state/db
       await persistTaxData(selectedComp, selectedAno, selectedMes, {
         lalurAdicoes, lalurExclusoes, lalurCompensacaoPrejuizo, lalurRetencoesIR, lalurRetencoesIR_AppFin, lalurRetencoesCS, lalurCambioRealizado,
-        presumidoRetencoesIR, presumidoRetencoesIR_AppFin, presumidoRetencoesCS, presumidoOutrasReceitas, presumidoCambioRealizado, presumidoIpi, presumidoIcmsSt, presumidoMajoracao
+        presumidoRetencoesIR, presumidoRetencoesIR_AppFin, presumidoAjusteIrpj, presumidoAjusteCsll, presumidoRetencoesCS, presumidoOutrasReceitas, presumidoCambioRealizado, presumidoIpi, presumidoIcmsSt, presumidoMajoracao, presumidoImpostosDevolucao, darfIrpjReduzido, darfCsllReduzida
       });
 
       const regime = taxConfig[selectedComp];
@@ -660,24 +683,26 @@ export default function TaxModule({ companies }) {
                   const key = `${selectedComp}_${selectedAno}_${m}`;
                   const data = isCurrent ? { presumidoOutrasReceitas, presumidoCambioRealizado, presumidoRetencoesIR, presumidoRetencoesIR_AppFin, presumidoRetencoesCS, presumidoImpostosDevolucao, presumidoMajoracao, darfIrpjReduzido, darfCsllReduzida, lalurAdicoes, lalurExclusoes, lalurCompensacaoPrejuizo, lalurRetencoesIR, lalurRetencoesIR_AppFin, lalurRetencoesCS, lalurCambioRealizado } : (taxDataStore[key] || {});
                   
-                  const cInputsM = { outrasReceitas: parseFloat(data.presumidoOutrasReceitas || 0), cambioRealizado: parseFloat(data.presumidoCambioRealizado || 0), retencoesIR: parseFloat(data.presumidoRetencoesIR || 0) + parseFloat(data.presumidoRetencoesIR_AppFin || 0), retencoesCS: parseFloat(data.presumidoRetencoesCS || 0), impostosDevolucao: parseFloat(data.presumidoImpostosDevolucao || 0), majoracao: !isEstimativa && (data.presumidoMajoracao !== undefined ? data.presumidoMajoracao : true) };
-                  let sumOutras = 0; let sumCambio = 0; let sumRetIR = 0; let sumRetCS = 0; let sumImpDev = 0;
+                  const cInputsM = { outrasReceitas: parseFloat(data.presumidoOutrasReceitas || 0), cambioRealizado: parseFloat(data.presumidoCambioRealizado || 0), retencoesIR: parseFloat(data.presumidoRetencoesIR || 0) + parseFloat(data.presumidoRetencoesIR_AppFin || 0), retencoesCS: parseFloat(data.presumidoRetencoesCS || 0), impostosDevolucao: parseFloat(data.presumidoImpostosDevolucao || 0), ajusteIrpj: parseFloat(data.presumidoAjusteIrpj || 0), ajusteCsll: parseFloat(data.presumidoAjusteCsll || 0), majoracao: !isEstimativa && (data.presumidoMajoracao !== undefined ? data.presumidoMajoracao : true) };
+                  let sumOutras = 0; let sumCambio = 0; let sumRetIR = 0; let sumRetCS = 0; let sumImpDev = 0; let sumAjusteIrpj = 0; let sumAjusteCsll = 0;
                   let sumIrpjPagoPrev = 0; let sumCsllPagoPrev = 0;
                   for (let prevM = 1; prevM <= m; prevM++) {
                     const isC = prevM === selectedMes;
                     const k = `${selectedComp}_${selectedAno}_${prevM}`;
-                    const d = isC ? { presumidoOutrasReceitas, presumidoCambioRealizado, presumidoRetencoesIR, presumidoRetencoesIR_AppFin, presumidoRetencoesCS, presumidoImpostosDevolucao, darfIrpjReduzido, darfCsllReduzida } : (taxDataStore[k] || {});
+                    const d = isC ? { presumidoOutrasReceitas, presumidoCambioRealizado, presumidoRetencoesIR, presumidoRetencoesIR_AppFin, presumidoRetencoesCS, presumidoImpostosDevolucao, darfIrpjReduzido, darfCsllReduzida, presumidoAjusteIrpj, presumidoAjusteCsll } : (taxDataStore[k] || {});
                     sumOutras += parseFloat(d.presumidoOutrasReceitas || 0);
                     sumCambio += parseFloat(d.presumidoCambioRealizado || 0);
                     sumRetIR += parseFloat(d.presumidoRetencoesIR || 0) + parseFloat(d.presumidoRetencoesIR_AppFin || 0);
                     sumRetCS += parseFloat(d.presumidoRetencoesCS || 0);
                     sumImpDev += parseFloat(d.presumidoImpostosDevolucao || 0);
+                    sumAjusteIrpj += parseFloat(d.presumidoAjusteIrpj || 0);
+                    sumAjusteCsll += parseFloat(d.presumidoAjusteCsll || 0);
                     
                     if (prevM < m) {
                       if (d.darfIrpjReduzido !== undefined && d.darfIrpjReduzido !== '') {
                         sumIrpjPagoPrev += parseFloat(d.darfIrpjReduzido);
                       } else {
-                        const cInpA = { outrasReceitas: sumOutras, cambioRealizado: sumCambio, retencoesIR: sumRetIR, retencoesCS: sumRetCS, impostosDevolucao: sumImpDev, majoracao: !isEstimativa && (data.presumidoMajoracao !== undefined ? data.presumidoMajoracao : true) };
+                        const cInpA = { outrasReceitas: sumOutras, cambioRealizado: sumCambio, retencoesIR: sumRetIR, retencoesCS: sumRetCS, impostosDevolucao: sumImpDev, ajusteIrpj: sumAjusteIrpj, ajusteCsll: sumAjusteCsll, majoracao: !isEstimativa && (data.presumidoMajoracao !== undefined ? data.presumidoMajoracao : true) };
                         const calcP = calcPresumidoData(dreAnualTotal.filter(r => r.mes <= prevM), prevM, cInpA);
                         sumIrpjPagoPrev += Math.max(0, (calcP.irpjTotal || 0) - sumIrpjPagoPrev);
                       }
@@ -685,13 +710,13 @@ export default function TaxModule({ companies }) {
                       if (d.darfCsllReduzida !== undefined && d.darfCsllReduzida !== '') {
                         sumCsllPagoPrev += parseFloat(d.darfCsllReduzida);
                       } else {
-                        const cInpA = { outrasReceitas: sumOutras, cambioRealizado: sumCambio, retencoesIR: sumRetIR, retencoesCS: sumRetCS, impostosDevolucao: sumImpDev, majoracao: !isEstimativa && (data.presumidoMajoracao !== undefined ? data.presumidoMajoracao : true) };
+                        const cInpA = { outrasReceitas: sumOutras, cambioRealizado: sumCambio, retencoesIR: sumRetIR, retencoesCS: sumRetCS, impostosDevolucao: sumImpDev, ajusteIrpj: sumAjusteIrpj, ajusteCsll: sumAjusteCsll, majoracao: !isEstimativa && (data.presumidoMajoracao !== undefined ? data.presumidoMajoracao : true) };
                         const calcP = calcPresumidoData(dreAnualTotal.filter(r => r.mes <= prevM), prevM, cInpA);
                         sumCsllPagoPrev += Math.max(0, (calcP.csllTotal || 0) - sumCsllPagoPrev);
                       }
                     }
                   }
-                  const cInputsA = { outrasReceitas: sumOutras, cambioRealizado: sumCambio, retencoesIR: sumRetIR, retencoesCS: sumRetCS, impostosDevolucao: sumImpDev, majoracao: !isEstimativa && (data.presumidoMajoracao !== undefined ? data.presumidoMajoracao : true) };
+                  const cInputsA = { outrasReceitas: sumOutras, cambioRealizado: sumCambio, retencoesIR: sumRetIR, retencoesCS: sumRetCS, impostosDevolucao: sumImpDev, ajusteIrpj: sumAjusteIrpj, ajusteCsll: sumAjusteCsll, majoracao: !isEstimativa && (data.presumidoMajoracao !== undefined ? data.presumidoMajoracao : true) };
                   const calcPresA = calcPresumidoData(dreAtM, m, cInputsA);
                   const estIrpj = Math.max(0, (calcPresA.irpjTotal || 0) - sumIrpjPagoPrev);
                   const estCsll = Math.max(0, (calcPresA.csllTotal || 0) - sumCsllPagoPrev);
@@ -819,10 +844,10 @@ export default function TaxModule({ companies }) {
 </div>
             
             <div title={(cM.outrasReceitasDreBreakdown || []).join('\n')}>
-              <Row label="(+) Receitas Financeiras e Outras (Extraído da DRE) [Passe o mouse p/ ver contas]:" m={cM.outrasReceitasDre} a={cA.outrasReceitasDre} color="#888" />
+              <Row label={isEstimativa ? "(+) Rendimentos, Juros e Ganhos (Extraído da DRE) [Passe o mouse]:" : "(+) Ganho de Capital (Extraído da DRE) [Passe o mouse p/ ver contas]:"} m={cM.outrasReceitasDre} a={cA.outrasReceitasDre} color="#888" />
             </div>
             <div style={{ marginBottom: '1rem', marginTop: '1.5rem' }}>
-              <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(+) Ajuste Manual de Outras Receitas - <b>Valor do Mês</b></label>
+              <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(+) Ajuste Manual: Rendimentos (Resgates), Venda de Ativos, etc - <b>Valor do Mês</b></label>
               <input type="number" className="text-input" value={presumidoOutrasReceitas} onChange={e => setPresumidoOutrasReceitas(e.target.value)} style={{ width: '100%' }} />
             </div>
             
@@ -951,7 +976,7 @@ export default function TaxModule({ companies }) {
 
     return (
       <div style={{ marginTop: "2rem", paddingTop: "2rem", borderTop: "1px solid rgba(255,255,255,0.1)" }}>
-        <h4 style={{ color: "#fff", marginBottom: "1rem", textAlign: "center" }}>?? RESUMO DO {trimNum}� TRIMESTRE ({monthNames[months[0]-1]} - {monthNames[months[2]-1]})</h4>
+        <h4 style={{ color: "#fff", marginBottom: "1rem", textAlign: "center" }}>📊 RESUMO DO {trimNum}º� TRIMESTRE ({monthNames[months[0]-1]} - {monthNames[months[2]-1]})</h4>
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem", textAlign: "center" }}>
             <thead>
@@ -964,14 +989,21 @@ export default function TaxModule({ companies }) {
               </tr>
             </thead>
             <tbody>
-              <tr><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>Receita Venda/Servi�o</td><td style={{ border: "1px solid #444" }}>{fmt(c1.recRevenda + c1.recServico)}</td><td style={{ border: "1px solid #444" }}>{fmt(c2.recRevenda + c2.recServico)}</td><td style={{ border: "1px solid #444" }}>{fmt(c3.recRevenda + c3.recServico)}</td><td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.recRevenda + cTotal.recServico)}</td></tr>
-              <tr><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>Base de C�lculo IRPJ</td><td style={{ border: "1px solid #444" }}>{fmt(c1.baseIrpj)}</td><td style={{ border: "1px solid #444" }}>{fmt(c2.baseIrpj)}</td><td style={{ border: "1px solid #444" }}>{fmt(c3.baseIrpj)}</td><td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.baseIrpj)}</td></tr>
+              <tr><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>Receita Venda/Serviço (Bruta)</td><td style={{ border: "1px solid #444" }}>{fmt(c1.recRevenda + c1.recServico)}</td><td style={{ border: "1px solid #444" }}>{fmt(c2.recRevenda + c2.recServico)}</td><td style={{ border: "1px solid #444" }}>{fmt(c3.recRevenda + c3.recServico)}</td><td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.recRevenda + cTotal.recServico)}</td></tr>
+              <tr><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>(-) Devoluções de Vendas / Impostos</td><td style={{ border: "1px solid #444" }}>{fmt(c1.devolucoes + c1.impostosDevolucaoAuto + (c1.impostosDevolucaoManual || 0))}</td><td style={{ border: "1px solid #444" }}>{fmt(c2.devolucoes + c2.impostosDevolucaoAuto + (c2.impostosDevolucaoManual || 0))}</td><td style={{ border: "1px solid #444" }}>{fmt(c3.devolucoes + c3.impostosDevolucaoAuto + (c3.impostosDevolucaoManual || 0))}</td><td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.devolucoes + cTotal.impostosDevolucaoAuto + (cTotal.impostosDevolucaoManual || 0))}</td></tr>
+              <tr><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>(+) Rendimentos, Outras e Ganhos</td><td style={{ border: "1px solid #444" }}>{fmt((c1.outrasReceitasManual || 0) + c1.outrasReceitasDre)}</td><td style={{ border: "1px solid #444" }}>{fmt((c2.outrasReceitasManual || 0) + c2.outrasReceitasDre)}</td><td style={{ border: "1px solid #444" }}>{fmt((c3.outrasReceitasManual || 0) + c3.outrasReceitasDre)}</td><td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt((cTotal.outrasReceitasManual || 0) + cTotal.outrasReceitasDre)}</td></tr>
+              <tr><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>(+) Variação Cambial</td><td style={{ border: "1px solid #444" }}>{fmt(c1.variacaoCambial)}</td><td style={{ border: "1px solid #444" }}>{fmt(c2.variacaoCambial)}</td><td style={{ border: "1px solid #444" }}>{fmt(c3.variacaoCambial)}</td><td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.variacaoCambial)}</td></tr>
+              <tr><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>Base de Cálculo IRPJ</td><td style={{ border: "1px solid #444" }}>{fmt(c1.baseIrpj)}</td><td style={{ border: "1px solid #444" }}>{fmt(c2.baseIrpj)}</td><td style={{ border: "1px solid #444" }}>{fmt(c3.baseIrpj)}</td><td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.baseIrpj)}</td></tr>
               <tr><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>IRPJ Normal (15%)</td><td style={{ border: "1px solid #444" }}>{fmt(c1.irpjNormal)}</td><td style={{ border: "1px solid #444" }}>{fmt(c2.irpjNormal)}</td><td style={{ border: "1px solid #444" }}>{fmt(c3.irpjNormal)}</td><td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.irpjNormal)}</td></tr>
               <tr><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>IRPJ Adicional (10%)</td><td style={{ border: "1px solid #444" }}>{fmt(c1.irpjAdicional)}</td><td style={{ border: "1px solid #444" }}>{fmt(c2.irpjAdicional)}</td><td style={{ border: "1px solid #444" }}>{fmt(c3.irpjAdicional)}</td><td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.irpjAdicional)}</td></tr>
-              <tr style={{ background: "rgba(0,255,0,0.05)" }}><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>IRPJ DEVIDO L�QUIDO</td><td style={{ border: "1px solid #444" }}>{fmt(Math.max(0, c1.irpjTotal))}</td><td style={{ border: "1px solid #444" }}>{fmt(Math.max(0, c2.irpjTotal))}</td><td style={{ border: "1px solid #444" }}>{fmt(Math.max(0, c3.irpjTotal))}</td><td style={{ border: "1px solid #444", fontWeight: "bold", color: "#81C784" }}>{fmt(Math.max(0, cTotal.irpjTotal))}</td></tr>
-              <tr><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>Base de C�lculo CSLL</td><td style={{ border: "1px solid #444" }}>{fmt(c1.baseCsll)}</td><td style={{ border: "1px solid #444" }}>{fmt(c2.baseCsll)}</td><td style={{ border: "1px solid #444" }}>{fmt(c3.baseCsll)}</td><td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.baseCsll)}</td></tr>
+              <tr><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>(-) IRRF Retido (Serviços/Aplicações)</td><td style={{ border: "1px solid #444" }}>{fmt(c1.retencoesIR)}</td><td style={{ border: "1px solid #444" }}>{fmt(c2.retencoesIR)}</td><td style={{ border: "1px solid #444" }}>{fmt(c3.retencoesIR)}</td><td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.retencoesIR)}</td></tr>
+              <tr><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>(+/-) Ajuste Manual IRPJ</td><td style={{ border: "1px solid #444" }}>{fmt(c1.ajusteIrpj)}</td><td style={{ border: "1px solid #444" }}>{fmt(c2.ajusteIrpj)}</td><td style={{ border: "1px solid #444" }}>{fmt(c3.ajusteIrpj)}</td><td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.ajusteIrpj)}</td></tr>
+              <tr style={{ background: "rgba(0,255,0,0.05)" }}><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>IRPJ DEVIDO LÍQUIDO</td><td style={{ border: "1px solid #444" }}>{fmt(Math.max(0, c1.irpjTotal))}</td><td style={{ border: "1px solid #444" }}>{fmt(Math.max(0, c2.irpjTotal))}</td><td style={{ border: "1px solid #444" }}>{fmt(Math.max(0, c3.irpjTotal))}</td><td style={{ border: "1px solid #444", fontWeight: "bold", color: "#81C784" }}>{fmt(Math.max(0, cTotal.irpjTotal))}</td></tr>
+              <tr><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>Base de Cálculo CSLL</td><td style={{ border: "1px solid #444" }}>{fmt(c1.baseCsll)}</td><td style={{ border: "1px solid #444" }}>{fmt(c2.baseCsll)}</td><td style={{ border: "1px solid #444" }}>{fmt(c3.baseCsll)}</td><td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.baseCsll)}</td></tr>
               <tr><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>CSLL Normal (9%)</td><td style={{ border: "1px solid #444" }}>{fmt(c1.csll)}</td><td style={{ border: "1px solid #444" }}>{fmt(c2.csll)}</td><td style={{ border: "1px solid #444" }}>{fmt(c3.csll)}</td><td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.csll)}</td></tr>
-              <tr style={{ background: "rgba(0,255,0,0.05)" }}><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>CSLL DEVIDA L�QUIDA</td><td style={{ border: "1px solid #444" }}>{fmt(Math.max(0, c1.csllTotal))}</td><td style={{ border: "1px solid #444" }}>{fmt(Math.max(0, c2.csllTotal))}</td><td style={{ border: "1px solid #444" }}>{fmt(Math.max(0, c3.csllTotal))}</td><td style={{ border: "1px solid #444", fontWeight: "bold", color: "#81C784" }}>{fmt(Math.max(0, cTotal.csllTotal))}</td></tr>
+              <tr><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>(-) CSLL Retida</td><td style={{ border: "1px solid #444" }}>{fmt(c1.retencoesCS)}</td><td style={{ border: "1px solid #444" }}>{fmt(c2.retencoesCS)}</td><td style={{ border: "1px solid #444" }}>{fmt(c3.retencoesCS)}</td><td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.retencoesCS)}</td></tr>
+              <tr><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>(+/-) Ajuste Manual CSLL</td><td style={{ border: "1px solid #444" }}>{fmt(c1.ajusteCsll)}</td><td style={{ border: "1px solid #444" }}>{fmt(c2.ajusteCsll)}</td><td style={{ border: "1px solid #444" }}>{fmt(c3.ajusteCsll)}</td><td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.ajusteCsll)}</td></tr>
+              <tr style={{ background: "rgba(0,255,0,0.05)" }}><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>CSLL DEVIDA LÍQUIDA</td><td style={{ border: "1px solid #444" }}>{fmt(Math.max(0, c1.csllTotal))}</td><td style={{ border: "1px solid #444" }}>{fmt(Math.max(0, c2.csllTotal))}</td><td style={{ border: "1px solid #444" }}>{fmt(Math.max(0, c3.csllTotal))}</td><td style={{ border: "1px solid #444", fontWeight: "bold", color: "#81C784" }}>{fmt(Math.max(0, cTotal.csllTotal))}</td></tr>
             </tbody>
           </table>
         </div>
@@ -1036,6 +1068,9 @@ const renderReal = () => {
                 <span>Base de Cálculo (Antes Prejuízo):</span>
                 <strong style={{ color: calc.baseCalculo >= 0 ? '#81C784' : '#FF5252' }}>{calc.baseCalculo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
              </div>
+              <div style={{ textAlign: 'right', fontSize: '0.8rem', color: '#888', marginTop: '0.2rem' }}>
+                Memória: LAIR ({calc.lair.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}) {calc.adicoes > 0 ? ` + Adições/Caixa (${calc.adicoes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})` : ''} {calc.exclusoes > 0 ? ` - Exclusões/DRE (${calc.exclusoes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})` : ''}
+              </div>
 
              <div style={{ marginBottom: '1rem', marginTop: '1.5rem' }}>
                <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(-) Compensação Prejuízo (Lim. 30%: {Math.max(0, calc.baseCalculo*0.3).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})</label>
@@ -1055,7 +1090,7 @@ const renderReal = () => {
                 <span>{calc.irpjNormal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
              </div>
              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                <span>IRPJ Adicional (10% s/ excesso):</span>
+                <span>IRPJ Adicional (10% s/ excesso de R$ 20.000):</span>
                 <span>{calc.irpjAdicional.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
              </div>
              <div style={{ marginBottom: '1rem', marginTop: '0.5rem' }}>
@@ -1161,11 +1196,11 @@ const renderReal = () => {
       {activeTab === 'apuracao' && (
         <div>
           <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '2rem' }}>
-             <select value={selectedComp} onChange={e => setSelectedComp(e.target.value)} className="select-input">
+             <select value={selectedComp} onChange={e => handleCompanyChange(e.target.value)} className="select-input">
                 <option value="">Selecione a Empresa...</option>
                 {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
              </select>
-             <select value={selectedMes} onChange={(e) => setSelectedMes(parseInt(e.target.value))} className="select-input" style={{ width: '130px' }}>
+             <select value={selectedMes} onChange={(e) => handleMonthChange(parseInt(e.target.value))} className="select-input" style={{ width: '130px' }}>
                 <option value={1}>Janeiro</option><option value={2}>Fevereiro</option><option value={3}>Março</option>
                 <option value={4}>Abril</option><option value={5}>Maio</option><option value={6}>Junho</option>
                 <option value={7}>Julho</option><option value={8}>Agosto</option><option value={9}>Setembro</option>

@@ -131,6 +131,10 @@ function ProtheusModule({ userRole, userPermissions, username }) {
   const [manualConta, setManualConta] = useState('');
   const [manualDescricao, setManualDescricao] = useState('');
   const [manualValor, setManualValor] = useState('');
+  const [igReceita, setIgReceita] = useState('');
+  const [igCusto, setIgCusto] = useState('');
+  const [igClientes, setIgClientes] = useState('');
+  const [igFornecedores, setIgFornecedores] = useState('');
   const fileInputRef = useRef(null);
 
   const [period, setPeriod] = useState('mensal');
@@ -231,6 +235,37 @@ function ProtheusModule({ userRole, userPermissions, username }) {
 
   const toggleRow = (rowId) => {
     setExpandedRows(prev => ({ ...prev, [rowId]: !prev[rowId] }));
+  };
+
+  const handleSaveIntraGrupo = async () => {
+    try {
+      let count = 0;
+      if (igReceita && parseFloat(igReceita) !== 0) {
+        await addManualEntryToDB('exclusoes', selectedAno, selectedMes, '3.1.1.1.01.00001.EXC', 'Exclusão Intra-Grupo (Receita)', -Math.abs(parseFloat(igReceita)));
+        count++;
+      }
+      if (igCusto && parseFloat(igCusto) !== 0) {
+        await addManualEntryToDB('exclusoes', selectedAno, selectedMes, '4.1.1.1.13.EXC', 'Exclusão Intra-Grupo (Custo)', Math.abs(parseFloat(igCusto)));
+        count++;
+      }
+      if (igClientes && parseFloat(igClientes) !== 0) {
+        await addManualEntryToDB('exclusoes', selectedAno, selectedMes, '1.1.1.3.01.EXC', 'Exclusão Intra-Grupo (Clientes)', -Math.abs(parseFloat(igClientes)));
+        count++;
+      }
+      if (igFornecedores && parseFloat(igFornecedores) !== 0) {
+        await addManualEntryToDB('exclusoes', selectedAno, selectedMes, '2.1.1.1.01.EXC', 'Exclusão Intra-Grupo (Fornecedores)', -Math.abs(parseFloat(igFornecedores)));
+        count++;
+      }
+      if (count > 0) {
+        alert(count + ' operações de exclusão intra-grupo inseridas com sucesso!');
+        setIgReceita(''); setIgCusto(''); setIgClientes(''); setIgFornecedores('');
+        loadDbRecords();
+      } else {
+        alert('Preencha ao menos um valor de exclusão.');
+      }
+    } catch (err) {
+      alert('Erro: ' + err.message);
+    }
   };
 
   const handleAddManualEntry = async () => {
