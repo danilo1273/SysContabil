@@ -304,8 +304,8 @@ export default function TaxModule({ companies }) {
     const irpjAdicional = Math.max(0, baseIrpj - limiteAdicional) * 0.10;
     const csll = baseCsll * 0.09;
 
-    const irpjTotal = irpjNormal + irpjAdicional - parseFloat(inputs.retencoesIR || 0);
-    const csllTotal = csll - parseFloat(inputs.retencoesCS || 0);
+    const irpjTotal = irpjNormal + irpjAdicional - parseFloat(inputs.retencoesIR || 0) + parseFloat(inputs.ajusteIrpj || 0);
+    const csllTotal = csll - parseFloat(inputs.retencoesCS || 0) + parseFloat(inputs.ajusteCsll || 0);
 
     return { retencoesIR: parseFloat(inputs.retencoesIR || 0), retencoesCS: parseFloat(inputs.retencoesCS || 0), impostosDevolucaoManual: parseFloat(inputs.impostosDevolucao || 0), outrasReceitasManual: parseFloat(inputs.outrasReceitas || 0), ajusteIrpj: parseFloat(inputs.ajusteIrpj || 0), ajusteCsll: parseFloat(inputs.ajusteCsll || 0), recRevenda, recRevendaLiquida, devolucoes, impostosDevolucaoAuto: ipiDevolucao + icmsStDevolucao, ipi, icmsSt, recServico, baseIrpj, baseCsll, irpjNormal, irpjAdicional, irpjTotal, csll, csllTotal, variacaoCambial, outrasReceitasDre: Math.max(0, outrasReceitasDre), outrasReceitasDreBreakdown, devolucoesBreakdown, ipiIcmsDevolucaoBreakdown, ipiVendasBreakdown, icmsStVendasBreakdown, recRevendaBreakdown, recServicoBreakdown };
   };
@@ -318,6 +318,8 @@ export default function TaxModule({ companies }) {
       retencoesIR: parseFloat(presumidoRetencoesIR || 0) + parseFloat(presumidoRetencoesIR_AppFin || 0),
       retencoesCS: presumidoRetencoesCS,
       impostosDevolucao: presumidoImpostosDevolucao,
+      ajusteIrpj: parseFloat(presumidoAjusteIrpj || 0),
+      ajusteCsll: parseFloat(presumidoAjusteCsll || 0),
       majoracao: !isEstimativa && presumidoMajoracao
     };
 
