@@ -28,6 +28,8 @@ export default function TaxModule({ companies }) {
   const [lalurRetencoesCS, setLalurRetencoesCS] = useState(0);
   const [lalurRetencoesIR_AppFin, setLalurRetencoesIR_AppFin] = useState(0);
   const [lalurCambioRealizado, setLalurCambioRealizado] = useState(0);
+  const [lalurAjusteIrpj, setLalurAjusteIrpj] = useState('');
+  const [lalurAjusteCsll, setLalurAjusteCsll] = useState('');
 
   // Inputs Manuais Presumido
   const [presumidoRetencoesIR, setPresumidoRetencoesIR] = useState(0);
