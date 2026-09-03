@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { getRawRecords, getSettings, saveSettings, updateRecord, addManualEntryToDB } from '../utils/db';
+import EquivalenciaPatrimonialModule from './EquivalenciaPatrimonialModule';
 
 export default function RateioModule({ companies }) {
+  const [subTab, setSubTab] = useState('mep'); // 'mep' ou 'rateio'
   const [selectedHolding, setSelectedHolding] = useState('');
   const [selectedMes, setSelectedMes] = useState(new Date().getMonth() + 1);
   const [selectedAno, setSelectedAno] = useState(new Date().getFullYear());
@@ -222,7 +224,64 @@ export default function RateioModule({ companies }) {
   const operacionais = companies.filter(c => c.id !== selectedHolding);
 
   return (
-    <div className="glass-panel" style={{ padding: '1.5rem', marginTop: '1rem' }}>
+    <div style={{ marginTop: '1rem' }}>
+      {/* NAVEGAÇÃO DE SUB-ROTINAS DA HOLDING */}
+      <div style={{ 
+        display: 'flex', 
+        gap: '0.8rem', 
+        borderBottom: '1px solid rgba(255,255,255,0.1)', 
+        paddingBottom: '0.8rem', 
+        marginBottom: '1.5rem' 
+      }}>
+        <button
+          onClick={() => setSubTab('mep')}
+          style={{
+            background: subTab === 'mep' ? '#D4AF37' : 'rgba(255,255,255,0.05)',
+            color: subTab === 'mep' ? '#000' : '#aaa',
+            border: 'none',
+            padding: '0.6rem 1.2rem',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            fontWeight: 'bold',
+            fontSize: '0.95rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            boxShadow: subTab === 'mep' ? '0 4px 12px rgba(212,175,55,0.3)' : 'none',
+            transition: 'all 0.2s'
+          }}
+        >
+          <span>⚖️</span> Equivalência Patrimonial (MEP)
+        </button>
+
+        <button
+          onClick={() => setSubTab('rateio')}
+          style={{
+            background: subTab === 'rateio' ? '#2196F3' : 'rgba(255,255,255,0.05)',
+            color: subTab === 'rateio' ? '#fff' : '#aaa',
+            border: 'none',
+            padding: '0.6rem 1.2rem',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            fontWeight: 'bold',
+            fontSize: '0.95rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            boxShadow: subTab === 'rateio' ? '0 4px 12px rgba(33,150,243,0.3)' : 'none',
+            transition: 'all 0.2s'
+          }}
+        >
+          <span>🏢</span> Rateio de Custos & Despesas (Management Fee)
+        </button>
+      </div>
+
+      {subTab === 'mep' && (
+        <EquivalenciaPatrimonialModule companies={companies} />
+      )}
+
+      {subTab === 'rateio' && (
+        <div className="glass-panel" style={{ padding: '1.5rem' }}>
       
       <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '2rem', alignItems: 'center' }}>
          <div style={{ flex: 1, minWidth: '200px', fontSize: '1.2rem', fontWeight: 'bold', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '1rem' }}>
@@ -418,6 +477,8 @@ export default function RateioModule({ companies }) {
           </div>
 
         </div>
+      )}
+    </div>
       )}
     </div>
   );
