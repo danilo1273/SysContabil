@@ -1284,7 +1284,7 @@ const renderReal = () => {
                 <option value={7}>Julho</option><option value={8}>Agosto</option><option value={9}>Setembro</option>
                 <option value={10}>Outubro</option><option value={11}>Novembro</option><option value={12}>Dezembro</option>
               </select>
-              <select value={selectedAno} onChange={(e) => setSelectedAno(parseInt(e.target.value))} className="select-input" style={{ width: '90px' }}>
+              <select value={selectedAno} onChange={(e) => handleYearChange(parseInt(e.target.value))} className="select-input" style={{ width: '90px' }}>
                 {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
               </select>
               {isProcessing && <span style={{ padding: '0.5rem', color: 'var(--color-primary)' }}>Processando...</span>}
