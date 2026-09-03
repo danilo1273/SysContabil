@@ -59,7 +59,14 @@ window.fetch = async (...args) => {
         return { ok: true, json: async () => ({ success: true }) };
       }
       if (url.includes("/gestao/pendencias")) {
-        await supabase.from("agf_pendencias").upsert(body);
+        const parts = url.split("/");
+        const lastPart = parts[parts.length - 1].split("?")[0];
+        const targetId = (lastPart && lastPart !== "pendencias") ? lastPart : body.id;
+        if (targetId) {
+          await supabase.from("agf_pendencias").upsert({ id: targetId, ...body });
+        } else {
+          await supabase.from("agf_pendencias").upsert(body);
+        }
         return { ok: true, json: async () => ({ success: true }) };
       }
       if (url.includes("/settings/agf_obrigacoes_tipos")) {
@@ -72,6 +79,22 @@ window.fetch = async (...args) => {
       }
       if (url.includes("/agf_users") || url.includes("/settings/agf_users")) {
         await supabase.from("settings").upsert({ key: "agf_users", value: JSON.stringify(body.value || body) });
+        return { ok: true, json: async () => ({ success: true }) };
+      }
+    }
+
+    // Intercept DELETE
+    if (config && config.method === "DELETE") {
+      if (url.includes("/gestao/pendencias")) {
+        const parts = url.split("/");
+        const lastPart = parts[parts.length - 1].split("?")[0];
+        if (lastPart && lastPart !== "pendencias") {
+          await supabase.from("agf_pendencias").delete().eq("id", lastPart);
+        } else {
+          const params = new URL(url, window.location.origin).searchParams;
+          const pId = params.get("id");
+          if (pId) await supabase.from("agf_pendencias").delete().eq("id", pId);
+        }
         return { ok: true, json: async () => ({ success: true }) };
       }
     }

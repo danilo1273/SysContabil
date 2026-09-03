@@ -17,6 +17,14 @@ function GestaoContabilModule({ userRole, userName, companies }) {
     const [isProcessing, setIsProcessing] = useState(false);
     const [resolvingPendencia, setResolvingPendencia] = useState(null);
     const [objectiveText, setObjectiveText] = useState('');
+    const [editingPendencia, setEditingPendencia] = useState(null);
+
+    // Filtros da aba de Pendências
+    const [pendenciaFiltroStatus, setPendenciaFiltroStatus] = useState('todos');
+    const [pendenciaFiltroMes, setPendenciaFiltroMes] = useState('todos');
+    const [pendenciaFiltroAno, setPendenciaFiltroAno] = useState(new Date().getFullYear());
+    const [pendenciaFiltroResp, setPendenciaFiltroResp] = useState('todos');
+    const [pendenciaSearch, setPendenciaSearch] = useState('');
 
     const [obrigacoesTipos, setObrigacoesTipos] = useState([]);
     const [showManageTipos, setShowManageTipos] = useState(false);
@@ -170,11 +178,27 @@ function GestaoContabilModule({ userRole, userName, companies }) {
         loadData();
     };
 
+    const canEditOrDeletePendencia = (p) => {
+        if (!p) return false;
+        const isOwner = p.criador === userName || p.criado_por === userName;
+        const isSuper = (['danilo', 'ryan.santos'].includes(userName)) || userRole === 'superadmin' || userRole === 'admin';
+        return isOwner || isSuper;
+    };
+
+    const canResolvePendencia = (p) => {
+        if (!p) return false;
+        const isResp = p.responsavel === userName;
+        const isSuper = (['danilo', 'ryan.santos'].includes(userName)) || userRole === 'superadmin' || userRole === 'admin';
+        return isResp || isSuper;
+    };
+
     const handleAddPendencia = async (e) => {
         e.preventDefault();
         const doc = e.target.doc.value;
         const motivo = e.target.motivo.value;
         const resp = e.target.responsavel.value;
+        const mesRef = e.target.mesRef ? parseInt(e.target.mesRef.value) : selectedMes;
+        const anoRef = e.target.anoRef ? parseInt(e.target.anoRef.value) : selectedAno;
         if (!doc || !motivo || !resp) return;
 
         const payload = {
@@ -183,6 +207,8 @@ function GestaoContabilModule({ userRole, userName, companies }) {
             motivo,
             responsavel: resp,
             criador: userName || 'Sistema',
+            mes: mesRef,
+            ano: anoRef,
             status: 'pendente',
             data_criacao: new Date().toISOString(),
             data_correcao: null,
@@ -196,6 +222,78 @@ function GestaoContabilModule({ userRole, userName, companies }) {
         });
         e.target.reset();
         loadData();
+    };
+
+    const handleSaveEditPendencia = async (e) => {
+        e.preventDefault();
+        if (!editingPendencia) return;
+
+        const doc = e.target.editDoc.value;
+        const motivo = e.target.editMotivo.value;
+        const resp = e.target.editResp.value;
+        const mesRef = parseInt(e.target.editMes.value);
+        const anoRef = parseInt(e.target.editAno.value);
+
+        let hist = [];
+        try { hist = JSON.parse(editingPendencia.historico); } catch (err) {}
+        hist.push({ action: 'Alterado por ' + (userName || 'Sistema'), user: userName || 'Sistema', date: new Date().toISOString() });
+
+        const updatedPayload = {
+            ...editingPendencia,
+            documento: doc,
+            motivo,
+            responsavel: resp,
+            mes: mesRef,
+            ano: anoRef,
+            historico: JSON.stringify(hist)
+        };
+
+        await fetch(`/api/gestao/pendencias/${editingPendencia.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updatedPayload)
+        });
+
+        setEditingPendencia(null);
+        loadData();
+    };
+
+    const handleDeletePendencia = async (p) => {
+        if (!canEditOrDeletePendencia(p)) {
+            alert('Apenas quem criou a pendência ou o superadmin pode excluí-la.');
+            return;
+        }
+
+        if (window.confirm(`Deseja realmente excluir a pendência do documento "${p.documento}"?`)) {
+            await fetch(`/api/gestao/pendencias/${p.id}`, {
+                method: 'DELETE'
+            });
+            loadData();
+        }
+    };
+
+    const handleReopenPendencia = async (p) => {
+        if (!canEditOrDeletePendencia(p)) {
+            alert('Apenas quem criou a pendência ou o superadmin pode reabri-la.');
+            return;
+        }
+
+        if (window.confirm(`Reabrir a pendência do documento "${p.documento}" para nova correção?`)) {
+            let hist = [];
+            try { hist = JSON.parse(p.historico); } catch (err) {}
+            hist.push({ action: 'Reaberto por ' + (userName || 'Sistema'), user: userName || 'Sistema', date: new Date().toISOString() });
+
+            await fetch(`/api/gestao/pendencias/${p.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    status: 'pendente',
+                    data_correcao: null,
+                    historico: JSON.stringify(hist)
+                })
+            });
+            loadData();
+        }
     };
 
     const handleConfirmResolve = async () => {
@@ -433,77 +531,687 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                 </div>
             )}
 
-            {activeTab === 'pendencias' && (
-                <div>
-                    <form onSubmit={handleAddPendencia} style={{ background: 'rgba(0,0,0,0.2)', padding: '1.5rem', borderRadius: '8px', marginBottom: '2rem', display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                        <div style={{ flex: '1', minWidth: '150px' }}>
-                            <label style={{ display: 'block', marginBottom: '0.5rem', color: '#aaa', fontSize: '0.85rem' }}>Nº Documento / Chave</label>
-                            <input name="doc" type="text" className="text-input" style={{ width: '100%' }} placeholder="Ex: NF 12345" required />
-                        </div>
-                        <div style={{ flex: '2', minWidth: '250px' }}>
-                            <label style={{ display: 'block', marginBottom: '0.5rem', color: '#aaa', fontSize: '0.85rem' }}>Motivo do Retorno / Erro</label>
-                            <input name="motivo" type="text" className="text-input" style={{ width: '100%' }} placeholder="Ex: CFOP incorreto, refazer lançamento" required />
-                        </div>
-                        <div style={{ flex: '1', minWidth: '150px' }}>
-                            <label style={{ display: 'block', marginBottom: '0.5rem', color: '#aaa', fontSize: '0.85rem' }}>Designar Correção Para:</label>
-                            <select name="responsavel" className="select-input" style={{ width: '100%' }} required>
-                                <option value="">Selecione...</option>
-                                {displayUsers.map(u => <option key={u.username} value={u.username}>{u.username}</option>)}
-                            </select>
-                        </div>
-                        <button type="submit" className="btn-primary" style={{ height: '40px' }}>+ Abrir Pendência</button>
-                    </form>
+            {activeTab === 'pendencias' && (() => {
+                // Filtragem das pendências
+                const filteredPendencias = pendencias.filter(p => {
+                    if (pendenciaFiltroStatus !== 'todos' && p.status !== pendenciaFiltroStatus) return false;
+                    
+                    if (pendenciaFiltroAno !== 'todos') {
+                        const pAno = p.ano || (p.data_criacao ? new Date(p.data_criacao).getFullYear() : null);
+                        if (pAno && pAno !== parseInt(pendenciaFiltroAno)) return false;
+                    }
 
+                    if (pendenciaFiltroMes !== 'todos') {
+                        const pMes = p.mes || (p.data_criacao ? new Date(p.data_criacao).getMonth() + 1 : null);
+                        if (pMes && pMes !== parseInt(pendenciaFiltroMes)) return false;
+                    }
+
+                    if (pendenciaFiltroResp !== 'todos' && p.responsavel !== pendenciaFiltroResp) return false;
+
+                    if (pendenciaSearch.trim()) {
+                        const s = pendenciaSearch.toLowerCase();
+                        const matchDoc = (p.documento || '').toLowerCase().includes(s);
+                        const matchMot = (p.motivo || '').toLowerCase().includes(s);
+                        const matchCri = (p.criador || '').toLowerCase().includes(s);
+                        const matchRes = (p.responsavel || '').toLowerCase().includes(s);
+                        if (!matchDoc && !matchMot && !matchCri && !matchRes) return false;
+                    }
+
+                    return true;
+                });
+
+                const pendentesList = filteredPendencias.filter(p => p.status === 'pendente');
+                const corrigidosList = filteredPendencias.filter(p => p.status === 'corrigido');
+
+                const totalGeralPendentes = pendencias.filter(p => p.status === 'pendente').length;
+                const totalGeralCorrigidos = pendencias.filter(p => p.status === 'corrigido').length;
+
+                return (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                                
-                        {/* PENDENTES */}
-                        <div style={{ background: 'rgba(255, 193, 7, 0.05)', padding: '1.5rem', borderRadius: '8px', borderTop: '4px solid #FFC107' }}>
-                            <h3 style={{ margin: '0 0 1.5rem 0', color: '#FFC107' }}>Aguardando Correção</h3>
-                            {pendencias.filter(p => p.status === 'pendente').map(p => (
-                                <div key={p.id} style={{ background: 'rgba(0,0,0,0.3)', padding: '0.75rem 1rem', borderRadius: '6px', marginBottom: '0.5rem', borderLeft: '3px solid #FFC107', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-                                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                                        <strong style={{ color: '#fff', minWidth: '120px' }}>Doc: {p.documento}</strong>
-                                        <p style={{ margin: 0, color: '#ccc', fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '300px' }} title={p.motivo}>{p.motivo}</p>
+                        
+                        {/* BANNER DE INDICADORES DE PENDÊNCIAS */}
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                            gap: '1rem'
+                        }}>
+                            <div style={{
+                                background: 'linear-gradient(135deg, rgba(255, 193, 7, 0.12), rgba(30, 30, 35, 0.8))',
+                                border: '1px solid rgba(255, 193, 7, 0.3)',
+                                borderRadius: '10px',
+                                padding: '1rem 1.2rem',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between'
+                            }}>
+                                <div>
+                                    <div style={{ fontSize: '0.8rem', color: '#FFCA28', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                                        Aguardando Correção
                                     </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                                        <span style={{ fontSize: '0.8rem', color: '#aaa' }}>{new Date(p.data_criacao).toLocaleDateString()}</span>
-                                        <span style={{ fontSize: '0.8rem', color: '#888', background: 'rgba(255,255,255,0.1)', padding: '0.2rem 0.5rem', borderRadius: '4px', minWidth: '100px', textAlign: 'center' }}>🙋‍♂️ {p.responsavel}</span>
-                                        {(p.responsavel === userName || (['danilo', 'ryan.santos'].includes(userName))) ? (
-                                            <button onClick={() => setResolvingPendencia(p)} className="btn-secondary" style={{ padding: '0.3rem 0.8rem', fontSize: '0.85rem', borderColor: '#4CAF50', color: '#4CAF50' }}>Corrigir</button>
-                                        ) : <div style={{ width: '82px' }}></div>}
+                                    <div style={{ fontSize: '1.8rem', fontWeight: 'bold', color: '#fff', marginTop: '4px' }}>
+                                        {totalGeralPendentes}
                                     </div>
                                 </div>
-                            ))}
-                            {pendencias.filter(p => p.status === 'pendente').length === 0 && <p style={{ color: '#666', textAlign: 'center' }}>Nenhuma pendência aberta.</p>}
+                                <span style={{ fontSize: '2.2rem' }}>⚠️</span>
+                            </div>
+
+                            <div style={{
+                                background: 'linear-gradient(135deg, rgba(76, 175, 80, 0.12), rgba(30, 30, 35, 0.8))',
+                                border: '1px solid rgba(76, 175, 80, 0.3)',
+                                borderRadius: '10px',
+                                padding: '1rem 1.2rem',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between'
+                            }}>
+                                <div>
+                                    <div style={{ fontSize: '0.8rem', color: '#81C784', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                                        Documentos Corrigidos
+                                    </div>
+                                    <div style={{ fontSize: '1.8rem', fontWeight: 'bold', color: '#fff', marginTop: '4px' }}>
+                                        {totalGeralCorrigidos}
+                                    </div>
+                                </div>
+                                <span style={{ fontSize: '2.2rem' }}>✅</span>
+                            </div>
+
+                            <div style={{
+                                background: 'linear-gradient(135deg, rgba(33, 150, 243, 0.12), rgba(30, 30, 35, 0.8))',
+                                border: '1px solid rgba(33, 150, 243, 0.3)',
+                                borderRadius: '10px',
+                                padding: '1rem 1.2rem',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between'
+                            }}>
+                                <div>
+                                    <div style={{ fontSize: '0.8rem', color: '#90CAF9', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                                        Total Registrado
+                                    </div>
+                                    <div style={{ fontSize: '1.8rem', fontWeight: 'bold', color: '#fff', marginTop: '4px' }}>
+                                        {pendencias.length}
+                                    </div>
+                                </div>
+                                <span style={{ fontSize: '2.2rem' }}>📋</span>
+                            </div>
                         </div>
 
-                        {/* RESOLVIDOS */}
-                        <div style={{ background: 'rgba(76, 175, 80, 0.05)', padding: '1.5rem', borderRadius: '8px', borderTop: '4px solid #4CAF50' }}>
-                            <h3 style={{ margin: '0 0 1.5rem 0', color: '#4CAF50' }}>Corrigidos (Histórico)</h3>
-                            {pendencias.filter(p => p.status === 'corrigido').map(p => {
-                                let hist = [];
-                                try { hist = JSON.parse(p.historico); } catch(e){}
-                                const resolvidoHist = hist.find(h => h.action.startsWith('Resolvido'));
-                                return (
-                                    <div key={p.id} style={{ background: 'rgba(0,0,0,0.2)', padding: '0.75rem 1rem', borderRadius: '6px', marginBottom: '0.5rem', borderLeft: '3px solid #4CAF50', opacity: '0.8', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
-                                        <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                                            <strong style={{ color: '#ccc', textDecoration: 'line-through', minWidth: '120px' }}>Doc: {p.documento}</strong>
-                                            <div style={{ display: 'flex', flexDirection: 'column' }}>
-                                                <span style={{ color: '#888', fontSize: '0.8rem' }}>Erro: {p.motivo}</span>
-                                                <i style={{ color: '#aaa', fontSize: '0.85rem' }}>"{resolvidoHist?.action || 'Resolvido'}" - {resolvidoHist?.user}</i>
+                        {/* FORMULÁRIO DE ABERTURA / LOTE DE PENDÊNCIA */}
+                        <div style={{
+                            background: 'rgba(255, 255, 255, 0.03)',
+                            border: '1px solid rgba(255, 193, 7, 0.25)',
+                            borderRadius: '12px',
+                            padding: '1.5rem',
+                            boxShadow: '0 4px 20px rgba(0,0,0,0.3)'
+                        }}>
+                            <h3 style={{ margin: '0 0 1.2rem 0', color: '#FFCA28', fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span>➕</span> Registrar Novo Documento com Pendência
+                            </h3>
+
+                            <form onSubmit={handleAddPendencia} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', alignItems: 'flex-end' }}>
+                                <div>
+                                    <label style={{ display: 'block', marginBottom: '0.4rem', color: '#ccc', fontSize: '0.82rem', fontWeight: 'bold' }}>
+                                        📄 Nº Documento / Chave NF
+                                    </label>
+                                    <input 
+                                        name="doc" 
+                                        type="text" 
+                                        className="text-input" 
+                                        style={{ width: '100%', background: '#141418', border: '1px solid #444' }} 
+                                        placeholder="Ex: NFS 9 / NF 12345" 
+                                        required 
+                                    />
+                                </div>
+
+                                <div style={{ gridColumn: 'span 2', minWidth: '260px' }}>
+                                    <label style={{ display: 'block', marginBottom: '0.4rem', color: '#ccc', fontSize: '0.82rem', fontWeight: 'bold' }}>
+                                        ⚠️ Motivo do Retorno / Descrição do Erro
+                                    </label>
+                                    <input 
+                                        name="motivo" 
+                                        type="text" 
+                                        className="text-input" 
+                                        style={{ width: '100%', background: '#141418', border: '1px solid #444' }} 
+                                        placeholder="Ex: Tomar crédito PIS e COFINS / CFOP incorreto" 
+                                        required 
+                                    />
+                                </div>
+
+                                <div>
+                                    <label style={{ display: 'block', marginBottom: '0.4rem', color: '#ccc', fontSize: '0.82rem', fontWeight: 'bold' }}>
+                                        🙋‍♂️ Designar Correção Para:
+                                    </label>
+                                    <select 
+                                        name="responsavel" 
+                                        className="select-input" 
+                                        style={{ width: '100%', background: '#141418', border: '1px solid #444' }} 
+                                        required
+                                    >
+                                        <option value="">Selecione o responsável...</option>
+                                        {displayUsers.map(u => <option key={u.username} value={u.username}>{u.username}</option>)}
+                                    </select>
+                                </div>
+
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    <div style={{ flex: 1 }}>
+                                        <label style={{ display: 'block', marginBottom: '0.4rem', color: '#aaa', fontSize: '0.8rem' }}>Mês Ref.</label>
+                                        <select name="mesRef" defaultValue={selectedMes} className="select-input" style={{ width: '100%', background: '#141418', border: '1px solid #444' }}>
+                                            {Array.from({length: 12}, (_, i) => <option key={i+1} value={i+1}>{['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][i]}</option>)}
+                                        </select>
+                                    </div>
+                                    <div style={{ flex: 1 }}>
+                                        <label style={{ display: 'block', marginBottom: '0.4rem', color: '#aaa', fontSize: '0.8rem' }}>Ano</label>
+                                        <select name="anoRef" defaultValue={selectedAno} className="select-input" style={{ width: '100%', background: '#141418', border: '1px solid #444' }}>
+                                            {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <button 
+                                        type="submit" 
+                                        className="btn-primary" 
+                                        style={{ 
+                                            width: '100%', 
+                                            height: '40px', 
+                                            background: '#FFB300', 
+                                            color: '#000', 
+                                            fontWeight: 'bold', 
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '6px'
+                                        }}
+                                    >
+                                        <span>+</span> Abrir Pendência
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+
+                        {/* BARRA DE FILTROS AVANÇADOS */}
+                        <div style={{
+                            background: 'rgba(0, 0, 0, 0.3)',
+                            border: '1px solid rgba(255, 255, 255, 0.08)',
+                            borderRadius: '10px',
+                            padding: '1rem 1.2rem',
+                            display: 'flex',
+                            gap: '1rem',
+                            flexWrap: 'wrap',
+                            alignItems: 'center',
+                            justifyContent: 'space-between'
+                        }}>
+                            {/* Abas Rápidas de Status */}
+                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                <button
+                                    onClick={() => setPendenciaFiltroStatus('todos')}
+                                    style={{
+                                        padding: '0.4rem 0.9rem',
+                                        borderRadius: '6px',
+                                        border: 'none',
+                                        background: pendenciaFiltroStatus === 'todos' ? '#3F51B5' : 'rgba(255,255,255,0.06)',
+                                        color: pendenciaFiltroStatus === 'todos' ? '#fff' : '#aaa',
+                                        cursor: 'pointer',
+                                        fontSize: '0.82rem',
+                                        fontWeight: pendenciaFiltroStatus === 'todos' ? 'bold' : 'normal'
+                                    }}
+                                >
+                                    Todas ({filteredPendencias.length})
+                                </button>
+                                <button
+                                    onClick={() => setPendenciaFiltroStatus('pendente')}
+                                    style={{
+                                        padding: '0.4rem 0.9rem',
+                                        borderRadius: '6px',
+                                        border: 'none',
+                                        background: pendenciaFiltroStatus === 'pendente' ? '#FFB300' : 'rgba(255,255,255,0.06)',
+                                        color: pendenciaFiltroStatus === 'pendente' ? '#000' : '#aaa',
+                                        cursor: 'pointer',
+                                        fontSize: '0.82rem',
+                                        fontWeight: pendenciaFiltroStatus === 'pendente' ? 'bold' : 'normal'
+                                    }}
+                                >
+                                    🟡 Aguardando ({pendentesList.length})
+                                </button>
+                                <button
+                                    onClick={() => setPendenciaFiltroStatus('corrigido')}
+                                    style={{
+                                        padding: '0.4rem 0.9rem',
+                                        borderRadius: '6px',
+                                        border: 'none',
+                                        background: pendenciaFiltroStatus === 'corrigido' ? '#4CAF50' : 'rgba(255,255,255,0.06)',
+                                        color: pendenciaFiltroStatus === 'corrigido' ? '#fff' : '#aaa',
+                                        cursor: 'pointer',
+                                        fontSize: '0.82rem',
+                                        fontWeight: pendenciaFiltroStatus === 'corrigido' ? 'bold' : 'normal'
+                                    }}
+                                >
+                                    🟢 Corrigidas ({corrigidosList.length})
+                                </button>
+                            </div>
+
+                            {/* Filtros de Mês, Ano e Responsável */}
+                            <div style={{ display: 'flex', gap: '0.8rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                                <div>
+                                    <select
+                                        value={pendenciaFiltroMes}
+                                        onChange={(e) => setPendenciaFiltroMes(e.target.value)}
+                                        className="select-input"
+                                        style={{ fontSize: '0.82rem', padding: '0.35rem 0.6rem' }}
+                                    >
+                                        <option value="todos">Todos os Meses</option>
+                                        {Array.from({length: 12}, (_, i) => <option key={i+1} value={i+1}>{['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][i]}</option>)}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <select
+                                        value={pendenciaFiltroAno}
+                                        onChange={(e) => setPendenciaFiltroAno(e.target.value)}
+                                        className="select-input"
+                                        style={{ fontSize: '0.82rem', padding: '0.35rem 0.6rem' }}
+                                    >
+                                        <option value="todos">Todos os Anos</option>
+                                        {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <select
+                                        value={pendenciaFiltroResp}
+                                        onChange={(e) => setPendenciaFiltroResp(e.target.value)}
+                                        className="select-input"
+                                        style={{ fontSize: '0.82rem', padding: '0.35rem 0.6rem' }}
+                                    >
+                                        <option value="todos">Todos Responsáveis</option>
+                                        {displayUsers.map(u => <option key={u.username} value={u.username}>{u.username}</option>)}
+                                    </select>
+                                </div>
+
+                                {/* Campo de Busca */}
+                                <div style={{ minWidth: '180px' }}>
+                                    <input
+                                        type="text"
+                                        placeholder="🔍 Pesquisar documento..."
+                                        value={pendenciaSearch}
+                                        onChange={(e) => setPendenciaSearch(e.target.value)}
+                                        style={{
+                                            padding: '0.35rem 0.7rem',
+                                            borderRadius: '6px',
+                                            background: '#121216',
+                                            border: '1px solid #444',
+                                            color: '#fff',
+                                            fontSize: '0.82rem',
+                                            width: '100%'
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* LISTAGEM DE PENDÊNCIAS */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                            
+                            {/* PENDENTES */}
+                            {(pendenciaFiltroStatus === 'todos' || pendenciaFiltroStatus === 'pendente') && (
+                                <div style={{ background: 'rgba(255, 193, 7, 0.04)', padding: '1.5rem', borderRadius: '10px', borderTop: '4px solid #FFC107' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
+                                        <h3 style={{ margin: 0, color: '#FFC107', fontSize: '1.15rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <span>🟡</span> Aguardando Correção ({pendentesList.length})
+                                        </h3>
+                                        <span style={{ fontSize: '0.8rem', color: '#aaa' }}>Documentos retornados aguardando ajuste contábil</span>
+                                    </div>
+
+                                    {pendentesList.length === 0 ? (
+                                        <p style={{ color: '#666', textAlign: 'center', padding: '1.5rem 0' }}>Nenhuma pendência aberta com os filtros selecionados.</p>
+                                    ) : (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+                                            {pendentesList.map(p => {
+                                                const canEditDel = canEditOrDeletePendencia(p);
+                                                const canResolve = canResolvePendencia(p);
+                                                const dataFormatada = p.data_criacao ? new Date(p.data_criacao).toLocaleDateString('pt-BR') : '-';
+
+                                                return (
+                                                    <div 
+                                                        key={p.id} 
+                                                        style={{ 
+                                                            background: 'rgba(0,0,0,0.4)', 
+                                                            padding: '1rem 1.2rem', 
+                                                            borderRadius: '8px', 
+                                                            borderLeft: '4px solid #FFC107', 
+                                                            display: 'flex', 
+                                                            alignItems: 'center', 
+                                                            justifyContent: 'space-between', 
+                                                            gap: '1rem',
+                                                            flexWrap: 'wrap',
+                                                            transition: 'background 0.2s'
+                                                        }}
+                                                    >
+                                                        <div style={{ flex: '1 1 350px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                                                                <strong style={{ color: '#fff', fontSize: '1rem' }}>📄 Doc: {p.documento}</strong>
+                                                                {p.mes && (
+                                                                    <span style={{ background: 'rgba(255,255,255,0.08)', color: '#bbb', fontSize: '0.75rem', padding: '2px 8px', borderRadius: '4px' }}>
+                                                                        Ref: {p.mes}/{p.ano}
+                                                                    </span>
+                                                                )}
+                                                                <span style={{ color: '#aaa', fontSize: '0.8rem' }}>📅 {dataFormatada}</span>
+                                                            </div>
+                                                            <div style={{ color: '#FFE082', fontSize: '0.9rem', marginTop: '2px' }}>
+                                                                <b>Motivo:</b> {p.motivo}
+                                                            </div>
+                                                            <div style={{ display: 'flex', gap: '12px', fontSize: '0.8rem', color: '#888', marginTop: '2px' }}>
+                                                                <span>👤 Emitido por: <b style={{ color: '#ccc' }}>{p.criador || 'Sistema'}</b></span>
+                                                                <span>🙋‍♂️ Responsável: <b style={{ color: '#64B5F6' }}>{p.responsavel}</b></span>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Botões de Ação */}
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                            {canResolve && (
+                                                                <button 
+                                                                    onClick={() => setResolvingPendencia(p)} 
+                                                                    className="btn-primary" 
+                                                                    style={{ 
+                                                                        padding: '0.4rem 0.9rem', 
+                                                                        fontSize: '0.85rem', 
+                                                                        background: '#4CAF50', 
+                                                                        border: 'none', 
+                                                                        color: '#fff',
+                                                                        cursor: 'pointer',
+                                                                        fontWeight: 'bold',
+                                                                        display: 'flex',
+                                                                        alignItems: 'center',
+                                                                        gap: '4px'
+                                                                    }}
+                                                                >
+                                                                    ✓ Corrigir
+                                                                </button>
+                                                            )}
+
+                                                            {canEditDel && (
+                                                                <>
+                                                                    <button 
+                                                                        onClick={() => setEditingPendencia(p)} 
+                                                                        className="btn-secondary" 
+                                                                        style={{ 
+                                                                            padding: '0.4rem 0.8rem', 
+                                                                            fontSize: '0.82rem', 
+                                                                            borderColor: '#2196F3', 
+                                                                            color: '#64B5F6',
+                                                                            cursor: 'pointer'
+                                                                        }}
+                                                                        title="Editar pendência"
+                                                                    >
+                                                                        ✏️ Alterar
+                                                                    </button>
+
+                                                                    <button 
+                                                                        onClick={() => handleDeletePendencia(p)} 
+                                                                        className="btn-secondary" 
+                                                                        style={{ 
+                                                                            padding: '0.4rem 0.8rem', 
+                                                                            fontSize: '0.82rem', 
+                                                                            borderColor: '#F44336', 
+                                                                            color: '#FF8A80',
+                                                                            cursor: 'pointer'
+                                                                        }}
+                                                                        title="Excluir pendência"
+                                                                    >
+                                                                        🗑️ Excluir
+                                                                    </button>
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* HISTÓRICO DE CORRIGIDOS */}
+                            {(pendenciaFiltroStatus === 'todos' || pendenciaFiltroStatus === 'corrigido') && (
+                                <div style={{ background: 'rgba(76, 175, 80, 0.04)', padding: '1.5rem', borderRadius: '10px', borderTop: '4px solid #4CAF50' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem' }}>
+                                        <h3 style={{ margin: 0, color: '#4CAF50', fontSize: '1.15rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <span>🟢</span> Corrigidos (Histórico de Resolução) ({corrigidosList.length})
+                                        </h3>
+                                        <span style={{ fontSize: '0.8rem', color: '#aaa' }}>Documentos ajustados e integrados com sucesso</span>
+                                    </div>
+
+                                    {corrigidosList.length === 0 ? (
+                                        <p style={{ color: '#666', textAlign: 'center', padding: '1.5rem 0' }}>Nenhum histórico corrigido no período filtrado.</p>
+                                    ) : (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+                                            {corrigidosList.map(p => {
+                                                let hist = [];
+                                                try { hist = JSON.parse(p.historico); } catch(err){}
+                                                const resolvidoHist = hist.find(h => (h.action || '').startsWith('Resolvido'));
+                                                const dataCriacao = p.data_criacao ? new Date(p.data_criacao).toLocaleDateString('pt-BR') : '-';
+                                                const dataCorrecao = p.data_correcao ? new Date(p.data_correcao).toLocaleDateString('pt-BR') : '-';
+                                                const canEditDel = canEditOrDeletePendencia(p);
+
+                                                return (
+                                                    <div 
+                                                        key={p.id} 
+                                                        style={{ 
+                                                            background: 'rgba(0,0,0,0.3)', 
+                                                            padding: '1rem 1.2rem', 
+                                                            borderRadius: '8px', 
+                                                            borderLeft: '4px solid #4CAF50', 
+                                                            display: 'flex', 
+                                                            alignItems: 'center', 
+                                                            justifyContent: 'space-between', 
+                                                            gap: '1rem',
+                                                            flexWrap: 'wrap'
+                                                        }}
+                                                    >
+                                                        <div style={{ flex: '1 1 350px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                                                                <strong style={{ color: '#ccc', textDecoration: 'line-through', fontSize: '0.95rem' }}>📄 Doc: {p.documento}</strong>
+                                                                <span style={{ background: 'rgba(76, 175, 80, 0.15)', color: '#81C784', fontSize: '0.75rem', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
+                                                                    ✓ Corrigido em {dataCorrecao}
+                                                                </span>
+                                                            </div>
+                                                            <div style={{ color: '#aaa', fontSize: '0.85rem' }}>
+                                                                <b>Erro original:</b> {p.motivo}
+                                                            </div>
+                                                            <div style={{ color: '#81C784', fontSize: '0.88rem', fontStyle: 'italic', marginTop: '2px' }}>
+                                                                "{resolvidoHist?.action || 'Ajustado'}" — por <b>{resolvidoHist?.user || p.responsavel}</b>
+                                                            </div>
+                                                            <div style={{ fontSize: '0.75rem', color: '#777', marginTop: '2px' }}>
+                                                                Criado por {p.criador || 'Sistema'} em {dataCriacao}
+                                                            </div>
+                                                        </div>
+
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                            {canEditDel && (
+                                                                <>
+                                                                    <button 
+                                                                        onClick={() => handleReopenPendencia(p)} 
+                                                                        className="btn-secondary" 
+                                                                        style={{ 
+                                                                            padding: '0.35rem 0.7rem', 
+                                                                            fontSize: '0.8rem', 
+                                                                            borderColor: '#FFCA28', 
+                                                                            color: '#FFCA28',
+                                                                            cursor: 'pointer'
+                                                                        }}
+                                                                        title="Reabrir pendência para nova correção"
+                                                                    >
+                                                                        🔄 Reabrir
+                                                                    </button>
+
+                                                                    <button 
+                                                                        onClick={() => handleDeletePendencia(p)} 
+                                                                        className="btn-secondary" 
+                                                                        style={{ 
+                                                                            padding: '0.35rem 0.7rem', 
+                                                                            fontSize: '0.8rem', 
+                                                                            borderColor: '#F44336', 
+                                                                            color: '#FF8A80',
+                                                                            cursor: 'pointer'
+                                                                        }}
+                                                                        title="Excluir pendência"
+                                                                    >
+                                                                        🗑️
+                                                                    </button>
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                        </div>
+
+                        {/* MODAL DE EDIÇÃO DE PENDÊNCIA */}
+                        {editingPendencia && (
+                            <div style={{
+                                position: 'fixed',
+                                top: 0, left: 0, right: 0, bottom: 0,
+                                background: 'rgba(0, 0, 0, 0.85)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                zIndex: 9999,
+                                padding: '1.5rem'
+                            }}>
+                                <div style={{
+                                    background: '#1e1e24',
+                                    border: '1px solid #2196F3',
+                                    borderRadius: '12px',
+                                    width: '100%',
+                                    maxWidth: '550px',
+                                    boxShadow: '0 20px 60px rgba(0, 0, 0, 0.7)',
+                                    overflow: 'hidden'
+                                }}>
+                                    <div style={{
+                                        padding: '1.2rem 1.5rem',
+                                        borderBottom: '1px solid rgba(255,255,255,0.1)',
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        background: 'rgba(33, 150, 243, 0.15)'
+                                    }}>
+                                        <h3 style={{ margin: 0, color: '#fff', fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <span>✏️</span> Alterar Pendência
+                                        </h3>
+                                        <button
+                                            onClick={() => setEditingPendencia(null)}
+                                            style={{
+                                                background: 'rgba(255,255,255,0.1)',
+                                                border: 'none',
+                                                color: '#fff',
+                                                borderRadius: '50%',
+                                                width: '28px',
+                                                height: '28px',
+                                                cursor: 'pointer',
+                                                fontSize: '1rem',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center'
+                                            }}
+                                        >
+                                            ✕
+                                        </button>
+                                    </div>
+
+                                    <form onSubmit={handleSaveEditPendencia} style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+                                        <div>
+                                            <label style={{ display: 'block', marginBottom: '0.4rem', color: '#ccc', fontSize: '0.85rem' }}>Nº Documento / Chave NF</label>
+                                            <input 
+                                                name="editDoc" 
+                                                defaultValue={editingPendencia.documento} 
+                                                type="text" 
+                                                className="text-input" 
+                                                style={{ width: '100%', background: '#121216', border: '1px solid #444' }} 
+                                                required 
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label style={{ display: 'block', marginBottom: '0.4rem', color: '#ccc', fontSize: '0.85rem' }}>Motivo do Retorno / Descrição do Erro</label>
+                                            <textarea 
+                                                name="editMotivo" 
+                                                defaultValue={editingPendencia.motivo} 
+                                                rows="3" 
+                                                className="text-input" 
+                                                style={{ width: '100%', background: '#121216', border: '1px solid #444', resize: 'vertical' }} 
+                                                required 
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label style={{ display: 'block', marginBottom: '0.4rem', color: '#ccc', fontSize: '0.85rem' }}>Responsável Designado</label>
+                                            <select 
+                                                name="editResp" 
+                                                defaultValue={editingPendencia.responsavel} 
+                                                className="select-input" 
+                                                style={{ width: '100%', background: '#121216', border: '1px solid #444' }} 
+                                                required
+                                            >
+                                                {displayUsers.map(u => <option key={u.username} value={u.username}>{u.username}</option>)}
+                                            </select>
+                                        </div>
+
+                                        <div style={{ display: 'flex', gap: '1rem' }}>
+                                            <div style={{ flex: 1 }}>
+                                                <label style={{ display: 'block', marginBottom: '0.4rem', color: '#ccc', fontSize: '0.85rem' }}>Mês de Referência</label>
+                                                <select 
+                                                    name="editMes" 
+                                                    defaultValue={editingPendencia.mes || selectedMes} 
+                                                    className="select-input" 
+                                                    style={{ width: '100%', background: '#121216', border: '1px solid #444' }}
+                                                >
+                                                    {Array.from({length: 12}, (_, i) => <option key={i+1} value={i+1}>{['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][i]}</option>)}
+                                                </select>
+                                            </div>
+                                            <div style={{ flex: 1 }}>
+                                                <label style={{ display: 'block', marginBottom: '0.4rem', color: '#ccc', fontSize: '0.85rem' }}>Ano</label>
+                                                <select 
+                                                    name="editAno" 
+                                                    defaultValue={editingPendencia.ano || selectedAno} 
+                                                    className="select-input" 
+                                                    style={{ width: '100%', background: '#121216', border: '1px solid #444' }}
+                                                >
+                                                    {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+                                                </select>
                                             </div>
                                         </div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                                            <span style={{ fontSize: '0.8rem', color: '#81C784', minWidth: '82px', textAlign: 'right' }}>✓ Corrigido</span>
+
+                                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '0.5rem' }}>
+                                            <button 
+                                                type="button" 
+                                                onClick={() => setEditingPendencia(null)} 
+                                                className="btn-secondary"
+                                            >
+                                                Cancelar
+                                            </button>
+                                            <button 
+                                                type="submit" 
+                                                className="btn-primary" 
+                                                style={{ background: '#2196F3', border: 'none', color: '#fff', fontWeight: 'bold' }}
+                                            >
+                                                Salvar Alterações
+                                            </button>
                                         </div>
-                                    </div>
-                                );
-                            })}
-                            {pendencias.filter(p => p.status === 'corrigido').length === 0 && <p style={{ color: '#666', textAlign: 'center' }}>Nenhum histórico recente.</p>}
-                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        )}
+
                     </div>
-                </div>
-            )}
+                );
+            })()}
 
             {activeTab === 'variacao' && (
                 <div style={{ background: 'rgba(0,0,0,0.2)', padding: '1.5rem', borderRadius: '8px', border: '1px solid #333' }}>
