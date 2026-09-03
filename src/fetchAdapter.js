@@ -9,7 +9,12 @@ window.fetch = async (...args) => {
   if (url.startsWith("/api/")) {
     // Intercept GET requests
     if (!config || !config.method || config.method === "GET") {
-      if (url.includes("/agf_users")) {
+      if (url.includes("/agf_users") || url.includes("/settings/agf_users")) {
+        const { data: setRow } = await supabase.from("settings").select("value").eq("key", "agf_users").single();
+        if (setRow && setRow.value) {
+          const parsed = typeof setRow.value === "string" ? JSON.parse(setRow.value) : setRow.value;
+          return { ok: true, json: async () => parsed || [] };
+        }
         const { data } = await supabase.from("agf_users").select("*");
         return { ok: true, json: async () => data || [] };
       }
@@ -63,6 +68,10 @@ window.fetch = async (...args) => {
       }
       if (url.includes("/settings/agf_tax_store")) {
         await supabase.from("settings").upsert({ key: "agf_tax_store", value: JSON.stringify(body.value || body) });
+        return { ok: true, json: async () => ({ success: true }) };
+      }
+      if (url.includes("/agf_users") || url.includes("/settings/agf_users")) {
+        await supabase.from("settings").upsert({ key: "agf_users", value: JSON.stringify(body.value || body) });
         return { ok: true, json: async () => ({ success: true }) };
       }
     }

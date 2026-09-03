@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from 'react';
 import RelatoriosContabeis from './RelatoriosContabeis';
-import { getRawRecords } from '../utils/db';
+import { getRawRecords, getSettings } from '../utils/db';
 
 function GestaoContabilModule({ userRole, userName, companies }) {
     const [activeTab, setActiveTab] = useState('integracoes');
@@ -28,10 +27,23 @@ function GestaoContabilModule({ userRole, userName, companies }) {
         setIsProcessing(true);
         try {
             // Load Users
-            const uRes = await fetch(`/api/settings/agf_users`);
-            if (uRes.ok) {
-                const uData = await uRes.json();
-                setUsers(uData || []);
+            try {
+                const storedUsers = await getSettings('agf_users');
+                if (storedUsers && Array.isArray(storedUsers) && storedUsers.length > 0) {
+                    setUsers(storedUsers);
+                } else {
+                    const uRes = await fetch(`/api/settings/agf_users`);
+                    if (uRes.ok) {
+                        const uData = await uRes.json();
+                        setUsers(uData || []);
+                    }
+                }
+            } catch (err) {
+                const uRes = await fetch(`/api/settings/agf_users`);
+                if (uRes.ok) {
+                    const uData = await uRes.json();
+                    setUsers(uData || []);
+                }
             }
 
             // Load Integrações
@@ -338,15 +350,23 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                         disabled={!canEditResp}
                     >
                         <option value="">Selecione...</option>
-                        {contabilUsers.map(u => <option key={u.username} value={u.username}>{u.username}</option>)}
+                        {displayUsers.map(u => <option key={u.username} value={u.username}>{u.username}</option>)}
                     </select>
                 </td>
             </tr>
         );
     };
-    const contabilUsers = users
-        .filter(u => (['danilo', 'ryan.santos'].includes(u.username)) || (u.permissions && u.permissions.includes('contabil')))
-        .sort((a, b) => a.username.localeCompare(b.username));
+    const contabilUsers = (users && users.length > 0)
+        ? users
+            .filter(u => 
+                (['danilo', 'ryan.santos'].includes(u.username)) || 
+                u.role === 'superadmin' || 
+                u.role === 'admin' || 
+                (u.permissions && u.permissions.includes('contabil'))
+            )
+            .sort((a, b) => (a.username || '').localeCompare(b.username || ''))
+        : [];
+    const displayUsers = contabilUsers.length > 0 ? contabilUsers : (users || []);
 
     return (
         <div className="glass-panel" style={{ padding: '2rem', marginTop: '1rem' }}>
@@ -427,7 +447,7 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                             <label style={{ display: 'block', marginBottom: '0.5rem', color: '#aaa', fontSize: '0.85rem' }}>Designar Correção Para:</label>
                             <select name="responsavel" className="select-input" style={{ width: '100%' }} required>
                                 <option value="">Selecione...</option>
-                                {contabilUsers.map(u => <option key={u.username} value={u.username}>{u.username}</option>)}
+                                {displayUsers.map(u => <option key={u.username} value={u.username}>{u.username}</option>)}
                             </select>
                         </div>
                         <button type="submit" className="btn-primary" style={{ height: '40px' }}>+ Abrir Pendência</button>

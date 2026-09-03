@@ -6,6 +6,9 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
   const [loading, setLoading] = useState(true);
   const [dataAtual, setDataAtual] = useState({ dre: [], balanco: [] });
   const [dataAnterior, setDataAnterior] = useState({ dre: [], balanco: [] });
+  const [showDebtModal, setShowDebtModal] = useState(false);
+  const [debtFilter, setDebtFilter] = useState('todos');
+  const [debtSearch, setDebtSearch] = useState('');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -300,6 +303,110 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
     );
   };
 
+  // --- CÁLCULO DE ENDIVIDAMENTO (NACIONAL 2.1.1.2.02 / ESTRANGEIRO 2.1.1.2.03 - PRINCIPAL + ENCARGOS) ---
+  const isDebtEncargo = (desc) => {
+    const d = (desc || '').toLowerCase();
+    return d.includes('encargo') || d.includes('enc ') || d.includes('transcorrer') || d.includes('apropriar') || d.startsWith('(-)') || d.startsWith('( - )');
+  };
+  const isDebtCP = (conta) => conta.startsWith('2.1.1.2') || conta.startsWith('2.1.1.3') || conta.startsWith('2.1.2');
+  const isDebtLP = (conta) => conta.startsWith('2.3.1.1') || conta.startsWith('2.2.1');
+  const isDebtEstrangeiro = (conta) => conta.startsWith('2.1.1.2.03') || conta.startsWith('2.3.1.1.03') || conta.startsWith('2.2.1.1.03');
+
+  let nacCPPrincipal = 0; let nacCPEncargos = 0;
+  let nacLPPrincipal = 0; let nacLPEncargos = 0;
+  let estCPPrincipal = 0; let estCPEncargos = 0;
+  let estLPPrincipal = 0; let estLPEncargos = 0;
+  const debtAccounts = [];
+
+  (dataAtual.balanco || []).forEach(r => {
+    if (!inPeriod(r.mes)) return;
+    const isCp = isDebtCP(r.conta);
+    const isLp = isDebtLP(r.conta);
+    if (!isCp && !isLp) return;
+
+    const val = Math.abs(r.saldoAcumulado || 0);
+    const enc = isDebtEncargo(r.descricao);
+    const est = isDebtEstrangeiro(r.conta);
+
+    if (isCp) {
+      if (est) {
+        if (enc) estCPEncargos += val; else estCPPrincipal += val;
+      } else {
+        if (enc) nacCPEncargos += val; else nacCPPrincipal += val;
+      }
+    } else if (isLp) {
+      if (est) {
+        if (enc) estLPEncargos += val; else estLPPrincipal += val;
+      } else {
+        if (enc) nacLPEncargos += val; else nacLPPrincipal += val;
+      }
+    }
+
+    debtAccounts.push({
+      ...r,
+      origem: est ? 'Estrangeiro (FINIMP)' : 'Nacional',
+      origemKey: est ? 'estrangeiro' : 'nacional',
+      prazo: isCp ? 'Curto Prazo' : 'Longo Prazo',
+      tipo: enc ? 'Encargos a Transcorrer' : 'Principal',
+      categoria: `${est ? 'est' : 'nac'}_${isCp ? 'cp' : 'lp'}_${enc ? 'enc' : 'prin'}`,
+      valor: val,
+      isEncargo: enc
+    });
+  });
+
+  // Totais por Origem
+  const nacCPLiquido = nacCPPrincipal - nacCPEncargos;
+  const nacLPLiquido = nacLPPrincipal - nacLPEncargos;
+  const nacTotalLiquido = nacCPLiquido + nacLPLiquido;
+
+  const estCPLiquido = estCPPrincipal - estCPEncargos;
+  const estLPLiquido = estLPPrincipal - estLPEncargos;
+  const estTotalLiquido = estCPLiquido + estLPLiquido;
+
+  // Totais Gerais
+  const debtCPPrincipal = nacCPPrincipal + estCPPrincipal;
+  const debtCPEncargos = nacCPEncargos + estCPEncargos;
+  const debtCPLiquido = debtCPPrincipal - debtCPEncargos;
+
+  const debtLPPrincipal = nacLPPrincipal + estLPPrincipal;
+  const debtLPEncargos = nacLPEncargos + estLPEncargos;
+  const debtLPLiquido = debtLPPrincipal - debtLPEncargos;
+
+  const debtTotalPrincipal = debtCPPrincipal + debtLPPrincipal;
+  const debtTotalEncargos = debtCPEncargos + debtLPEncargos;
+  const debtTotalLiquido = debtCPLiquido + debtLPLiquido;
+
+  const caixaTotal = extractMetric(dataAtual.balanco, '1.1.1.1') + extractMetric(dataAtual.balanco, '1.1.1.2');
+  const dividaLiquidaCaixa = debtTotalLiquido - caixaTotal;
+
+  const pctDebtNac = debtTotalLiquido > 0 ? (nacTotalLiquido / debtTotalLiquido) * 100 : 0;
+  const pctDebtEst = debtTotalLiquido > 0 ? (estTotalLiquido / debtTotalLiquido) * 100 : 0;
+
+  // Filtragem para o Modal de Detalhamento
+  const filteredDebtAccounts = debtAccounts.filter(acc => {
+    if (debtFilter === 'nacional' && acc.origemKey !== 'nacional') return false;
+    if (debtFilter === 'estrangeiro' && acc.origemKey !== 'estrangeiro') return false;
+    if (debtFilter === 'nac_cp' && (acc.origemKey !== 'nacional' || acc.prazo !== 'Curto Prazo')) return false;
+    if (debtFilter === 'nac_lp' && (acc.origemKey !== 'nacional' || acc.prazo !== 'Longo Prazo')) return false;
+    if (debtFilter === 'est_cp' && (acc.origemKey !== 'estrangeiro' || acc.prazo !== 'Curto Prazo')) return false;
+    if (debtFilter === 'est_lp' && (acc.origemKey !== 'estrangeiro' || acc.prazo !== 'Longo Prazo')) return false;
+    if (debtFilter === 'cp_prin' && (acc.prazo !== 'Curto Prazo' || acc.isEncargo)) return false;
+    if (debtFilter === 'cp_enc' && (acc.prazo !== 'Curto Prazo' || !acc.isEncargo)) return false;
+    if (debtFilter === 'lp_prin' && (acc.prazo !== 'Longo Prazo' || acc.isEncargo)) return false;
+    if (debtFilter === 'lp_enc' && (acc.prazo !== 'Longo Prazo' || !acc.isEncargo)) return false;
+
+    if (debtSearch.trim()) {
+      const s = debtSearch.toLowerCase();
+      const matchDesc = (acc.descricao || '').toLowerCase().includes(s);
+      const matchConta = (acc.conta || '').toLowerCase().includes(s);
+      const matchEmp = (acc.empresaId || '').toLowerCase().includes(s);
+      if (!matchDesc && !matchConta && !matchEmp) return false;
+    }
+    return true;
+  });
+
+  const filteredDebtTotal = filteredDebtAccounts.reduce((sum, r) => sum + (r.isEncargo ? -r.valor : r.valor), 0);
+
   return (
     <div className="dashboard-view" style={{ paddingBottom: '2rem' }}>
 
@@ -461,6 +568,469 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
 
         </div>
       </div>
+
+      {/* PAINEL DE ENDIVIDAMENTO & FINANCIAMENTOS (NACIONAL VS ESTRANGEIRO) */}
+      <div className="glass-panel" style={{ 
+        padding: '1.5rem', 
+        marginBottom: '2rem', 
+        borderLeft: '4px solid #3F51B5',
+        background: 'linear-gradient(135deg, rgba(63, 81, 181, 0.08), rgba(20, 20, 25, 0.7))'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem', flexWrap: 'wrap', gap: '0.8rem' }}>
+          <div>
+            <h3 style={{ margin: 0, color: '#fff', fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ fontSize: '1.5rem' }}>🏛️</span> Endividamento & Financiamentos ({periodLabel})
+            </h3>
+            <p style={{ margin: '0.3rem 0 0 0', color: '#aaa', fontSize: '0.85rem' }}>
+              Segregação por Origem: <b>Moeda Nacional (2.1.1.2.02 / 2.3.1.1.02)</b> vs. <b>Estrangeira / FINIMP (2.1.1.2.03 / 2.3.1.1.03)</b> (Principal + Encargos).
+            </p>
+          </div>
+          <button
+            onClick={() => setShowDebtModal(true)}
+            style={{
+              background: '#3F51B5',
+              color: '#fff',
+              border: 'none',
+              padding: '0.6rem 1.2rem',
+              borderRadius: '8px',
+              fontWeight: 'bold',
+              fontSize: '0.9rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              boxShadow: '0 4px 12px rgba(63, 81, 181, 0.3)',
+              transition: 'background 0.2s'
+            }}
+          >
+            <span>🔍</span> Detalhar Contas ({debtAccounts.length})
+          </button>
+        </div>
+
+        {/* Grid dos 3 Cards de Endividamento */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.2rem' }}>
+          
+          {/* Card 1: Moeda Nacional */}
+          <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(76, 175, 80, 0.3)', padding: '1.2rem', borderRadius: '10px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
+              <span style={{ fontSize: '0.85rem', color: '#81C784', textTransform: 'uppercase', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span>🇧🇷</span> Moeda Nacional (2.1.1.2.02 / 2.3.1.1.02)
+              </span>
+              <span style={{ background: 'rgba(76, 175, 80, 0.15)', color: '#81C784', fontSize: '0.75rem', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
+                {pctDebtNac.toFixed(1)}% do Total
+              </span>
+            </div>
+
+            <div style={{ marginBottom: '0.6rem', paddingBottom: '0.5rem', borderBottom: '1px dashed rgba(255,255,255,0.1)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: '#ccc' }}>
+                <span>Curto Prazo:</span>
+                <span style={{ color: '#fff' }}>Prin: {formatCurrency(nacCPPrincipal)} | Enc: -{formatCurrency(nacCPEncargos)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 'bold', marginTop: '2px' }}>
+                <span style={{ color: '#90CAF9' }}>Líquido CP:</span>
+                <span style={{ color: '#90CAF9' }}>{formatCurrency(nacCPLiquido)}</span>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '0.6rem', paddingBottom: '0.5rem', borderBottom: '1px dashed rgba(255,255,255,0.1)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: '#ccc' }}>
+                <span>Longo Prazo:</span>
+                <span style={{ color: '#fff' }}>Prin: {formatCurrency(nacLPPrincipal)} | Enc: -{formatCurrency(nacLPEncargos)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 'bold', marginTop: '2px' }}>
+                <span style={{ color: '#CE93D8' }}>Líquido LP:</span>
+                <span style={{ color: '#CE93D8' }}>{formatCurrency(nacLPLiquido)}</span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.4rem' }}>
+              <span style={{ color: '#aaa', fontSize: '0.85rem' }}>Total Nacional:</span>
+              <strong style={{ color: '#81C784', fontSize: '1.1rem' }}>{formatCurrency(nacTotalLiquido)}</strong>
+            </div>
+          </div>
+
+          {/* Card 2: Moeda Estrangeira (FINIMP) */}
+          <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(33, 150, 243, 0.3)', padding: '1.2rem', borderRadius: '10px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
+              <span style={{ fontSize: '0.85rem', color: '#64B5F6', textTransform: 'uppercase', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span>🌎</span> Moeda Estrangeira (2.1.1.2.03 / 2.3.1.1.03)
+              </span>
+              <span style={{ background: 'rgba(33, 150, 243, 0.15)', color: '#64B5F6', fontSize: '0.75rem', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
+                {pctDebtEst.toFixed(1)}% do Total
+              </span>
+            </div>
+
+            <div style={{ marginBottom: '0.6rem', paddingBottom: '0.5rem', borderBottom: '1px dashed rgba(255,255,255,0.1)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: '#ccc' }}>
+                <span>Curto Prazo:</span>
+                <span style={{ color: '#fff' }}>Prin: {formatCurrency(estCPPrincipal)} | Enc: -{formatCurrency(estCPEncargos)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 'bold', marginTop: '2px' }}>
+                <span style={{ color: '#90CAF9' }}>Líquido CP:</span>
+                <span style={{ color: '#90CAF9' }}>{formatCurrency(estCPLiquido)}</span>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '0.6rem', paddingBottom: '0.5rem', borderBottom: '1px dashed rgba(255,255,255,0.1)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: '#ccc' }}>
+                <span>Longo Prazo:</span>
+                <span style={{ color: '#fff' }}>Prin: {formatCurrency(estLPPrincipal)} | Enc: -{formatCurrency(estLPEncargos)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 'bold', marginTop: '2px' }}>
+                <span style={{ color: '#CE93D8' }}>Líquido LP:</span>
+                <span style={{ color: '#CE93D8' }}>{formatCurrency(estLPLiquido)}</span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.4rem' }}>
+              <span style={{ color: '#aaa', fontSize: '0.85rem' }}>Total Estrangeiro:</span>
+              <strong style={{ color: '#64B5F6', fontSize: '1.1rem' }}>{formatCurrency(estTotalLiquido)}</strong>
+            </div>
+          </div>
+
+          {/* Card 3: Posição Total & Caixa */}
+          <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255, 193, 7, 0.3)', padding: '1.2rem', borderRadius: '10px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
+              <span style={{ fontSize: '0.85rem', color: '#FFE082', textTransform: 'uppercase', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span>💳</span> Posição Total Consolidada
+              </span>
+              <span style={{ background: 'rgba(255, 193, 7, 0.15)', color: '#FFD54F', fontSize: '0.75rem', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
+                Dívida Líquida
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem', fontSize: '0.85rem' }}>
+              <span style={{ color: '#ccc' }}>Dívida Bruta (Principal Total):</span>
+              <strong style={{ color: '#fff' }}>{formatCurrency(debtTotalPrincipal)}</strong>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem', fontSize: '0.85rem' }}>
+              <span style={{ color: '#aaa' }}>(-) Encargos Totais:</span>
+              <strong style={{ color: '#FF8A80' }}>-{formatCurrency(debtTotalEncargos)}</strong>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem', fontSize: '0.85rem' }}>
+              <span style={{ color: '#ccc' }}>= Dívida Total Líquida:</span>
+              <strong style={{ color: '#FFD54F' }}>{formatCurrency(debtTotalLiquido)}</strong>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem', fontSize: '0.85rem' }}>
+              <span style={{ color: '#aaa' }}>(-) Caixa & Disponibilidades:</span>
+              <strong style={{ color: '#81C784' }}>-{formatCurrency(caixaTotal)}</strong>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+              <span style={{ color: '#aaa', fontSize: '0.85rem' }}>Dívida Líq. de Caixa:</span>
+              <strong style={{ color: dividaLiquidaCaixa <= 0 ? '#81C784' : '#FFCA28', fontSize: '1.1rem' }}>{formatCurrency(dividaLiquidaCaixa)}</strong>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      {/* MODAL DE DETALHAMENTO DAS CONTAS DE ENDIVIDAMENTO COM FILTROS NACIONAL / ESTRANGEIRO */}
+      {showDebtModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0, 0, 0, 0.85)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '1.5rem'
+        }}>
+          <div style={{
+            background: '#1e1e24',
+            border: '1px solid #3F51B5',
+            borderRadius: '16px',
+            width: '100%',
+            maxWidth: '1100px',
+            maxHeight: '90vh',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.7)',
+            overflow: 'hidden'
+          }}>
+            {/* Modal Header */}
+            <div style={{
+              padding: '1.2rem 1.5rem',
+              borderBottom: '1px solid rgba(255,255,255,0.1)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: 'rgba(63, 81, 181, 0.15)'
+            }}>
+              <div>
+                <h3 style={{ margin: 0, color: '#fff', fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>🔍</span> Detalhamento de Endividamento: Nacional vs. Estrangeiro
+                </h3>
+                <span style={{ color: '#aaa', fontSize: '0.85rem' }}>
+                  {periodLabel} • <b>2.1.1.2.02 / 2.3.1.1.02</b> (Nacional) | <b>2.1.1.2.03 / 2.3.1.1.03</b> (Estrangeiro)
+                </span>
+              </div>
+              <button
+                onClick={() => setShowDebtModal(false)}
+                style={{
+                  background: 'rgba(255,255,255,0.1)',
+                  border: 'none',
+                  color: '#fff',
+                  borderRadius: '50%',
+                  width: '32px',
+                  height: '32px',
+                  cursor: 'pointer',
+                  fontSize: '1.1rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Controls (Filtros + Busca) */}
+            <div style={{ padding: '1rem 1.5rem', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(0,0,0,0.2)' }}>
+              {/* Abas de Filtro */}
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                <button
+                  onClick={() => setDebtFilter('todos')}
+                  style={{
+                    padding: '0.4rem 0.8rem',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: debtFilter === 'todos' ? '#3F51B5' : 'rgba(255,255,255,0.06)',
+                    color: debtFilter === 'todos' ? '#fff' : '#aaa',
+                    cursor: 'pointer',
+                    fontSize: '0.82rem',
+                    fontWeight: debtFilter === 'todos' ? 'bold' : 'normal'
+                  }}
+                >
+                  Todas ({debtAccounts.length})
+                </button>
+                <button
+                  onClick={() => setDebtFilter('nacional')}
+                  style={{
+                    padding: '0.4rem 0.8rem',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: debtFilter === 'nacional' ? '#4CAF50' : 'rgba(255,255,255,0.06)',
+                    color: debtFilter === 'nacional' ? '#fff' : '#aaa',
+                    cursor: 'pointer',
+                    fontSize: '0.82rem',
+                    fontWeight: debtFilter === 'nacional' ? 'bold' : 'normal'
+                  }}
+                >
+                  🇧🇷 Nacional ({debtAccounts.filter(a => a.origemKey === 'nacional').length})
+                </button>
+                <button
+                  onClick={() => setDebtFilter('nac_cp')}
+                  style={{
+                    padding: '0.4rem 0.8rem',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: debtFilter === 'nac_cp' ? '#2196F3' : 'rgba(255,255,255,0.06)',
+                    color: debtFilter === 'nac_cp' ? '#fff' : '#aaa',
+                    cursor: 'pointer',
+                    fontSize: '0.82rem',
+                    fontWeight: debtFilter === 'nac_cp' ? 'bold' : 'normal'
+                  }}
+                >
+                  🇧🇷 Nac. Curto Prazo
+                </button>
+                <button
+                  onClick={() => setDebtFilter('nac_lp')}
+                  style={{
+                    padding: '0.4rem 0.8rem',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: debtFilter === 'nac_lp' ? '#9C27B0' : 'rgba(255,255,255,0.06)',
+                    color: debtFilter === 'nac_lp' ? '#fff' : '#aaa',
+                    cursor: 'pointer',
+                    fontSize: '0.82rem',
+                    fontWeight: debtFilter === 'nac_lp' ? 'bold' : 'normal'
+                  }}
+                >
+                  🇧🇷 Nac. Longo Prazo
+                </button>
+                <button
+                  onClick={() => setDebtFilter('estrangeiro')}
+                  style={{
+                    padding: '0.4rem 0.8rem',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: debtFilter === 'estrangeiro' ? '#00ACC1' : 'rgba(255,255,255,0.06)',
+                    color: debtFilter === 'estrangeiro' ? '#fff' : '#aaa',
+                    cursor: 'pointer',
+                    fontSize: '0.82rem',
+                    fontWeight: debtFilter === 'estrangeiro' ? 'bold' : 'normal'
+                  }}
+                >
+                  🌎 Estrangeiro ({debtAccounts.filter(a => a.origemKey === 'estrangeiro').length})
+                </button>
+                <button
+                  onClick={() => setDebtFilter('est_cp')}
+                  style={{
+                    padding: '0.4rem 0.8rem',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: debtFilter === 'est_cp' ? '#0288D1' : 'rgba(255,255,255,0.06)',
+                    color: debtFilter === 'est_cp' ? '#fff' : '#aaa',
+                    cursor: 'pointer',
+                    fontSize: '0.82rem',
+                    fontWeight: debtFilter === 'est_cp' ? 'bold' : 'normal'
+                  }}
+                >
+                  🌎 Est. Curto Prazo
+                </button>
+                <button
+                  onClick={() => setDebtFilter('est_lp')}
+                  style={{
+                    padding: '0.4rem 0.8rem',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: debtFilter === 'est_lp' ? '#7B1FA2' : 'rgba(255,255,255,0.06)',
+                    color: debtFilter === 'est_lp' ? '#fff' : '#aaa',
+                    cursor: 'pointer',
+                    fontSize: '0.82rem',
+                    fontWeight: debtFilter === 'est_lp' ? 'bold' : 'normal'
+                  }}
+                >
+                  🌎 Est. Longo Prazo
+                </button>
+              </div>
+
+              {/* Busca */}
+              <div style={{ minWidth: '220px', flex: '1', maxWidth: '320px' }}>
+                <input
+                  type="text"
+                  placeholder="Pesquisar banco, contrato ou conta..."
+                  value={debtSearch}
+                  onChange={(e) => setDebtSearch(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '0.45rem 0.8rem',
+                    borderRadius: '6px',
+                    background: '#121216',
+                    border: '1px solid #444',
+                    color: '#fff',
+                    fontSize: '0.85rem'
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Tabela de Contas com Rolagem */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '1rem 1.5rem' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
+                <thead>
+                  <tr style={{ background: 'rgba(255,255,255,0.05)', color: '#aaa', borderBottom: '1px solid #444' }}>
+                    <th style={{ padding: '10px 12px' }}>Conta</th>
+                    <th style={{ padding: '10px 12px' }}>Descrição da Operação</th>
+                    <th style={{ padding: '10px 12px' }}>Origem</th>
+                    <th style={{ padding: '10px 12px' }}>Prazo & Tipo</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'right' }}>Saldo (R$)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredDebtAccounts.length === 0 ? (
+                    <tr>
+                      <td colSpan="5" style={{ padding: '2rem', textAlign: 'center', color: '#888' }}>
+                        Nenhuma conta encontrada com os filtros selecionados.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredDebtAccounts.map((acc, idx) => {
+                      const isEnc = acc.isEncargo;
+                      const isNac = acc.origemKey === 'nacional';
+                      return (
+                        <tr 
+                          key={acc.id || idx} 
+                          style={{ 
+                            borderBottom: '1px solid rgba(255,255,255,0.05)',
+                            background: idx % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)'
+                          }}
+                        >
+                          <td style={{ padding: '8px 12px', color: '#90CAF9', fontFamily: 'monospace' }}>
+                            {acc.conta}
+                          </td>
+                          <td style={{ padding: '8px 12px', color: '#fff', fontWeight: '500' }}>
+                            {acc.descricao}
+                          </td>
+                          <td style={{ padding: '8px 12px' }}>
+                            <span style={{
+                              background: isNac ? 'rgba(76, 175, 80, 0.15)' : 'rgba(0, 172, 193, 0.15)',
+                              color: isNac ? '#81C784' : '#4DD0E1',
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              fontSize: '0.75rem',
+                              fontWeight: 'bold'
+                            }}>
+                              {isNac ? '🇧🇷 Nacional' : '🌎 Estrangeiro'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '8px 12px' }}>
+                            <span style={{
+                              background: acc.prazo === 'Curto Prazo' ? (isEnc ? 'rgba(244, 67, 54, 0.15)' : 'rgba(33, 150, 243, 0.15)') : (isEnc ? 'rgba(233, 30, 99, 0.15)' : 'rgba(156, 39, 176, 0.15)'),
+                              color: acc.prazo === 'Curto Prazo' ? (isEnc ? '#FF8A80' : '#90CAF9') : (isEnc ? '#F48FB1' : '#CE93D8'),
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              fontSize: '0.75rem',
+                              fontWeight: 'bold'
+                            }}>
+                              {acc.prazo} • {isEnc ? '(-) Encargo' : 'Principal'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 'bold', color: isEnc ? '#FF8A80' : '#fff' }}>
+                            {isEnc ? '-' : ''}{formatCurrency(acc.valor)}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Modal Footer com Totais */}
+            <div style={{
+              padding: '1rem 1.5rem',
+              borderTop: '1px solid rgba(255,255,255,0.1)',
+              background: 'rgba(0,0,0,0.3)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '1rem'
+            }}>
+              <div style={{ fontSize: '0.85rem', color: '#aaa' }}>
+                Exibindo <b>{filteredDebtAccounts.length}</b> de <b>{debtAccounts.length}</b> contas de dívida
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+                <span style={{ fontSize: '0.9rem', color: '#ccc' }}>
+                  Saldo Líquido Selecionado: <strong style={{ color: filteredDebtTotal >= 0 ? '#64B5F6' : '#FF8A80', fontSize: '1.1rem' }}>{formatCurrency(filteredDebtTotal)}</strong>
+                </span>
+                <button
+                  onClick={() => setShowDebtModal(false)}
+                  style={{
+                    background: '#444',
+                    color: '#fff',
+                    border: 'none',
+                    padding: '0.5rem 1.2rem',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontWeight: 'bold',
+                    fontSize: '0.85rem'
+                  }}
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
 
       <div className="kpi-grid" style={{ marginBottom: '2rem' }}>
         <div className="glass-panel" style={{ padding: '1.5rem', borderLeft: '4px solid #4CAF50' }}>
