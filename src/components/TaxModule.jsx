@@ -156,7 +156,7 @@ export default function TaxModule({ companies }) {
 
     } catch (err) {
       console.error(err);
-      alert('Erro ao carregar dados do período: ' + err.message);
+      window.$alert('Erro ao carregar dados do período: ' + err.message);
     } finally {
       setIsProcessing(false);
     }
@@ -437,17 +437,17 @@ export default function TaxModule({ companies }) {
                 lalurAdicoes, lalurExclusoes, lalurCompensacaoPrejuizo, lalurRetencoesIR, lalurRetencoesIR_AppFin, lalurRetencoesCS, lalurCambioRealizado,
                 presumidoRetencoesIR, presumidoRetencoesIR_AppFin, presumidoAjusteIrpj, presumidoAjusteCsll, presumidoRetencoesCS, presumidoOutrasReceitas, presumidoCambioRealizado, presumidoIpi, presumidoIcmsSt, presumidoMajoracao, presumidoImpostosDevolucao, darfIrpjReduzido, darfCsllReduzida
             });
-            alert('Memória de cálculo salva com sucesso! (Apenas para controle da DARF, sem impacto no Balanço/DRE)');
+            window.$toast('Memória de cálculo salva com sucesso! (Apenas para controle da DARF, sem impacto no Balanço/DRE)', { type: 'success' });
         } catch (e) {
             console.error(e);
-            alert('Erro ao salvar.');
+            window.$toast('Erro ao salvar.', { type: 'success' });
         } finally {
             setIsProcessing(false);
         }
     };
 
   const handleGravar = async (vIrpj, vCsll, vIrpjGross, vCsllGross) => {
-    if (!selectedComp) { alert('Selecione uma empresa.'); return; }
+    if (!selectedComp) { window.$alert('Selecione uma empresa.'); return; }
     
     setIsProcessing(true);
     try {
@@ -547,9 +547,9 @@ export default function TaxModule({ companies }) {
       await bulkPutRecords('dre_history', dreEntries);
       await bulkPutRecords('balanco_history', balancoEntries);
       await loadFinancialData();
-      alert('Apuração gravada com sucesso! O Balanço e a DRE já foram atualizados.');
+      window.$toast('Apuração gravada com sucesso! O Balanço e a DRE já foram atualizados.', { type: 'success' });
     } catch (err) {
-      alert('Erro ao gravar: ' + err.message);
+      window.$alert('Erro ao gravar: ' + err.message);
     } finally {
       setIsProcessing(false);
     }

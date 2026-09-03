@@ -4,6 +4,8 @@ import LoginScreen from './components/LoginScreen';
 import ModuleSelectionScreen from './components/ModuleSelectionScreen';
 import UserPanel from './components/UserPanel';
 import UserProfileModal from './components/UserProfileModal';
+import GlobalDialog from './components/GlobalDialog';
+import './utils/dialog';
 import './App.css';
 
 import { Bell } from 'lucide-react';
@@ -86,6 +88,7 @@ function App() {
 
   return (
     <div className="app-container">
+      <GlobalDialog />
       <header className="app-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <div className="logo-placeholder" style={{ cursor: 'pointer' }} onClick={() => setSelectedModule(null)} title="Menu de Módulos">AGF</div>

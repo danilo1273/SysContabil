@@ -28,7 +28,7 @@ const UserPanel = ({ onClose }) => {
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!formData.username || !formData.password) {
-        alert("Preencha usuário e senha.");
+        window.$alert("Preencha usuário e senha.");
         return;
     }
 
@@ -37,7 +37,7 @@ const UserPanel = ({ onClose }) => {
       saveUsers(updated);
     } else {
       if (users.find(u => u.username === formData.username)) {
-        alert('Este nome de usuário já existe!');
+        window.$alert('Este nome de usuário já existe!');
         return;
       }
       saveUsers([...users, formData]);
@@ -53,7 +53,7 @@ const UserPanel = ({ onClose }) => {
 
   const handleDelete = (username) => {
     if ((['danilo', 'ryan.santos'].includes(username))) {
-      alert('Usuários mestres (danilo, ryan.santos) não podem ser excluídos.');
+      window.$alert('Usuários mestres (danilo, ryan.santos) não podem ser excluídos.');
       return;
     }
     if (window.confirm(`Tem certeza que deseja excluir o usuário "${username}"?`)) {

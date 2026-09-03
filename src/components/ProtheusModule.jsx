@@ -269,26 +269,26 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
         count++;
       }
       if (count > 0) {
-        alert(count + ' operações de exclusão intra-grupo inseridas com sucesso!');
+        window.$alert(count + ' operações de exclusão intra-grupo inseridas com sucesso!');
         setIgReceita(''); setIgCusto(''); setIgClientes(''); setIgFornecedores('');
         loadDbRecords();
       } else {
-        alert('Preencha ao menos um valor de exclusão.');
+        window.$alert('Preencha ao menos um valor de exclusão.');
       }
     } catch (err) {
-      alert('Erro: ' + err.message);
+      window.$alert('Erro: ' + err.message);
     }
   };
 
   const handleAddManualEntry = async () => {
-    if (!manualEmpresa || !manualConta || !manualValor) return alert('Preencha os campos obrigatórios');
+    if (!manualEmpresa || !manualConta || !manualValor) return window.$alert('Preencha os campos obrigatórios');
     try {
       await addManualEntryToDB(manualEmpresa, selectedAno, selectedMes, manualConta, manualDescricao || manualConta, parseFloat(manualValor));
-      alert('Lançamento inserido com sucesso!');
+      window.$toast('Lançamento inserido com sucesso!', { type: 'success' });
       setManualConta(''); setManualDescricao(''); setManualValor('');
       loadDbRecords();
     } catch (err) {
-      alert('Erro: ' + err.message);
+      window.$alert('Erro: ' + err.message);
     }
   };
 
@@ -310,7 +310,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
     if (!trimmed) return;
     const newId = trimmed.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/__+/g, '_').replace(/^_|_$/g, '');
     if (companies.find(c => c.id === newId)) {
-      alert('Já existe uma empresa com esse ID. Use um nome diferente.');
+      window.$alert('Já existe uma empresa com esse ID. Use um nome diferente.');
       return;
     }
     const updated = [...companies, { id: newId, name: trimmed }];
@@ -425,13 +425,13 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
           
           const municFound = balancoEntries.some(e => e.conta.includes('MUNIC'));
           
-          alert(`Histórico importado com sucesso da aba DB!\n${dreEntries.length} registros de DRE.\n${balancoEntries.length} registros de Balanço.\n\nCONTA MUNIC ENCONTRADA E IMPORTADA? ${municFound ? 'SIM!' : 'NÃO (Ela não estava na aba DB do arquivo ou estava sem valor válido).'}`);
+          window.$toast(`Histórico importado com sucesso da aba DB!\n${dreEntries.length} registros de DRE.\n${balancoEntries.length} registros de Balanço.\n\nCONTA MUNIC ENCONTRADA E IMPORTADA? ${municFound ? 'SIM!' : 'NÃO (Ela não estava na aba DB do arquivo ou estava sem valor válido).'}`, { type: 'success' });
         } else {
-          alert('Aba DB não encontrada na planilha.');
+          window.$alert('Aba DB não encontrada na planilha.');
         }
       } catch (err) {
         console.error(err);
-        alert('Erro ao importar histórico: ' + err.message);
+        window.$alert('Erro ao importar histórico: ' + err.message);
       } finally {
         setIsProcessing(false);
       }
@@ -458,7 +458,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
       setEditingId(null);
       loadDbRecords();
     } catch (e) {
-      alert('Erro ao atualizar: ' + e.message);
+      window.$alert('Erro ao atualizar: ' + e.message);
     }
   };
 
@@ -494,7 +494,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
   const handleDeleteMonth = async () => {
     const mesNome = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][selectedMes-1];
     const empresa = dbFilterCompany ? companies.find(c => c.id === dbFilterCompany)?.name : 'TODAS AS EMPRESAS';
-    if (!confirm(`⚠️ Confirma exclusão de todos os registros de ${mesNome}/${selectedAno} para ${empresa}?`)) return;
+    if (!await window.$confirm(`⚠️ Confirma exclusão de todos os registros de ${mesNome}/${selectedAno} para ${empresa}?`)) return;
     try {
       const dbMod = await import('../utils/db');
       if (dbFilterCompany !== 'todas') {
@@ -502,10 +502,10 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
       } else {
         await dbMod.deleteRecords(null, selectedAno, selectedMes);
       }
-      alert('Registros excluídos com sucesso!');
+      window.$toast('Registros excluídos com sucesso!', { type: 'success' });
       loadDbRecords();
     } catch (e) {
-      alert('Erro ao excluir: ' + e.message);
+      window.$alert('Erro ao excluir: ' + e.message);
     }
   };
 
@@ -524,13 +524,13 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
           console.log(`[SAVE] Saved to DB for ${comp.id} - ano:${selectedAno} mes:${selectedMes}`);
         }
       }
-      alert('Arquivos salvos no banco de dados com sucesso!');
+      window.$toast('Arquivos salvos no banco de dados com sucesso!', { type: 'success' });
       setFiles({});
       loadDbRecords();
       setLatestAvailable(`${selectedMes.toString().padStart(2, '0')}/${selectedAno}`);
     } catch (err) {
       console.error(err);
-      alert('Erro ao gravar balancetes: ' + err.message);
+      window.$alert('Erro ao gravar balancetes: ' + err.message);
     } finally {
       setIsProcessing(false);
     }
@@ -1258,7 +1258,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
       setActiveTab('resultados');
     } catch (error) {
       console.error('Erro ao processar', error);
-      alert('Erro ao processar balancete: ' + error.message);
+      window.$alert('Erro ao processar balancete: ' + error.message);
     } finally { setIsProcessing(false); } };
 
     const handlePrint = (reportName) => {
@@ -1574,9 +1574,10 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                 onClick={async () => {
                   const mesNome = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][selectedMes-1];
                   const hasFiles = Object.keys(files).length > 0;
-                  if (!hasFiles) { alert('Selecione ao menos um arquivo balancete antes de gravar.'); return; }
+                  if (!hasFiles) { window.$alert('Selecione ao menos um arquivo balancete antes de gravar.', { type: 'warning' }); return; }
                   const fileList = Object.entries(files).map(([id, f]) => `  • ${companies.find(c=>c.id===id)?.name || id}: ${f.name}`).join('\n');
-                  if (!confirm(`Confirma gravação no banco?\n\nPeríodo: ${mesNome}/${selectedAno}\n\nArquivos:\n${fileList}`)) return;
+                  const ok = await window.$confirm(`Confirma a gravação dos dados no banco?\n\nPeríodo: ${mesNome}/${selectedAno}\n\nArquivos:\n${fileList}`, { title: 'Gravar Balancetes no Banco' });
+                  if (!ok) return;
                   handleSaveToDB();
                 }}
                 className="action-btn"
@@ -2136,7 +2137,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                 className="btn-primary" 
                 onClick={async () => {
                   if (!mappingTarget.conta || !mappingTarget.relatorio || !mappingTarget.grupo || !mappingTarget.subgrupo) {
-                    alert("Preencha todos os campos!");
+                    window.$alert("Preencha todos os campos!");
                     return;
                   }
                   

@@ -285,13 +285,12 @@ export default function EquivalenciaPatrimonialModule({ companies = [] }) {
   // Gravar Lançamentos de MEP no Balancete da Holding
   const handleGravarLancamentos = async () => {
     if (!selectedHolding) {
-      alert('Por favor, selecione a empresa Holding para receber os lançamentos de MEP.');
+      window.$alert('Por favor, selecione a empresa Holding para receber os lançamentos de MEP.', { type: 'warning' });
       return;
     }
 
-    if (!window.confirm(`Confirma a gravação dos lançamentos de Equivalência Patrimonial para a Holding no período ${meses[selectedMes - 1]}/${selectedAno}?\n\nTotal de MEP Líquido: ${formatCurrency(totalResultadoMEP)}`)) {
-      return;
-    }
+    const confirmed = await window.$confirm(`Confirma a gravação dos lançamentos de Equivalência Patrimonial para a Holding no período ${meses[selectedMes - 1]}/${selectedAno}?\n\nTotal de MEP Líquido: ${formatCurrency(totalResultadoMEP)}`, { title: 'Gravar Equivalência Patrimonial' });
+    if (!confirmed) return;
 
     setIsProcessing(true);
     try {
@@ -343,10 +342,10 @@ export default function EquivalenciaPatrimonialModule({ companies = [] }) {
       setRecordingSuccess(true);
       setTimeout(() => setRecordingSuccess(false), 5000);
       loadData();
-      alert('Lançamentos de Equivalência Patrimonial gravados com sucesso no balancete da Holding!');
+      window.$toast('Lançamentos de Equivalência Patrimonial gravados com sucesso!', { type: 'success' });
     } catch (e) {
       console.error(e);
-      alert('Erro ao gravar lançamentos de MEP: ' + e.message);
+      window.$alert('Erro ao gravar lançamentos de MEP: ' + e.message, { type: 'danger' });
     } finally {
       setIsProcessing(false);
     }
@@ -389,16 +388,19 @@ export default function EquivalenciaPatrimonialModule({ companies = [] }) {
     setShowConfigModal(false);
   };
 
-  const handleDeleteConfig = (index) => {
-    if (window.confirm(`Deseja realmente remover a configuração de "${mepConfigs[index].nome}"?`)) {
+  const handleDeleteConfig = async (index) => {
+    const ok = await window.$confirm(`Deseja realmente remover a configuração de "${mepConfigs[index].nome}"?`, { title: 'Excluir Configuração', type: 'danger' });
+    if (ok) {
       const updated = mepConfigs.filter((_, i) => i !== index);
       saveMepSettings(updated);
     }
   };
 
-  const handleRestoreDefaults = () => {
-    if (window.confirm('Restaurar o plano de contas e configurações societárias padrão da AGF Participações?')) {
+  const handleRestoreDefaults = async () => {
+    const ok = await window.$confirm('Deseja restaurar o plano de contas e configurações societárias padrão da AGF Participações?', { title: 'Restaurar Padrão' });
+    if (ok) {
       saveMepSettings(DEFAULT_MEP_CONFIG);
+      window.$toast('Configurações padrão restauradas com sucesso!');
     }
   };
 

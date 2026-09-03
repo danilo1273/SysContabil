@@ -260,25 +260,28 @@ function GestaoContabilModule({ userRole, userName, companies }) {
 
     const handleDeletePendencia = async (p) => {
         if (!canEditOrDeletePendencia(p)) {
-            alert('Apenas quem criou a pendência ou o superadmin pode excluí-la.');
+            window.$alert('Apenas quem criou a pendência ou o superadmin pode excluí-la.', { type: 'warning' });
             return;
         }
 
-        if (window.confirm(`Deseja realmente excluir a pendência do documento "${p.documento}"?`)) {
+        const ok = await window.$confirm(`Deseja realmente excluir a pendência do documento "${p.documento}"?`, { title: 'Excluir Pendência', type: 'danger' });
+        if (ok) {
             await fetch(`/api/gestao/pendencias/${p.id}`, {
                 method: 'DELETE'
             });
+            window.$toast('Pendência excluída com sucesso!');
             loadData();
         }
     };
 
     const handleReopenPendencia = async (p) => {
         if (!canEditOrDeletePendencia(p)) {
-            alert('Apenas quem criou a pendência ou o superadmin pode reabri-la.');
+            window.$alert('Apenas quem criou a pendência ou o superadmin pode reabri-la.');
             return;
         }
 
-        if (window.confirm(`Reabrir a pendência do documento "${p.documento}" para nova correção?`)) {
+        const ok = await window.$confirm(`Reabrir a pendência do documento "${p.documento}" para nova correção?`, { title: 'Reabrir Pendência' });
+        if (ok) {
             let hist = [];
             try { hist = JSON.parse(p.historico); } catch (err) {}
             hist.push({ action: 'Reaberto por ' + (userName || 'Sistema'), user: userName || 'Sistema', date: new Date().toISOString() });
@@ -299,7 +302,7 @@ function GestaoContabilModule({ userRole, userName, companies }) {
     const handleConfirmResolve = async () => {
         if (!resolvingPendencia) return;
         if (!objectiveText.trim()) {
-            alert('Por favor, informe a ação corretiva realizada.');
+            window.$alert('Por favor, informe a ação corretiva realizada.', { type: 'warning' });
             return;
         }
 

@@ -181,7 +181,7 @@ export default function CentroCustoModule({ companies, userRole }) {
         }
         setFileData(parsedRecords);
       } catch (err) {
-        alert("Erro ao processar arquivo: " + err.message);
+        window.$alert("Erro ao processar arquivo: " + err.message);
       } finally {
         setIsProcessing(false);
       }
@@ -191,18 +191,18 @@ export default function CentroCustoModule({ companies, userRole }) {
 
   const handleImportSave = async () => {
     if (!selectedComp || !fileData || fileData.length === 0) {
-      alert("Selecione a empresa e carregue um arquivo válido com dados antes de gravar.");
+      window.$alert("Selecione a empresa e carregue um arquivo válido com dados antes de gravar.");
       return;
     }
     setIsProcessing(true);
     try {
       await saveCCToDB(fileData, selectedComp, selectedAno, selectedMes);
-      alert("Centros de Custo gravados com sucesso!");
+      window.$toast("Centros de Custo gravados com sucesso!", { type: 'success' });
       setFileData(null);
       loadUniqueCCs();
       loadDbRecords();
     } catch (e) {
-      alert("Erro ao salvar: " + e.message);
+      window.$alert("Erro ao salvar: " + e.message);
     } finally {
       setIsProcessing(false);
     }
@@ -244,7 +244,7 @@ export default function CentroCustoModule({ companies, userRole }) {
         const newName = window.prompt("Novo nome do projeto:", oldName);
         if (newName && newName !== oldName && newName.trim() !== '') {
             if (projects[newName]) {
-                alert("Já existe um projeto com este nome.");
+                window.$alert("Já existe um projeto com este nome.");
                 return;
             }
             const np = { ...projects };
@@ -275,7 +275,7 @@ export default function CentroCustoModule({ companies, userRole }) {
 
   const loadDRE = async () => {
       if (!selectedProject || !projects[selectedProject]) {
-          alert("Selecione um projeto válido.");
+          window.$alert("Selecione um projeto válido.");
           return;
       }
       setIsProcessing(true);
@@ -390,7 +390,7 @@ export default function CentroCustoModule({ companies, userRole }) {
           setDreBase(mappedBase);
           setDreComp(mappedComp);
       } catch (e) {
-          alert("Erro ao gerar DRE: " + e.message);
+          window.$alert("Erro ao gerar DRE: " + e.message);
       } finally {
           setIsProcessing(false);
       }

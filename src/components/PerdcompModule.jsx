@@ -74,7 +74,7 @@ export default function PerdcompModule({ companies, canEdit }) {
 
       setRecords(newData);
     } catch (e) {
-      alert("Erro ao salvar no banco");
+      window.$toast("Erro ao salvar no banco", { type: 'success' });
     }
   };
 
@@ -100,7 +100,7 @@ export default function PerdcompModule({ companies, canEdit }) {
 
   const handleSave = () => {
     if (!formData.processo || !formData.empresaId) {
-      alert("Preencha a empresa e o número do processo.");
+      window.$alert("Preencha a empresa e o número do processo.");
       return;
     }
     
@@ -116,8 +116,9 @@ export default function PerdcompModule({ companies, canEdit }) {
     setIsModalOpen(false);
   };
 
-  const handleDelete = (id) => {
-    if (confirm("Tem certeza que deseja excluir este controle?")) {
+  const handleDelete = async (id) => {
+    const ok = await window.$confirm("Tem certeza que deseja excluir este controle?", { title: 'Excluir Controle', type: 'danger' });
+    if (ok) {
       const newData = records.filter(r => r.id !== id);
       saveToDb(newData);
     }

@@ -210,11 +210,11 @@ export default function RateioModule({ companies }) {
       await updateOrInsert('3.1.1.2.01.00005', 'PIS S/ FATURAMENTO', valPIS);
       await updateOrInsert('3.1.1.2.01.00004', 'COFINS S/ FATURAMENTO', valCOFINS);
 
-      alert('Faturamento do Rateio gravado no balancete da Holding com sucesso!');
+      window.$toast('Faturamento do Rateio gravado com sucesso!', { type: 'success' });
       
     } catch (e) {
       console.error(e);
-      alert('Erro ao gravar faturamento');
+      window.$alert('Erro ao gravar faturamento da holding.', { type: 'danger' });
     } finally {
       setIsProcessing(false);
     }
