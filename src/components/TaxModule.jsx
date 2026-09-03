@@ -490,13 +490,13 @@ export default function TaxModule({ companies }) {
       let valorIrpjDreMes = 0;
       let valorCsllDreMes = 0;
       if (regime === 'presumido') {
-        valorIrpjDreMes = Math.max(0, vIrpjGross - despesaDreIRAnterior);
-        valorCsllDreMes = Math.max(0, vCsllGross - despesaDreCSAnterior);
+        valorIrpjDreMes = Math.max(0, vIrpj - despesaDreIRAnterior);
+        valorCsllDreMes = Math.max(0, vCsll - despesaDreCSAnterior);
       } else {
         // Como o Lucro Real agora é calculado apenas com a base do mês isolado (dreMensal),
         // o valor calculado (vIrpj) já é a provisão do mês, não devemos abater o acumulado anterior.
-        valorIrpjDreMes = Math.max(0, vIrpjGross);
-        valorCsllDreMes = Math.max(0, vCsllGross);
+        valorIrpjDreMes = Math.max(0, vIrpj);
+        valorCsllDreMes = Math.max(0, vCsll);
       }
 
       const idIrpjBal = 'tax-bal-irpj-' + selectedComp + '-' + selectedAno + '-' + selectedMes;
@@ -1016,6 +1016,8 @@ export default function TaxModule({ companies }) {
                 retencoesIR: parseFloat(presumidoRetencoesIR || 0) + parseFloat(presumidoRetencoesIR_AppFin || 0),
                 retencoesCS: presumidoRetencoesCS,
                 impostosDevolucao: presumidoImpostosDevolucao,
+                ajusteIrpj: parseFloat(presumidoAjusteIrpj || 0),
+                ajusteCsll: parseFloat(presumidoAjusteCsll || 0),
                 majoracao: presumidoMajoracao
             };
         } else {
@@ -1027,6 +1029,8 @@ export default function TaxModule({ companies }) {
                 retencoesIR: parseFloat(data.presumidoRetencoesIR || 0) + parseFloat(data.presumidoRetencoesIR_AppFin || 0),
                 retencoesCS: data.presumidoRetencoesCS,
                 impostosDevolucao: data.presumidoImpostosDevolucao,
+                ajusteIrpj: parseFloat(data.presumidoAjusteIrpj || 0),
+                ajusteCsll: parseFloat(data.presumidoAjusteCsll || 0),
                 majoracao: data.presumidoMajoracao !== undefined ? data.presumidoMajoracao : true
             };
         }
