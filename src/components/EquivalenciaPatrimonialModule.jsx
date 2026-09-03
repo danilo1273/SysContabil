@@ -1,5 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import { getRawRecords, getSettings, saveSettings, updateRecord, addManualEntryToDB } from '../utils/db';
+import { protheusMapping } from '../utils/mappingConfig';
+
+function applyMapping(data, mapping, factor = 1, valueField = 'valor') {
+  const result = {};
+  for (const group in mapping) {
+    result[group] = { TOTAL: { total: 0, details: [] } };
+    for (const subgroup in mapping[group]) {
+      result[group][subgroup] = { total: 0, details: [] };
+      const prefixes = mapping[group][subgroup];
+      (data || []).forEach(row => {
+        const conta = (row.conta || '').trim();
+        const matches = prefixes.some(p => conta.startsWith(p.trim()));
+        if (matches) {
+          const val = (row[valueField] !== undefined ? row[valueField] : (row.saldoAcumulado || row.valorMensal || 0)) * factor;
+          result[group][subgroup].total += val;
+          result[group]['TOTAL'].total += val;
+        }
+      });
+    }
+  }
+  return result;
+}
 
 const DEFAULT_MEP_CONFIG = [
   {
@@ -146,20 +168,27 @@ export default function EquivalenciaPatrimonialModule({ companies = [] }) {
   const loadData = async () => {
     setIsProcessing(true);
     try {
-      const data = await getRawRecords(selectedAno, selectedMes);
-      
-      // Buscar dados do ano inteiro ou mês anterior
-      let prevBalancoData = [];
-      if (selectedMes > 1) {
-        const prevData = await getRawRecords(selectedAno, selectedMes - 1);
-        prevBalancoData = prevData.balanco || [];
-      } else {
-        const prevYearData = await getRawRecords(selectedAno - 1, 12);
-        prevBalancoData = prevYearData.balanco || [];
+      const balancoAll = [];
+      const dreAll = [];
+
+      // Carregar todos os meses até o selecionado para apuração correta do lucro acumulado (YTD)
+      for (let m = 1; m <= selectedMes; m++) {
+        const d = await getRawRecords(selectedAno, m);
+        if (d.balanco) balancoAll.push(...d.balanco);
+        if (d.dre) dreAll.push(...d.dre);
       }
 
-      setRawBalanco([...(data.balanco || []), ...prevBalancoData]);
-      setRawDre(data.dre || []);
+      // Se for Janeiro, buscar também dados do ano anterior para apuração do mês 12
+      if (selectedMes === 1) {
+        for (let m = 1; m <= 12; m++) {
+          const dPrev = await getRawRecords(selectedAno - 1, m);
+          if (dPrev.balanco && m === 12) balancoAll.push(...dPrev.balanco);
+          if (dPrev.dre) dreAll.push(...dPrev.dre);
+        }
+      }
+
+      setRawBalanco(balancoAll);
+      setRawDre(dreAll);
     } catch (e) {
       console.error('Erro ao carregar dados de MEP:', e);
     } finally {
@@ -167,69 +196,70 @@ export default function EquivalenciaPatrimonialModule({ companies = [] }) {
     }
   };
 
-  // Função para calcular o PL de uma investida em determinado mês/ano
+  // Função para calcular o PL Exato de uma investida em determinado mês/ano (Balanço PL + Lucro YTD DRE)
   const calculatePL = (empresaId, mes, ano) => {
-    const records = (rawBalanco || []).filter(r => r.empresaId === empresaId && r.mes === mes && r.ano === ano);
-    if (records.length === 0) return 0;
+    const balancoData = (rawBalanco || []).filter(r => r.empresaId === empresaId && r.mes === mes && r.ano === ano);
+    if (balancoData.length === 0) return 0;
 
-    // Contas de PL no grupo 2.4 / 2.5 / 2.9
-    const plAccounts = records.filter(r => 
-      r.conta.startsWith('2.4') || 
-      r.conta.startsWith('2.5') || 
-      r.conta.startsWith('2.9') ||
-      (r.descricao && (
-        r.descricao.toLowerCase().includes('capital social') || 
-        r.descricao.toLowerCase().includes('lucros acumulados') || 
-        r.descricao.toLowerCase().includes('reserva de lucros') ||
-        r.descricao.toLowerCase().includes('patrimonio liquido')
-      ))
-    );
+    // 1. Base PL do Balanço Patrimonial (Contas de Capital Social, Reservas, Lucros Acumulados)
+    const mappedPassivo = applyMapping(balancoData, protheusMapping.passivo, 1, 'saldoAcumulado');
+    const basePL = mappedPassivo['PATRIMONIO LIQUIDO']?.['TOTAL']?.total || 0;
 
-    if (plAccounts.length > 0) {
-      return plAccounts.reduce((sum, r) => sum + (r.saldoAcumulado || 0), 0);
-    }
+    // 2. Lucro Líquido YTD acumulado da DRE até o mês informado
+    const dreYTD = (rawDre || []).filter(r => r.empresaId === empresaId && r.ano === ano && r.mes <= mes);
+    const dreMappedYTD = applyMapping(dreYTD, protheusMapping.dre, 1, 'valorMensal');
+    const getT = (group) => dreMappedYTD[group] ? dreMappedYTD[group]['TOTAL'].total : 0;
+    
+    const lucroBruto = getT('RECEITA OPERACIONAL BRUTA') + getT('DEDUÇÕES DA RECEITA') + getT('CUSTOS');
+    const despOp = getT('DESPESAS COM VENDAS') + getT('DESPESAS ADMINISTRATIVAS') + getT('DESPESAS TRIBUTÁRIAS') + getT('DOAÇÕES / INCENTIVOS FISCAIS');
+    const ebit = lucroBruto + despOp + getT('DEPRECIAÇÕES / AMORTIZAÇÕES');
+    const finLiquido = getT('RECEITAS FINANCEIRAS') + getT('DESPESAS FINANCEIRAS') + getT('VARIAÇÕES MONETÁRIAS / CAMBIAIS LÍQUIDAS') + getT('AJUSTES FINANCEIROS') + getT('REVERSÃO JUROS S/ CAPITAL PROPRIO');
+    const resAntesIr = ebit + finLiquido + getT('RESULTADO COM PARTICIP. SOCIETÁRIA') + getT('OUTRAS RECEITAS E DESPESAS');
+    const lucroYTD = resAntesIr + getT('PROVISÃO IRPJ') + getT('PROVISÃO CSLL');
 
-    // Fallback: Ativo - Passivo
-    const totalAtivo = records.filter(r => r.conta.startsWith('1.')).reduce((sum, r) => sum + (r.saldoAcumulado || 0), 0);
-    const passivoExigivel = records.filter(r => r.conta.startsWith('2.1') || r.conta.startsWith('2.2') || r.conta.startsWith('2.3')).reduce((sum, r) => sum + (r.saldoAcumulado || 0), 0);
-    return totalAtivo - passivoExigivel;
+    return basePL + lucroYTD;
   };
 
   // Mês anterior
   const prevMes = selectedMes > 1 ? selectedMes - 1 : 12;
   const prevAno = selectedMes > 1 ? selectedAno : selectedAno - 1;
 
-  // Montagem da apuração de cada investida
+  // Montagem da apuração de cada investida (ignora empresas com 0% de participação)
   const apuracaoMEP = mepConfigs.map(cfg => {
-    const plAtual = calculatePL(cfg.empresaId, selectedMes, selectedAno);
-    const plAnterior = calculatePL(cfg.empresaId, prevMes, prevAno);
-    const variacaoPL = plAtual - plAnterior;
     const perc = parseFloat(cfg.participacao) || 0;
-    const resultadoMEP = variacaoPL * (perc / 100);
-    const plEquivalente = plAtual * (perc / 100);
+    const isAtivo = cfg.ativo !== false && perc > 0;
+
+    const plAtual = isAtivo ? calculatePL(cfg.empresaId, selectedMes, selectedAno) : 0;
+    const plAnterior = isAtivo ? calculatePL(cfg.empresaId, prevMes, prevAno) : 0;
+    const variacaoPL = isAtivo ? (plAtual - plAnterior) : 0;
+    const resultadoMEP = isAtivo ? (variacaoPL * (perc / 100)) : 0;
+    const plEquivalente = isAtivo ? (plAtual * (perc / 100)) : 0;
 
     // Conta Débito e Crédito sugeridas para partida dobrada
-    let contaDebito = '';
-    let descDebito = '';
-    let contaCredito = '';
-    let descCredito = '';
+    let contaDebito = '-';
+    let descDebito = '-';
+    let contaCredito = '-';
+    let descCredito = '-';
 
-    if (resultadoMEP >= 0) {
-      // Ganho de MEP
-      contaDebito = cfg.contaEquivalencia;
-      descDebito = cfg.descEquivalencia || 'Investimento - Equivalência Patrimonial (Ativo)';
-      contaCredito = cfg.contaReceitaMEP || '3.1.2.1 (Receita de Equivalência Patrimonial - DRE)';
-      descCredito = 'Receita de Equivalência Patrimonial (DRE)';
-    } else {
-      // Perda de MEP
-      contaDebito = cfg.contaDespesaMEP || '4.3.1.1 (Despesa com Equivalência Patrimonial - DRE)';
-      descDebito = 'Despesa com Equivalência Patrimonial (DRE)';
-      contaCredito = cfg.contaEquivalencia;
-      descCredito = cfg.descEquivalencia || 'Investimento - Equivalência Patrimonial (Ativo)';
+    if (isAtivo) {
+      if (resultadoMEP >= 0) {
+        // Ganho de MEP
+        contaDebito = cfg.contaEquivalencia;
+        descDebito = cfg.descEquivalencia || 'Investimento - Equivalência Patrimonial (Ativo)';
+        contaCredito = cfg.contaReceitaMEP || '3.1.2.1 (Receita de Equivalência Patrimonial - DRE)';
+        descCredito = 'Receita de Equivalência Patrimonial (DRE)';
+      } else {
+        // Perda de MEP
+        contaDebito = cfg.contaDespesaMEP || '4.3.1.1 (Despesa com Equivalência Patrimonial - DRE)';
+        descDebito = 'Despesa com Equivalência Patrimonial (DRE)';
+        contaCredito = cfg.contaEquivalencia;
+        descCredito = cfg.descEquivalencia || 'Investimento - Equivalência Patrimonial (Ativo)';
+      }
     }
 
     return {
       ...cfg,
+      isAtivo,
       plAtual,
       plAnterior,
       variacaoPL,
@@ -578,9 +608,10 @@ export default function EquivalenciaPatrimonialModule({ companies = [] }) {
           <tbody>
             {apuracaoMEP.map((item, idx) => {
               const isPositive = item.resultadoMEP >= 0;
+              const isAtivo = item.isAtivo;
 
               return (
-                <tr key={item.empresaId || idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                <tr key={item.empresaId || idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.06)', opacity: isAtivo ? 1 : 0.55 }}>
                   <td style={{ textAlign: 'left', fontWeight: 'bold', color: '#fff' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <span>{item.tipo === 'exterior' ? '🌎' : '🇧🇷'}</span>
@@ -628,33 +659,37 @@ export default function EquivalenciaPatrimonialModule({ companies = [] }) {
                     </div>
                   </td>
 
-                  <td style={{ textAlign: 'right', color: '#bbb' }}>
-                    {formatCurrency(item.plAnterior)}
+                  <td style={{ textAlign: 'right', color: isAtivo ? '#bbb' : '#555' }}>
+                    {isAtivo ? formatCurrency(item.plAnterior) : '-'}
                   </td>
 
-                  <td style={{ textAlign: 'right', color: '#fff', fontWeight: '500' }}>
-                    {formatCurrency(item.plAtual)}
+                  <td style={{ textAlign: 'right', color: isAtivo ? '#fff' : '#555', fontWeight: isAtivo ? '500' : 'normal' }}>
+                    {isAtivo ? formatCurrency(item.plAtual) : '-'}
                   </td>
 
-                  <td style={{ textAlign: 'right', color: item.variacaoPL >= 0 ? '#81C784' : '#FF8A80', fontWeight: 'bold' }}>
-                    {item.variacaoPL >= 0 ? '+' : ''}{formatCurrency(item.variacaoPL)}
+                  <td style={{ textAlign: 'right', color: !isAtivo ? '#555' : (item.variacaoPL >= 0 ? '#81C784' : '#FF8A80'), fontWeight: 'bold' }}>
+                    {isAtivo ? `${item.variacaoPL >= 0 ? '+' : ''}${formatCurrency(item.variacaoPL)}` : '-'}
                   </td>
 
-                  <td style={{ textAlign: 'right', background: isPositive ? 'rgba(76, 175, 80, 0.08)' : 'rgba(244, 67, 54, 0.08)' }}>
-                    <strong style={{ color: isPositive ? '#81C784' : '#FF8A80', fontSize: '0.95rem' }}>
-                      {isPositive ? '+' : ''}{formatCurrency(item.resultadoMEP)}
+                  <td style={{ textAlign: 'right', background: !isAtivo ? 'transparent' : (isPositive ? 'rgba(76, 175, 80, 0.08)' : 'rgba(244, 67, 54, 0.08)') }}>
+                    <strong style={{ color: !isAtivo ? '#555' : (isPositive ? '#81C784' : '#FF8A80'), fontSize: '0.95rem' }}>
+                      {isAtivo ? `${isPositive ? '+' : ''}${formatCurrency(item.resultadoMEP)}` : 'R$ 0,00'}
                     </strong>
                   </td>
 
                   <td style={{ textAlign: 'left', fontSize: '0.78rem' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                      <div style={{ color: '#90CAF9' }}>
-                        <b>D:</b> [{item.contaDebito}] {item.descDebito}
+                    {isAtivo ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        <div style={{ color: '#90CAF9' }}>
+                          <b>D:</b> [{item.contaDebito}] {item.descDebito}
+                        </div>
+                        <div style={{ color: '#CE93D8' }}>
+                          <b>C:</b> [{item.contaCredito}] {item.descCredito}
+                        </div>
                       </div>
-                      <div style={{ color: '#CE93D8' }}>
-                        <b>C:</b> [{item.contaCredito}] {item.descCredito}
-                      </div>
-                    </div>
+                    ) : (
+                      <span style={{ color: '#666', fontStyle: 'italic' }}>Sem cálculo (0% de participação)</span>
+                    )}
                   </td>
                 </tr>
               );
