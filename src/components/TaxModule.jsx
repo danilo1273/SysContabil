@@ -923,9 +923,13 @@ export default function TaxModule({ companies }) {
                 step="0.01" 
                 className="text-input" 
                 value={presumidoAjusteIrpj} 
-                onChange={e => setPresumidoAjusteIrpj(e.target.value)} 
+                onChange={e => {
+                  const val = e.target.value;
+                  setPresumidoAjusteIrpj(val);
+                  persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoAjusteIrpj: val });
+                }} 
                 placeholder="0.00" 
-                style={{ width: '130px', textAlign: 'right', borderColor: '#FFD54F', color: '#FFD54F', fontWeight: 'bold' }} 
+                style={{ width: '130px', textAlign: 'right', borderColor: '#FFD54F', color: '#FFD54F', fontWeight: 'bold', background: '#1c1c24' }} 
               />
             </div>
 
@@ -961,9 +965,13 @@ export default function TaxModule({ companies }) {
                 step="0.01" 
                 className="text-input" 
                 value={presumidoAjusteCsll} 
-                onChange={e => setPresumidoAjusteCsll(e.target.value)} 
+                onChange={e => {
+                  const val = e.target.value;
+                  setPresumidoAjusteCsll(val);
+                  persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoAjusteCsll: val });
+                }} 
                 placeholder="0.00" 
-                style={{ width: '130px', textAlign: 'right', borderColor: '#FFD54F', color: '#FFD54F', fontWeight: 'bold' }} 
+                style={{ width: '130px', textAlign: 'right', borderColor: '#FFD54F', color: '#FFD54F', fontWeight: 'bold', background: '#1c1c24' }} 
               />
             </div>
 
