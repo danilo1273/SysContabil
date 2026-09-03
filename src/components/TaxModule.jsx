@@ -95,6 +95,8 @@ export default function TaxModule({ companies }) {
     setLalurRetencoesIR_AppFin(data.lalurRetencoesIR_AppFin !== undefined ? data.lalurRetencoesIR_AppFin : 0);
     setLalurRetencoesCS(data.lalurRetencoesCS !== undefined ? data.lalurRetencoesCS : 0);
     setLalurCambioRealizado(data.lalurCambioRealizado !== undefined ? data.lalurCambioRealizado : 0);
+    setLalurAjusteIrpj(data.lalurAjusteIrpj !== undefined ? data.lalurAjusteIrpj : '');
+    setLalurAjusteCsll(data.lalurAjusteCsll !== undefined ? data.lalurAjusteCsll : '');
     
     setPresumidoRetencoesIR(data.presumidoRetencoesIR !== undefined ? data.presumidoRetencoesIR : 0);
     setPresumidoRetencoesIR_AppFin(data.presumidoRetencoesIR_AppFin !== undefined ? data.presumidoRetencoesIR_AppFin : 0);
@@ -114,7 +116,7 @@ export default function TaxModule({ companies }) {
   const handleMonthChange = (newMes) => {
     if (selectedComp) {
       persistTaxData(selectedComp, selectedAno, selectedMes, {
-        lalurAdicoes, lalurExclusoes, lalurCompensacaoPrejuizo, lalurRetencoesIR, lalurRetencoesIR_AppFin, lalurRetencoesCS, lalurCambioRealizado,
+        lalurAdicoes, lalurExclusoes, lalurCompensacaoPrejuizo, lalurRetencoesIR, lalurRetencoesIR_AppFin, lalurRetencoesCS, lalurCambioRealizado, lalurAjusteIrpj, lalurAjusteCsll,
         presumidoRetencoesIR, presumidoRetencoesIR_AppFin, presumidoAjusteIrpj, presumidoAjusteCsll, presumidoRetencoesCS, presumidoOutrasReceitas, presumidoCambioRealizado, presumidoIpi, presumidoIcmsSt, presumidoMajoracao, presumidoImpostosDevolucao, darfIrpjReduzido, darfCsllReduzida
       });
     }
@@ -124,7 +126,7 @@ export default function TaxModule({ companies }) {
   const handleCompanyChange = (newComp) => {
     if (selectedComp) {
       persistTaxData(selectedComp, selectedAno, selectedMes, {
-        lalurAdicoes, lalurExclusoes, lalurCompensacaoPrejuizo, lalurRetencoesIR, lalurRetencoesIR_AppFin, lalurRetencoesCS, lalurCambioRealizado,
+        lalurAdicoes, lalurExclusoes, lalurCompensacaoPrejuizo, lalurRetencoesIR, lalurRetencoesIR_AppFin, lalurRetencoesCS, lalurCambioRealizado, lalurAjusteIrpj, lalurAjusteCsll,
         presumidoRetencoesIR, presumidoRetencoesIR_AppFin, presumidoAjusteIrpj, presumidoAjusteCsll, presumidoRetencoesCS, presumidoOutrasReceitas, presumidoCambioRealizado, presumidoIpi, presumidoIcmsSt, presumidoMajoracao, presumidoImpostosDevolucao, darfIrpjReduzido, darfCsllReduzida
       });
     }
@@ -434,7 +436,7 @@ export default function TaxModule({ companies }) {
         setIsProcessing(true);
         try {
             await persistTaxData(selectedComp, selectedAno, selectedMes, {
-                lalurAdicoes, lalurExclusoes, lalurCompensacaoPrejuizo, lalurRetencoesIR, lalurRetencoesIR_AppFin, lalurRetencoesCS, lalurCambioRealizado,
+                lalurAdicoes, lalurExclusoes, lalurCompensacaoPrejuizo, lalurRetencoesIR, lalurRetencoesIR_AppFin, lalurRetencoesCS, lalurCambioRealizado, lalurAjusteIrpj, lalurAjusteCsll,
                 presumidoRetencoesIR, presumidoRetencoesIR_AppFin, presumidoAjusteIrpj, presumidoAjusteCsll, presumidoRetencoesCS, presumidoOutrasReceitas, presumidoCambioRealizado, presumidoIpi, presumidoIcmsSt, presumidoMajoracao, presumidoImpostosDevolucao, darfIrpjReduzido, darfCsllReduzida
             });
             window.$toast('Memória de cálculo salva com sucesso! (Apenas para controle da DARF, sem impacto no Balanço/DRE)', { type: 'success' });
@@ -453,7 +455,7 @@ export default function TaxModule({ companies }) {
     try {
       // Salva os inputs no state/db
       await persistTaxData(selectedComp, selectedAno, selectedMes, {
-        lalurAdicoes, lalurExclusoes, lalurCompensacaoPrejuizo, lalurRetencoesIR, lalurRetencoesIR_AppFin, lalurRetencoesCS, lalurCambioRealizado,
+        lalurAdicoes, lalurExclusoes, lalurCompensacaoPrejuizo, lalurRetencoesIR, lalurRetencoesIR_AppFin, lalurRetencoesCS, lalurCambioRealizado, lalurAjusteIrpj, lalurAjusteCsll,
         presumidoRetencoesIR, presumidoRetencoesIR_AppFin, presumidoAjusteIrpj, presumidoAjusteCsll, presumidoRetencoesCS, presumidoOutrasReceitas, presumidoCambioRealizado, presumidoIpi, presumidoIcmsSt, presumidoMajoracao, presumidoImpostosDevolucao, darfIrpjReduzido, darfCsllReduzida
       });
 
@@ -907,7 +909,25 @@ export default function TaxModule({ companies }) {
             <input type="number" className="text-input" value={presumidoRetencoesIR_AppFin} onChange={e => setPresumidoRetencoesIR_AppFin(e.target.value)} style={{ width: '100%' }} />
             </div>
 
-            <Row label="IRPJ DEVIDO CALCULADO:" m={Math.max(0, cM.irpjTotal)} a={Math.max(0, cA.irpjTotal)} color="#81C784" bold={true} />
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.6rem', marginBottom: '0.6rem', background: 'rgba(255, 193, 7, 0.08)', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid rgba(255, 193, 7, 0.25)' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.84rem', color: '#FFD54F', fontWeight: 'bold' }}>
+                  ✏️ Ajuste Manual / Centavos no IRPJ (R$):
+                </label>
+                <span style={{ fontSize: '0.74rem', color: '#aaa' }}>Insira valor positivo (+) ou negativo (-) para ajuste fino de DARF</span>
+              </div>
+              <input 
+                type="number" 
+                step="0.01" 
+                className="text-input" 
+                value={presumidoAjusteIrpj} 
+                onChange={e => setPresumidoAjusteIrpj(e.target.value)} 
+                placeholder="0.00" 
+                style={{ width: '130px', textAlign: 'right', borderColor: '#FFD54F', color: '#FFD54F', fontWeight: 'bold' }} 
+              />
+            </div>
+
+            <Row label="IRPJ DEVIDO CALCULADO (FINAL):" m={Math.max(0, cM.irpjTotal)} a={Math.max(0, cA.irpjTotal)} color="#81C784" bold={true} />
             
             {isEstimativa && (
               <div style={{ marginTop: '1rem', background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '4px' }}>
@@ -927,7 +947,25 @@ export default function TaxModule({ companies }) {
               <input type="number" className="text-input" value={presumidoRetencoesCS} onChange={e => setPresumidoRetencoesCS(e.target.value)} style={{ width: '100%' }} />
             </div>
 
-            <Row label="CSLL DEVIDA CALCULADA:" m={Math.max(0, cM.csllTotal)} a={Math.max(0, cA.csllTotal)} color="#81C784" bold={true} />
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.6rem', marginBottom: '0.6rem', background: 'rgba(255, 193, 7, 0.08)', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid rgba(255, 193, 7, 0.25)' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.84rem', color: '#FFD54F', fontWeight: 'bold' }}>
+                  ✏️ Ajuste Manual / Centavos na CSLL (R$):
+                </label>
+                <span style={{ fontSize: '0.74rem', color: '#aaa' }}>Insira valor positivo (+) ou negativo (-) para ajuste fino de DARF</span>
+              </div>
+              <input 
+                type="number" 
+                step="0.01" 
+                className="text-input" 
+                value={presumidoAjusteCsll} 
+                onChange={e => setPresumidoAjusteCsll(e.target.value)} 
+                placeholder="0.00" 
+                style={{ width: '130px', textAlign: 'right', borderColor: '#FFD54F', color: '#FFD54F', fontWeight: 'bold' }} 
+              />
+            </div>
+
+            <Row label="CSLL DEVIDA CALCULADA (FINAL):" m={Math.max(0, cM.csllTotal)} a={Math.max(0, cA.csllTotal)} color="#81C784" bold={true} />
             {isEstimativa && (
               <div style={{ marginTop: '1rem', background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '4px' }}>
                 <label style={{ display: 'block', fontSize: '0.85rem', color: '#fff', marginBottom: '0.5rem' }}>✏️ <b>Ajuste de Suspensão/Redução: CSLL Paga no Mês</b> (Para controle anual)</label>
