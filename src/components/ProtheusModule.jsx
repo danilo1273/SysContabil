@@ -1935,7 +1935,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                       const ativo = ativoTot[cid] || 0;
                       const passivo = passivoTot[cid] || 0;
                       const diff = ativo - passivo;
-                      const ok = Math.abs(diff) < 1; // tolerância de R$1
+                      const ok = Math.abs(diff) <= 2; // tolerância de arredondamento de centavos (até R$2)
                       const label = cid === 'consolidado' ? 'Consolidado' : results.companies.find(c => c.id === cid)?.name || cid;
                       return (
                         <div key={cid} style={{
