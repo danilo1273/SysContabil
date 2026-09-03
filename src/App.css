@@ -233,7 +233,7 @@
 /* Tables */
 .results-section {
   padding: 1.5rem;
-  overflow-x: auto;
+  overflow: visible;
 }
 
 .table-wrapper {

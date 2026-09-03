@@ -9,6 +9,12 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
   const [showDebtModal, setShowDebtModal] = useState(false);
   const [debtFilter, setDebtFilter] = useState('todos');
   const [debtSearch, setDebtSearch] = useState('');
+  const [debtSelectedMes, setDebtSelectedMes] = useState(selectedMes);
+
+  // Sincronizar debtSelectedMes quando selectedMes mudar
+  useEffect(() => {
+    setDebtSelectedMes(selectedMes);
+  }, [selectedMes]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -126,7 +132,7 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
     { name: 'Receita', value: Math.abs(totalReceitaAtual), fill: '#4CAF50' }
   ];
 
-  // Histórico Mensal para Linhas
+  // Histórico Mensal para Linhas (DRE, Balanço, Endividamento e Caixa)
   const chartData = [];
   const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
   for (let m = 1; m <= 12; m++) {
@@ -138,12 +144,46 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
     const ebit = receitaLiquida + custos + despesas;
     const ebitMargin = receitaLiquida !== 0 ? (ebit / receitaLiquida) * 100 : 0;
 
+    // Métricas mensais de dívida e caixa (encargos somam com a dívida)
+    let mCP = 0;
+    let mLP = 0;
+    let mCaixa = 0;
+    let mNac = 0;
+    let mEst = 0;
+
+    (dataAtual.balanco || []).forEach(r => {
+      if (r.mes !== m) return;
+      const val = Math.abs(r.saldoAcumulado || 0);
+      if (r.conta.startsWith('2.1.1.2') || r.conta.startsWith('2.1.1.3') || r.conta.startsWith('2.1.2')) {
+        mCP += val;
+        if (r.conta.startsWith('2.1.1.2.03')) mEst += val;
+        else mNac += val;
+      } else if (r.conta.startsWith('2.3.1.1') || r.conta.startsWith('2.2.1')) {
+        mLP += val;
+        if (r.conta.startsWith('2.3.1.1.03') || r.conta.startsWith('2.2.1.1.03')) mEst += val;
+        else mNac += val;
+      } else if (r.conta.startsWith('1.1.1.1') || r.conta.startsWith('1.1.1.2')) {
+        mCaixa += (r.saldoAcumulado || 0);
+      }
+    });
+
+    const mDividaTotal = mCP + mLP;
+    const mDividaLiquida = mDividaTotal - mCaixa;
+
     chartData.push({
       mes: meses[m - 1],
+      mesNum: m,
       Faturamento: faturamento,
       Custos: Math.abs(custos),
       Estoque: extractMetric(dataAtual.balanco, '1.1.1.6', m),
-      EBIT: ebitMargin
+      EBIT: ebitMargin,
+      DividaTotal: mDividaTotal,
+      DividaCP: mCP,
+      DividaLP: mLP,
+      DividaNac: mNac,
+      DividaEst: mEst,
+      DisponivelCaixa: mCaixa,
+      DividaLiquidaCaixa: mDividaLiquida
     });
   }
 
@@ -303,7 +343,7 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
     );
   };
 
-  // --- CÁLCULO DE ENDIVIDAMENTO (NACIONAL 2.1.1.2.02 / ESTRANGEIRO 2.1.1.2.03 - PRINCIPAL + ENCARGOS) ---
+  // --- CÁLCULO DE ENDIVIDAMENTO (ENCARGOS SOMAM COM A DÍVIDA) ---
   const isDebtEncargo = (desc) => {
     const d = (desc || '').toLowerCase();
     return d.includes('encargo') || d.includes('enc ') || d.includes('transcorrer') || d.includes('apropriar') || d.startsWith('(-)') || d.startsWith('( - )');
@@ -312,6 +352,9 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
   const isDebtLP = (conta) => conta.startsWith('2.3.1.1') || conta.startsWith('2.2.1');
   const isDebtEstrangeiro = (conta) => conta.startsWith('2.1.1.2.03') || conta.startsWith('2.3.1.1.03') || conta.startsWith('2.2.1.1.03');
 
+  const activeDebtMes = debtSelectedMes || selectedMes;
+  const debtPeriodLabel = `${meses[activeDebtMes - 1]}/${selectedAno}`;
+
   let nacCPPrincipal = 0; let nacCPEncargos = 0;
   let nacLPPrincipal = 0; let nacLPEncargos = 0;
   let estCPPrincipal = 0; let estCPEncargos = 0;
@@ -319,7 +362,7 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
   const debtAccounts = [];
 
   (dataAtual.balanco || []).forEach(r => {
-    if (!inPeriod(r.mes)) return;
+    if (r.mes !== activeDebtMes) return;
     const isCp = isDebtCP(r.conta);
     const isLp = isDebtLP(r.conta);
     if (!isCp && !isLp) return;
@@ -354,33 +397,44 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
     });
   });
 
-  // Totais por Origem
-  const nacCPLiquido = nacCPPrincipal - nacCPEncargos;
-  const nacLPLiquido = nacLPPrincipal - nacLPEncargos;
-  const nacTotalLiquido = nacCPLiquido + nacLPLiquido;
+  // Totais por Origem (Encargos SOMAM com o Principal)
+  const nacCPTotal = nacCPPrincipal + nacCPEncargos;
+  const nacLPTotal = nacLPPrincipal + nacLPEncargos;
+  const nacTotal = nacCPTotal + nacLPTotal;
 
-  const estCPLiquido = estCPPrincipal - estCPEncargos;
-  const estLPLiquido = estLPPrincipal - estLPEncargos;
-  const estTotalLiquido = estCPLiquido + estLPLiquido;
+  const estCPTotal = estCPPrincipal + estCPEncargos;
+  const estLPTotal = estLPPrincipal + estLPEncargos;
+  const estTotal = estCPTotal + estLPTotal;
 
   // Totais Gerais
-  const debtCPPrincipal = nacCPPrincipal + estCPPrincipal;
-  const debtCPEncargos = nacCPEncargos + estCPEncargos;
-  const debtCPLiquido = debtCPPrincipal - debtCPEncargos;
+  const debtCPTotal = nacCPTotal + estCPTotal;
+  const debtLPTotal = nacLPTotal + estLPTotal;
+  const debtTotalGeral = debtCPTotal + debtLPTotal;
 
-  const debtLPPrincipal = nacLPPrincipal + estLPPrincipal;
-  const debtLPEncargos = nacLPEncargos + estLPEncargos;
-  const debtLPLiquido = debtLPPrincipal - debtLPEncargos;
+  // Disponível (Caixa & Bancos do mês selecionado)
+  const caixaTotal = extractMetric(dataAtual.balanco, '1.1.1.1', activeDebtMes) + extractMetric(dataAtual.balanco, '1.1.1.2', activeDebtMes);
+  const dividaLiquidaCaixa = debtTotalGeral - caixaTotal;
 
-  const debtTotalPrincipal = debtCPPrincipal + debtLPPrincipal;
-  const debtTotalEncargos = debtCPEncargos + debtLPEncargos;
-  const debtTotalLiquido = debtCPLiquido + debtLPLiquido;
+  const pctDebtNac = debtTotalGeral > 0 ? (nacTotal / debtTotalGeral) * 100 : 0;
+  const pctDebtEst = debtTotalGeral > 0 ? (estTotal / debtTotalGeral) * 100 : 0;
+  const pctDebtCP = debtTotalGeral > 0 ? (debtCPTotal / debtTotalGeral) * 100 : 0;
+  const pctDebtLP = debtTotalGeral > 0 ? (debtLPTotal / debtTotalGeral) * 100 : 0;
 
-  const caixaTotal = extractMetric(dataAtual.balanco, '1.1.1.1') + extractMetric(dataAtual.balanco, '1.1.1.2');
-  const dividaLiquidaCaixa = debtTotalLiquido - caixaTotal;
-
-  const pctDebtNac = debtTotalLiquido > 0 ? (nacTotalLiquido / debtTotalLiquido) * 100 : 0;
-  const pctDebtEst = debtTotalLiquido > 0 ? (estTotalLiquido / debtTotalLiquido) * 100 : 0;
+  // Comparativo com o Mês Anterior (MoM da Dívida)
+  let prevMonthDebt = 0;
+  let prevMonthCaixa = 0;
+  if (activeDebtMes > 1) {
+    const prevM = activeDebtMes - 1;
+    (dataAtual.balanco || []).forEach(r => {
+      if (r.mes !== prevM) return;
+      const val = Math.abs(r.saldoAcumulado || 0);
+      if (isDebtCP(r.conta) || isDebtLP(r.conta)) prevMonthDebt += val;
+      if (r.conta.startsWith('1.1.1.1') || r.conta.startsWith('1.1.1.2')) prevMonthCaixa += (r.saldoAcumulado || 0);
+    });
+  }
+  const diffDebtMoM = prevMonthDebt > 0 ? ((debtTotalGeral - prevMonthDebt) / prevMonthDebt) * 100 : null;
+  const diffDebtVal = prevMonthDebt > 0 ? (debtTotalGeral - prevMonthDebt) : null;
+  const diffCaixaMoM = prevMonthCaixa > 0 ? ((caixaTotal - prevMonthCaixa) / prevMonthCaixa) * 100 : null;
 
   // Filtragem para o Modal de Detalhamento
   const filteredDebtAccounts = debtAccounts.filter(acc => {
@@ -405,7 +459,7 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
     return true;
   });
 
-  const filteredDebtTotal = filteredDebtAccounts.reduce((sum, r) => sum + (r.isEncargo ? -r.valor : r.valor), 0);
+  const filteredDebtTotal = filteredDebtAccounts.reduce((sum, r) => sum + (r.valor || 0), 0);
 
   return (
     <div className="dashboard-view" style={{ paddingBottom: '2rem' }}>
@@ -571,163 +625,217 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
 
       {/* PAINEL DE ENDIVIDAMENTO & FINANCIAMENTOS (NACIONAL VS ESTRANGEIRO) */}
       <div className="glass-panel" style={{ 
-        padding: '1.5rem', 
+        padding: '1.8rem', 
         marginBottom: '2rem', 
         borderLeft: '4px solid #3F51B5',
         background: 'linear-gradient(135deg, rgba(63, 81, 181, 0.08), rgba(20, 20, 25, 0.7))'
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem', flexWrap: 'wrap', gap: '0.8rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
           <div>
-            <h3 style={{ margin: 0, color: '#fff', fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span style={{ fontSize: '1.5rem' }}>🏛️</span> Endividamento & Financiamentos ({periodLabel})
-            </h3>
-            <p style={{ margin: '0.3rem 0 0 0', color: '#aaa', fontSize: '0.85rem' }}>
-              Segregação por Origem: <b>Moeda Nacional (2.1.1.2.02 / 2.3.1.1.02)</b> vs. <b>Estrangeira / FINIMP (2.1.1.2.03 / 2.3.1.1.03)</b> (Principal + Encargos).
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+              <h3 style={{ margin: 0, color: '#fff', fontSize: '1.3rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '1.6rem' }}>🏛️</span> Endividamento & Financiamentos ({debtPeriodLabel})
+              </h3>
+
+              {/* Seletor Rápido de Mês de Análise */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(0,0,0,0.4)', padding: '3px 10px', borderRadius: '8px', border: '1px solid #3F51B5' }}>
+                <span style={{ fontSize: '0.8rem', color: '#90CAF9', fontWeight: 'bold' }}>Mês:</span>
+                <select
+                  value={activeDebtMes}
+                  onChange={(e) => setDebtSelectedMes(parseInt(e.target.value))}
+                  style={{
+                    background: 'transparent',
+                    color: '#fff',
+                    border: 'none',
+                    fontWeight: 'bold',
+                    fontSize: '0.88rem',
+                    cursor: 'pointer',
+                    outline: 'none'
+                  }}
+                >
+                  {Array.from({ length: 12 }, (_, i) => (
+                    <option key={i + 1} value={i + 1} style={{ background: '#222', color: '#fff' }}>
+                      {meses[i]}/{selectedAno}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <p style={{ margin: '0.4rem 0 0 0', color: '#aaa', fontSize: '0.88rem' }}>
+              Estrutura Contábil: <b>Moeda Nacional (2.1.1.2.02 / 2.3.1.1.02)</b> vs. <b>Estrangeira / FINIMP (2.1.1.2.03 / 2.3.1.1.03)</b> • Encargos somam com a dívida.
             </p>
           </div>
-          <button
-            onClick={() => setShowDebtModal(true)}
-            style={{
-              background: '#3F51B5',
-              color: '#fff',
-              border: 'none',
-              padding: '0.6rem 1.2rem',
-              borderRadius: '8px',
-              fontWeight: 'bold',
-              fontSize: '0.9rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              boxShadow: '0 4px 12px rgba(63, 81, 181, 0.3)',
-              transition: 'background 0.2s'
-            }}
-          >
-            <span>🔍</span> Detalhar Contas ({debtAccounts.length})
-          </button>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            {diffDebtMoM !== null && diffDebtVal !== null && (
+              <span style={{ 
+                background: diffDebtMoM > 0 ? 'rgba(244, 67, 54, 0.15)' : 'rgba(76, 175, 80, 0.15)',
+                color: diffDebtMoM > 0 ? '#FF8A80' : '#81C784',
+                fontSize: '0.85rem',
+                padding: '6px 14px',
+                borderRadius: '8px',
+                fontWeight: 'bold',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}>
+                {diffDebtMoM > 0 ? '↑ +' : '↓ '}{Math.abs(diffDebtMoM).toFixed(1)}% 
+                ({diffDebtVal >= 0 ? '+' : '-'}{formatCurrency(Math.abs(diffDebtVal))}) vs. Mês Anterior
+              </span>
+            )}
+            <button
+              onClick={() => setShowDebtModal(true)}
+              style={{
+                background: '#3F51B5',
+                color: '#fff',
+                border: 'none',
+                padding: '0.65rem 1.3rem',
+                borderRadius: '8px',
+                fontWeight: 'bold',
+                fontSize: '0.9rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                boxShadow: '0 4px 12px rgba(63, 81, 181, 0.3)',
+                transition: 'background 0.2s'
+              }}
+            >
+              <span>🔍</span> Detalhar Contas ({debtAccounts.length})
+            </button>
+          </div>
         </div>
 
-        {/* Grid dos 3 Cards de Endividamento */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.2rem' }}>
+        {/* Grid dos 3 Cards de Endividamento com Design Espaçoso e Elegante */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: '1.5rem' }}>
           
           {/* Card 1: Moeda Nacional */}
-          <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(76, 175, 80, 0.3)', padding: '1.2rem', borderRadius: '10px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
-              <span style={{ fontSize: '0.85rem', color: '#81C784', textTransform: 'uppercase', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(76, 175, 80, 0.35)', padding: '1.5rem', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.9rem', color: '#81C784', textTransform: 'uppercase', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span>🇧🇷</span> Moeda Nacional (2.1.1.2.02 / 2.3.1.1.02)
               </span>
-              <span style={{ background: 'rgba(76, 175, 80, 0.15)', color: '#81C784', fontSize: '0.75rem', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
+              <span style={{ background: 'rgba(76, 175, 80, 0.15)', color: '#81C784', fontSize: '0.8rem', padding: '3px 10px', borderRadius: '6px', fontWeight: 'bold' }}>
                 {pctDebtNac.toFixed(1)}% do Total
               </span>
             </div>
 
-            <div style={{ marginBottom: '0.6rem', paddingBottom: '0.5rem', borderBottom: '1px dashed rgba(255,255,255,0.1)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: '#ccc' }}>
-                <span>Curto Prazo:</span>
-                <span style={{ color: '#fff' }}>Prin: {formatCurrency(nacCPPrincipal)} | Enc: -{formatCurrency(nacCPEncargos)}</span>
+            {/* Curto Prazo */}
+            <div style={{ background: 'rgba(0,0,0,0.25)', padding: '0.9rem 1rem', borderRadius: '8px', borderLeft: '3px solid #2196F3' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                <span style={{ color: '#90CAF9', fontWeight: 'bold', fontSize: '0.85rem' }}>Curto Prazo (CP):</span>
+                <strong style={{ color: '#90CAF9', fontSize: '1.05rem' }}>{formatCurrency(nacCPTotal)}</strong>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 'bold', marginTop: '2px' }}>
-                <span style={{ color: '#90CAF9' }}>Líquido CP:</span>
-                <span style={{ color: '#90CAF9' }}>{formatCurrency(nacCPLiquido)}</span>
-              </div>
-            </div>
-
-            <div style={{ marginBottom: '0.6rem', paddingBottom: '0.5rem', borderBottom: '1px dashed rgba(255,255,255,0.1)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: '#ccc' }}>
-                <span>Longo Prazo:</span>
-                <span style={{ color: '#fff' }}>Prin: {formatCurrency(nacLPPrincipal)} | Enc: -{formatCurrency(nacLPEncargos)}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 'bold', marginTop: '2px' }}>
-                <span style={{ color: '#CE93D8' }}>Líquido LP:</span>
-                <span style={{ color: '#CE93D8' }}>{formatCurrency(nacLPLiquido)}</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: '#aaa' }}>
+                <span>Principal: <b style={{ color: '#ddd' }}>{formatCurrency(nacCPPrincipal)}</b></span>
+                <span>Encargos: <b style={{ color: '#FFD54F' }}>+{formatCurrency(nacCPEncargos)}</b></span>
               </div>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.4rem' }}>
-              <span style={{ color: '#aaa', fontSize: '0.85rem' }}>Total Nacional:</span>
-              <strong style={{ color: '#81C784', fontSize: '1.1rem' }}>{formatCurrency(nacTotalLiquido)}</strong>
+            {/* Longo Prazo */}
+            <div style={{ background: 'rgba(0,0,0,0.25)', padding: '0.9rem 1rem', borderRadius: '8px', borderLeft: '3px solid #AB47BC' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                <span style={{ color: '#CE93D8', fontWeight: 'bold', fontSize: '0.85rem' }}>Longo Prazo (LP):</span>
+                <strong style={{ color: '#CE93D8', fontSize: '1.05rem' }}>{formatCurrency(nacLPTotal)}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: '#aaa' }}>
+                <span>Principal: <b style={{ color: '#ddd' }}>{formatCurrency(nacLPPrincipal)}</b></span>
+                <span>Encargos: <b style={{ color: '#FFD54F' }}>+{formatCurrency(nacLPEncargos)}</b></span>
+              </div>
+            </div>
+
+            {/* Total Nacional */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+              <span style={{ color: '#ccc', fontSize: '0.9rem', fontWeight: '500' }}>Total Dívida Nacional:</span>
+              <strong style={{ color: '#81C784', fontSize: '1.25rem' }}>{formatCurrency(nacTotal)}</strong>
             </div>
           </div>
 
           {/* Card 2: Moeda Estrangeira (FINIMP) */}
-          <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(33, 150, 243, 0.3)', padding: '1.2rem', borderRadius: '10px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
-              <span style={{ fontSize: '0.85rem', color: '#64B5F6', textTransform: 'uppercase', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(33, 150, 243, 0.35)', padding: '1.5rem', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.9rem', color: '#64B5F6', textTransform: 'uppercase', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span>🌎</span> Moeda Estrangeira (2.1.1.2.03 / 2.3.1.1.03)
               </span>
-              <span style={{ background: 'rgba(33, 150, 243, 0.15)', color: '#64B5F6', fontSize: '0.75rem', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
+              <span style={{ background: 'rgba(33, 150, 243, 0.15)', color: '#64B5F6', fontSize: '0.8rem', padding: '3px 10px', borderRadius: '6px', fontWeight: 'bold' }}>
                 {pctDebtEst.toFixed(1)}% do Total
               </span>
             </div>
 
-            <div style={{ marginBottom: '0.6rem', paddingBottom: '0.5rem', borderBottom: '1px dashed rgba(255,255,255,0.1)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: '#ccc' }}>
-                <span>Curto Prazo:</span>
-                <span style={{ color: '#fff' }}>Prin: {formatCurrency(estCPPrincipal)} | Enc: -{formatCurrency(estCPEncargos)}</span>
+            {/* Curto Prazo */}
+            <div style={{ background: 'rgba(0,0,0,0.25)', padding: '0.9rem 1rem', borderRadius: '8px', borderLeft: '3px solid #2196F3' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                <span style={{ color: '#90CAF9', fontWeight: 'bold', fontSize: '0.85rem' }}>Curto Prazo (CP):</span>
+                <strong style={{ color: '#90CAF9', fontSize: '1.05rem' }}>{formatCurrency(estCPTotal)}</strong>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 'bold', marginTop: '2px' }}>
-                <span style={{ color: '#90CAF9' }}>Líquido CP:</span>
-                <span style={{ color: '#90CAF9' }}>{formatCurrency(estCPLiquido)}</span>
-              </div>
-            </div>
-
-            <div style={{ marginBottom: '0.6rem', paddingBottom: '0.5rem', borderBottom: '1px dashed rgba(255,255,255,0.1)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', color: '#ccc' }}>
-                <span>Longo Prazo:</span>
-                <span style={{ color: '#fff' }}>Prin: {formatCurrency(estLPPrincipal)} | Enc: -{formatCurrency(estLPEncargos)}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', fontWeight: 'bold', marginTop: '2px' }}>
-                <span style={{ color: '#CE93D8' }}>Líquido LP:</span>
-                <span style={{ color: '#CE93D8' }}>{formatCurrency(estLPLiquido)}</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: '#aaa' }}>
+                <span>Principal: <b style={{ color: '#ddd' }}>{formatCurrency(estCPPrincipal)}</b></span>
+                <span>Encargos: <b style={{ color: '#FFD54F' }}>+{formatCurrency(estCPEncargos)}</b></span>
               </div>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.4rem' }}>
-              <span style={{ color: '#aaa', fontSize: '0.85rem' }}>Total Estrangeiro:</span>
-              <strong style={{ color: '#64B5F6', fontSize: '1.1rem' }}>{formatCurrency(estTotalLiquido)}</strong>
+            {/* Longo Prazo */}
+            <div style={{ background: 'rgba(0,0,0,0.25)', padding: '0.9rem 1rem', borderRadius: '8px', borderLeft: '3px solid #AB47BC' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                <span style={{ color: '#CE93D8', fontWeight: 'bold', fontSize: '0.85rem' }}>Longo Prazo (LP):</span>
+                <strong style={{ color: '#CE93D8', fontSize: '1.05rem' }}>{formatCurrency(estLPTotal)}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: '#aaa' }}>
+                <span>Principal: <b style={{ color: '#ddd' }}>{formatCurrency(estLPPrincipal)}</b></span>
+                <span>Encargos: <b style={{ color: '#FFD54F' }}>+{formatCurrency(estLPEncargos)}</b></span>
+              </div>
+            </div>
+
+            {/* Total Estrangeira */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+              <span style={{ color: '#ccc', fontSize: '0.9rem', fontWeight: '500' }}>Total Dívida Estrangeira:</span>
+              <strong style={{ color: '#64B5F6', fontSize: '1.25rem' }}>{formatCurrency(estTotal)}</strong>
             </div>
           </div>
 
-          {/* Card 3: Posição Total & Caixa */}
-          <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255, 193, 7, 0.3)', padding: '1.2rem', borderRadius: '10px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
-              <span style={{ fontSize: '0.85rem', color: '#FFE082', textTransform: 'uppercase', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span>💳</span> Posição Total Consolidada
+          {/* Card 3: Posição Total Consolidada & Caixa */}
+          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255, 193, 7, 0.35)', padding: '1.5rem', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.9rem', color: '#FFE082', textTransform: 'uppercase', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>💳</span> Posição Total & Caixa ({debtPeriodLabel})
               </span>
-              <span style={{ background: 'rgba(255, 193, 7, 0.15)', color: '#FFD54F', fontSize: '0.75rem', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
-                Dívida Líquida
+              <span style={{ background: 'rgba(255, 193, 7, 0.15)', color: '#FFD54F', fontSize: '0.8rem', padding: '3px 10px', borderRadius: '6px', fontWeight: 'bold' }}>
+                CP: {pctDebtCP.toFixed(0)}% | LP: {pctDebtLP.toFixed(0)}%
               </span>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem', fontSize: '0.85rem' }}>
-              <span style={{ color: '#ccc' }}>Dívida Bruta (Principal Total):</span>
-              <strong style={{ color: '#fff' }}>{formatCurrency(debtTotalPrincipal)}</strong>
+            {/* Detalhe Curto e Longo */}
+            <div style={{ background: 'rgba(0,0,0,0.25)', padding: '0.9rem 1rem', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                <span style={{ color: '#ccc' }}>Curto Prazo (CP Total):</span>
+                <strong style={{ color: '#90CAF9', fontSize: '1rem' }}>{formatCurrency(debtCPTotal)}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                <span style={{ color: '#ccc' }}>Longo Prazo (LP Total):</span>
+                <strong style={{ color: '#CE93D8', fontSize: '1rem' }}>{formatCurrency(debtLPTotal)}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.95rem', paddingTop: '0.4rem', borderTop: '1px dashed rgba(255,255,255,0.1)' }}>
+                <span style={{ color: '#fff', fontWeight: 'bold' }}>= Dívida Total (CP + LP):</span>
+                <strong style={{ color: '#FFD54F', fontSize: '1.05rem' }}>{formatCurrency(debtTotalGeral)}</strong>
+              </div>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem', fontSize: '0.85rem' }}>
-              <span style={{ color: '#aaa' }}>(-) Encargos Totais:</span>
-              <strong style={{ color: '#FF8A80' }}>-{formatCurrency(debtTotalEncargos)}</strong>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem', fontSize: '0.85rem' }}>
-              <span style={{ color: '#ccc' }}>= Dívida Total Líquida:</span>
-              <strong style={{ color: '#FFD54F' }}>{formatCurrency(debtTotalLiquido)}</strong>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem', fontSize: '0.85rem' }}>
-              <span style={{ color: '#aaa' }}>(-) Caixa & Disponibilidades:</span>
-              <strong style={{ color: '#81C784' }}>-{formatCurrency(caixaTotal)}</strong>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-              <span style={{ color: '#aaa', fontSize: '0.85rem' }}>Dívida Líq. de Caixa:</span>
-              <strong style={{ color: dividaLiquidaCaixa <= 0 ? '#81C784' : '#FFCA28', fontSize: '1.1rem' }}>{formatCurrency(dividaLiquidaCaixa)}</strong>
+            {/* Caixa e Dívida Líquida */}
+            <div style={{ background: 'rgba(0,0,0,0.25)', padding: '0.9rem 1rem', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                <span style={{ color: '#aaa' }}>(-) Disponível (Caixa & Bancos):</span>
+                <strong style={{ color: '#81C784' }}>-{formatCurrency(caixaTotal)}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '0.4rem', borderTop: '1px dashed rgba(255,255,255,0.1)' }}>
+                <span style={{ color: '#ccc', fontSize: '0.85rem', fontWeight: 'bold' }}>Dívida Líquida de Caixa:</span>
+                <strong style={{ color: dividaLiquidaCaixa <= 0 ? '#81C784' : '#FFCA28', fontSize: '1.25rem' }}>{formatCurrency(dividaLiquidaCaixa)}</strong>
+              </div>
             </div>
           </div>
 
         </div>
       </div>
-
       {/* MODAL DE DETALHAMENTO DAS CONTAS DE ENDIVIDAMENTO COM FILTROS NACIONAL / ESTRANGEIRO */}
       {showDebtModal && (
         <div style={{
@@ -1174,6 +1282,39 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
               </LineChart>
             </ResponsiveContainer>
           </div>
+        </div>
+      </div>
+
+      {/* GRÁFICO DE EVOLUÇÃO DO ENDIVIDAMENTO X DISPONIBILIDADES */}
+      <div className="glass-panel" style={{ padding: '2rem', marginTop: '2rem', borderLeft: '4px solid #3F51B5' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+          <div>
+            <h3 style={{ margin: 0, color: '#fff', fontSize: '1.3rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span>📈</span> Evolução do Endividamento vs. Disponibilidades - {selectedAno}
+            </h3>
+            <p style={{ margin: '0.3rem 0 0 0', color: '#aaa', fontSize: '0.85rem' }}>
+              Acompanhamento mensal da Dívida Total (Curto + Longo Prazo), Caixa Disponível e Dívida Líquida.
+            </p>
+          </div>
+        </div>
+
+        <div style={{ width: '100%', height: '380px' }}>
+          <ResponsiveContainer>
+            <LineChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 10 }}>
+              <XAxis dataKey="mes" stroke="#aaa" />
+              <YAxis stroke="#aaa" tickFormatter={(v) => `R$ ${(v/1000000).toFixed(1)}M`} />
+              <Tooltip 
+                formatter={(val) => formatCurrency(val)} 
+                contentStyle={{ backgroundColor: 'rgba(25,25,30,0.95)', borderColor: '#3F51B5', borderRadius: '8px', boxShadow: '0 8px 24px rgba(0,0,0,0.6)' }} 
+              />
+              <Legend wrapperStyle={{ paddingTop: '15px' }} />
+              <Line type="monotone" dataKey="DividaTotal" name="Dívida Total (R$)" stroke="#FF5252" strokeWidth={3} dot={{r: 4}} activeDot={{r: 7}} />
+              <Line type="monotone" dataKey="DividaCP" name="Curto Prazo (R$)" stroke="#2196F3" strokeWidth={2} dot={{r: 3}} />
+              <Line type="monotone" dataKey="DividaLP" name="Longo Prazo (R$)" stroke="#AB47BC" strokeWidth={2} dot={{r: 3}} />
+              <Line type="monotone" dataKey="DisponivelCaixa" name="Disponível / Caixa (R$)" stroke="#4CAF50" strokeWidth={3} dot={{r: 4}} activeDot={{r: 7}} />
+              <Line type="monotone" dataKey="DividaLiquidaCaixa" name="Dívida Líq. Caixa (R$)" stroke="#FFCA28" strokeWidth={2} strokeDasharray="5 5" dot={{r: 3}} />
+            </LineChart>
+          </ResponsiveContainer>
         </div>
       </div>
 

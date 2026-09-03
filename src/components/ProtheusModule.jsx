@@ -1757,7 +1757,25 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
           <PendencyWidget companies={companies} ano={selectedAno} />
 
           
-          <div className="print-hide" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem", flexWrap: "wrap", gap: "1rem" }}>
+          <div className="print-hide" style={{ 
+            position: 'sticky',
+            top: '10px',
+            zIndex: 1000,
+            background: 'rgba(18, 18, 24, 0.95)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            border: '1px solid rgba(255, 255, 255, 0.15)',
+            padding: '0.8rem 1.2rem',
+            borderRadius: '12px',
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center', 
+            marginBottom: '1.5rem', 
+            flexWrap: 'wrap', 
+            gap: '1rem',
+            boxShadow: '0 10px 30px rgba(0,0,0,0.6)',
+            transition: 'all 0.3s ease'
+          }}>
             <div>
               <h2 style={{ color: 'var(--color-primary)' }}>Painel de Inteligência Consolidado</h2>
               {latestAvailable && <p style={{ color: '#888', fontSize: '0.85rem', marginTop: '0.2rem' }}>Último balancete integrado: <strong>{latestAvailable}</strong></p>}
