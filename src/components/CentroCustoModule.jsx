@@ -26,10 +26,9 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
   const [ccSearch, setCcSearch] = useState('');
   const [expandedConfigProject, setExpandedConfigProject] = useState(null);
 
-  // Rateio State
-  const [rateioSource, setRateioSource] = useState('');
-  const [rateioRule, setRateioRule] = useState('proporcional');
-  const [rateioFixedPct, setRateioFixedPct] = useState({});
+  // Rateio State (Suporte a múltiplos Projetos de Rateio)
+  const [rateioList, setRateioList] = useState([]); // [{ id, source, rule, fixedPct: {}, targetProjects: [] }]
+  const [selectedNewRateioSource, setSelectedNewRateioSource] = useState('');
   const [includeRateio, setIncludeRateio] = useState(false);
 
   // DRE State
@@ -84,18 +83,117 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
           if (p) setProjects(p);
           const r = await getSettings('agf_cc_rateio_config');
           if (r) {
-              if (r.source) setRateioSource(r.source);
-              if (r.rule) setRateioRule(r.rule);
-              if (r.fixedPct) setRateioFixedPct(r.fixedPct);
+              if (Array.isArray(r.rateioList)) {
+                  setRateioList(r.rateioList);
+              } else if (r.source) {
+                  setRateioList([{
+                      id: 'rateio-legacy',
+                      source: r.source,
+                      rule: r.rule || 'proporcional',
+                      fixedPct: r.fixedPct || {},
+                      targetProjects: []
+                  }]);
+              }
           }
       } catch (e) { console.error(e); }
   };
 
-  const handleSaveRateio = async (source, rule, fixedPct) => {
-      setRateioSource(source);
-      setRateioRule(rule);
-      setRateioFixedPct(fixedPct);
-      await saveSettings('agf_cc_rateio_config', { source, rule, fixedPct });
+  const saveRateioListToDB = async (newList) => {
+      setRateioList(newList);
+      await saveSettings('agf_cc_rateio_config', { rateioList: newList });
+  };
+
+  const handleAddRateioProject = (sourceProj) => {
+      if (!sourceProj) return;
+      if (rateioList.some(r => r.source === sourceProj)) {
+          window.$alert('Este projeto já possui uma regra de rateio cadastrada.');
+          return;
+      }
+      const initialFixed = {};
+      Object.keys(projects).filter(p => p !== sourceProj).forEach(p => {
+          initialFixed[p] = 0;
+      });
+      const newEntry = {
+          id: 'rateio-' + Date.now(),
+          source: sourceProj,
+          rule: 'proporcional', // 'proporcional' | 'fixa'
+          fixedPct: initialFixed,
+          targetProjects: Object.keys(projects).filter(p => p !== sourceProj)
+      };
+      const updated = [...rateioList, newEntry];
+      saveRateioListToDB(updated);
+      setSelectedNewRateioSource('');
+      window.$toast(`Projeto "${sourceProj}" adicionado como Origem de Rateio!`, { type: 'success' });
+  };
+
+  const handleRemoveRateioProject = (id) => {
+      const updated = rateioList.filter(r => r.id !== id);
+      saveRateioListToDB(updated);
+      window.$toast('Regra de rateio removida.', { type: 'info' });
+  };
+
+  const handleUpdateRateioRule = (id, field, value) => {
+      const updated = rateioList.map(item => {
+          if (item.id === id) {
+              return { ...item, [field]: value };
+          }
+          return item;
+      });
+      saveRateioListToDB(updated);
+  };
+
+  const handleUpdateFixedPct = (id, targetProj, pct) => {
+      const updated = rateioList.map(item => {
+          if (item.id === id) {
+              return {
+                  ...item,
+                  fixedPct: {
+                      ...(item.fixedPct || {}),
+                      [targetProj]: parseFloat(pct) || 0
+                  }
+              };
+          }
+          return item;
+      });
+      saveRateioListToDB(updated);
+  };
+
+  const handleToggleTargetProject = (id, targetProj) => {
+      const updated = rateioList.map(item => {
+          if (item.id === id) {
+              const currentTargets = item.targetProjects || Object.keys(projects).filter(p => p !== item.source);
+              let newTargets;
+              if (currentTargets.includes(targetProj)) {
+                  newTargets = currentTargets.filter(p => p !== targetProj);
+              } else {
+                  newTargets = [...currentTargets, targetProj];
+              }
+              return { ...item, targetProjects: newTargets };
+          }
+          return item;
+      });
+      saveRateioListToDB(updated);
+  };
+
+  const handleDistributeEvenly = (id) => {
+      const item = rateioList.find(r => r.id === id);
+      if (!item) return;
+      const targets = Object.keys(projects).filter(p => p !== item.source);
+      if (targets.length === 0) return;
+      const evenPct = parseFloat((100 / targets.length).toFixed(2));
+      const newFixed = {};
+      targets.forEach((p, idx) => {
+          if (idx === targets.length - 1) {
+              // Ajuste de arredondamento no último
+              const sumPrev = evenPct * (targets.length - 1);
+              newFixed[p] = parseFloat((100 - sumPrev).toFixed(2));
+          } else {
+              newFixed[p] = evenPct;
+          }
+      });
+      const updated = rateioList.map(r => r.id === id ? { ...r, fixedPct: newFixed } : r);
+      saveRateioListToDB(updated);
+      window.$toast('Percentuais divididos igualmente!', { type: 'success' });
   };
 
   const loadUniqueCCs = async () => {
@@ -376,57 +474,74 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
           const baseRecords = await fetchAndFilter(periodoBaseAno, periodoBaseMes, periodoBaseTri, periodType, targetCCs);
           const compRecords = await fetchAndFilter(periodoCompAno, periodoCompMes, periodoCompTri, periodType, targetCCs);
 
-          if (includeRateio && rateioSource && projects[rateioSource] && rateioSource !== selectedProject) {
-              const sourceCCs = projects[rateioSource];
-              const baseSourceRecords = await fetchAndFilter(periodoBaseAno, periodoBaseMes, periodoBaseTri, periodType, sourceCCs);
-              const compSourceRecords = await fetchAndFilter(periodoCompAno, periodoCompMes, periodoCompTri, periodType, sourceCCs);
-              
-              let pctBase = 0;
-              let pctComp = 0;
-              
-              if (rateioRule === 'fixa') {
-                  pctBase = (rateioFixedPct[selectedProject] || 0) / 100;
-                  pctComp = pctBase;
-              } else if (rateioRule === 'proporcional') {
-            const getAllRevenue = async (ano, mes, tri, type) => {
-      const targets = getTargetPeriods(ano, mes, tri, type);
-      
-      let totalRev = 0;
-      let projRev = 0;
-      for (const t of targets) {
-        const res = await getRawRecords(t.ano, t.mes);
-                          (res.cc || []).forEach(r => {
-                              if (r.conta.startsWith('3.1.1.1.01') || r.conta.startsWith('3.1.1.1.02')) {
-                                  if (targetCCs.includes(r.cc_codigo)) projRev += Math.abs(r.valor);
-                                  if (!sourceCCs.includes(r.cc_codigo)) totalRev += Math.abs(r.valor);
+          if (includeRateio && rateioList && rateioList.length > 0) {
+              for (const rateioItem of rateioList) {
+                  const sourceName = rateioItem.source;
+                  if (!sourceName || !projects[sourceName] || sourceName === selectedProject) continue;
+                  
+                  const sourceCCs = projects[sourceName];
+                  if (!sourceCCs || sourceCCs.length === 0) continue;
+
+                  const baseSourceRecords = await fetchAndFilter(periodoBaseAno, periodoBaseMes, periodoBaseTri, periodType, sourceCCs);
+                  const compSourceRecords = await fetchAndFilter(periodoCompAno, periodoCompMes, periodoCompTri, periodType, sourceCCs);
+                  
+                  let pctBase = 0;
+                  let pctComp = 0;
+                  
+                  if (rateioItem.rule === 'fixa') {
+                      pctBase = (rateioItem.fixedPct?.[selectedProject] || 0) / 100;
+                      pctComp = pctBase;
+                  } else if (rateioItem.rule === 'proporcional') {
+                      const validTargets = (rateioItem.targetProjects && rateioItem.targetProjects.length > 0) 
+                          ? rateioItem.targetProjects 
+                          : Object.keys(projects).filter(p => p !== sourceName);
+                      
+                      if (validTargets.includes(selectedProject)) {
+                          const getRevenueShare = async (ano, mes, tri, type) => {
+                              const targets = getTargetPeriods(ano, mes, tri, type);
+                              let totalPoolRev = 0;
+                              let thisProjRev = 0;
+                              
+                              for (const t of targets) {
+                                  const res = await getRawRecords(t.ano, t.mes);
+                                  const ccRows = res.cc || [];
+                                  
+                                  // Calcular receita de cada projeto participante
+                                  validTargets.forEach(tName => {
+                                      const tCCs = projects[tName] || [];
+                                      ccRows.forEach(r => {
+                                          if ((r.conta.startsWith('3.1.1.1.01') || r.conta.startsWith('3.1.1.1.02')) && tCCs.includes(r.cc_codigo)) {
+                                              const v = Math.abs(r.valor || 0);
+                                              totalPoolRev += v;
+                                              if (tName === selectedProject) thisProjRev += v;
+                                          }
+                                      });
+                                  });
                               }
+                              return totalPoolRev > 0 ? (thisProjRev / totalPoolRev) : 0;
+                          };
+                          
+                          pctBase = await getRevenueShare(periodoBaseAno, periodoBaseMes, periodoBaseTri, periodType);
+                          pctComp = await getRevenueShare(periodoCompAno, periodoCompMes, periodoCompTri, periodType);
+                      }
+                  }
+                  
+                  const appendRateio = (records, pct, targetArray) => {
+                      if (pct > 0 && records && records.length > 0) {
+                          records.forEach(r => {
+                              targetArray.push({
+                                  ...r,
+                                  valor: (r.valor || 0) * pct,
+                                  conta: '9.9.9.9.01',
+                                  conta_descricao: `Rateio de ${sourceName} (${(pct * 100).toFixed(2)}%) - ${r.conta_descricao || r.conta}`
+                              });
                           });
                       }
-                      return { totalRev, projRev };
                   };
                   
-                  const revBase = await getAllRevenue(periodoBaseAno, periodoBaseMes, periodoBaseTri, periodType);
-                  const revComp = await getAllRevenue(periodoCompAno, periodoCompMes, periodoCompTri, periodType);
-                  
-                  pctBase = revBase.totalRev > 0 ? (revBase.projRev / revBase.totalRev) : 0;
-                  pctComp = revComp.totalRev > 0 ? (revComp.projRev / revComp.totalRev) : 0;
+                  appendRateio(baseSourceRecords, pctBase, baseRecords);
+                  appendRateio(compSourceRecords, pctComp, compRecords);
               }
-              
-              const appendRateio = (records, pct, targetArray) => {
-                  if (pct > 0) {
-                      records.forEach(r => {
-                          targetArray.push({
-                              ...r,
-                              valor: r.valor * pct,
-                              conta: '9.9.9.9.01',
-                              conta_descricao: `Rateio de ${rateioSource} (${(pct * 100).toFixed(2)}%)`
-                          });
-                      });
-                  }
-              };
-              
-              appendRateio(baseSourceRecords, pctBase, baseRecords);
-              appendRateio(compSourceRecords, pctComp, compRecords);
           }
 
           const baseDbData = baseRecords.map(r => ({ conta: r.conta, descricao: `${r.cc_codigo ? r.cc_codigo + ' | ' : ''}${r.conta_descricao}`, valorMensal: r.valor }));
@@ -697,52 +812,200 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
 
       {activeTab === 'rateio' && (
           <div>
-              <h3 style={{ color: 'var(--color-primary)', marginBottom: '1rem' }}>Regras de Rateio</h3>
-              <p style={{ color: '#aaa', marginBottom: '1.5rem' }}>Configure como as despesas de um projeto "Origem" (Ex: Administrativo) serão absorvidas pelos outros projetos na DRE.</p>
-
-              <div style={{ background: 'rgba(255,255,255,0.05)', padding: '1.5rem', borderRadius: '8px', marginBottom: '2rem' }}>
-                  <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
-                      <div style={{ flex: 1, minWidth: '250px' }}>
-                          <label style={{ display: 'block', color: '#888', marginBottom: '0.5rem' }}>Projeto Origem (Despesas a Ratear):</label>
-                          <select value={rateioSource} onChange={e => handleSaveRateio(e.target.value, rateioRule, rateioFixedPct)} className="select-input" style={{ width: '100%' }}>
-                              <option value="">Selecione o Projeto...</option>
-                              {Object.keys(projects).map(p => <option key={p} value={p}>{p}</option>)}
-                          </select>
-                      </div>
-                      <div style={{ flex: 1, minWidth: '250px' }}>
-                          <label style={{ display: 'block', color: '#888', marginBottom: '0.5rem' }}>Regra de Distribuição:</label>
-                          <select value={rateioRule} onChange={e => handleSaveRateio(rateioSource, e.target.value, rateioFixedPct)} className="select-input" style={{ width: '100%' }}>
-                              <option value="proporcional">Automática (Proporcional à Receita Bruta/Líquida)</option>
-                              <option value="fixa">Manual (Porcentagem Fixa por Projeto)</option>
-                          </select>
-                      </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.5rem' }}>
+                  <div>
+                      <h3 style={{ color: 'var(--color-primary)', margin: '0 0 0.5rem 0' }}>📐 Regras de Rateio de Centro de Custo</h3>
+                      <p style={{ color: '#aaa', margin: 0, fontSize: '0.9rem' }}>
+                          Configure como os <b>Projetos de Apoio / Indiretos</b> (Ex: <i>Rateio ADM, Oficina Geral, Logística</i>) distribuem suas despesas para os <b>Projetos Principais</b> na DRE.
+                      </p>
                   </div>
-                  
-                  {rateioRule === 'fixa' && rateioSource && (
-                      <div style={{ background: 'rgba(0,0,0,0.2)', padding: '1.5rem', borderRadius: '8px' }}>
-                          <h4 style={{ color: '#FF9800', marginBottom: '1rem' }}>Porcentagem Fixa de Absorção</h4>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem' }}>
-                              {Object.keys(projects).filter(p => p !== rateioSource).map(p => (
-                                  <div key={p} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                      <label style={{ color: '#ccc', fontSize: '0.9rem' }}>{p}</label>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                          <input 
-                                              type="number" 
-                                              min="0" 
-                                              max="100"
-                                              value={rateioFixedPct[p] || ''} 
-                                              onChange={e => handleSaveRateio(rateioSource, rateioRule, { ...rateioFixedPct, [p]: Number(e.target.value) })}
-                                              className="select-input"
-                                              style={{ width: '100px', paddingRight: '1rem' }}
-                                          />
-                                          <span>%</span>
+              </div>
+
+              {/* BARRA DE ADIÇÃO DE NOVO PROJETO DE RATEIO */}
+              <div style={{ background: 'rgba(33, 150, 243, 0.08)', border: '1px solid rgba(33, 150, 243, 0.3)', padding: '1.2rem', borderRadius: '10px', marginBottom: '2rem', display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: '280px' }}>
+                      <label style={{ display: 'block', color: '#64B5F6', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '4px' }}>
+                          + Adicionar Projeto como Origem de Rateio:
+                      </label>
+                      <select 
+                          value={selectedNewRateioSource} 
+                          onChange={e => setSelectedNewRateioSource(e.target.value)} 
+                          className="select-input" 
+                          style={{ width: '100%' }}
+                      >
+                          <option value="">Selecione um projeto de apoio/rateio...</option>
+                          {Object.keys(projects)
+                              .filter(p => !rateioList.some(r => r.source === p))
+                              .map(p => (
+                                  <option key={p} value={p}>
+                                      {p} ({(projects[p] || []).length} CCs vinculados)
+                                  </option>
+                              ))
+                          }
+                      </select>
+                  </div>
+                  <button 
+                      className="btn-primary" 
+                      onClick={() => handleAddRateioProject(selectedNewRateioSource)} 
+                      disabled={!selectedNewRateioSource}
+                      style={{ padding: '0.6rem 1.4rem', fontSize: '0.9rem', marginTop: '1.2rem' }}
+                  >
+                      + Cadastrar Regra de Rateio
+                  </button>
+              </div>
+
+              {/* LISTA DE PROJETOS DE RATEIO CADASTRADOS */}
+              {rateioList.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '3rem 1rem', background: 'rgba(255,255,255,0.02)', borderRadius: '10px', border: '1px dashed #444', color: '#888' }}>
+                      <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📐</div>
+                      <strong>Nenhum projeto de rateio cadastrado ainda.</strong>
+                      <p style={{ fontSize: '0.85rem', color: '#666', marginTop: '4px' }}>
+                          Selecione um projeto no campo acima para definir como suas despesas serão absorvidas pelos projetos produtivos.
+                      </p>
+                  </div>
+              ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                      {rateioList.map(item => {
+                          const sourceCCs = projects[item.source] || [];
+                          const targetProjs = Object.keys(projects).filter(p => p !== item.source);
+                          const isFixed = item.rule === 'fixa';
+                          
+                          // Soma dos percentuais fixos
+                          const fixedSum = Object.keys(item.fixedPct || {}).reduce((acc, p) => acc + (parseFloat(item.fixedPct[p]) || 0), 0);
+                          const isSumOk = Math.abs(fixedSum - 100) < 0.01;
+
+                          return (
+                              <div key={item.id} style={{ background: 'rgba(255,255,255,0.04)', borderRadius: '10px', border: '1px solid #333', padding: '1.5rem' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.2rem', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '0.8rem', flexWrap: 'wrap', gap: '1rem' }}>
+                                      <div>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                              <span style={{ fontSize: '1.3rem' }}>🏢</span>
+                                              <h4 style={{ margin: 0, color: 'var(--color-primary)', fontSize: '1.15rem' }}>
+                                                  Origem: <strong>{item.source}</strong>
+                                              </h4>
+                                          </div>
+                                          <div style={{ fontSize: '0.8rem', color: '#888', marginTop: '4px' }}>
+                                              Centros de Custo vinculados: <b style={{ color: '#ccc' }}>{sourceCCs.join(', ') || 'Nenhum CC'}</b>
+                                          </div>
+                                      </div>
+
+                                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                          <button 
+                                              onClick={() => handleRemoveRateioProject(item.id)}
+                                              style={{ background: 'rgba(244,67,54,0.15)', border: '1px solid #F44336', color: '#FF8A80', padding: '0.4rem 0.8rem', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8rem' }}
+                                          >
+                                              🗑️ Excluir Regra
+                                          </button>
                                       </div>
                                   </div>
-                              ))}
-                          </div>
-                      </div>
-                  )}
-              </div>
+
+                                  {/* SELETOR DA REGRA */}
+                                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem', marginBottom: '1.5rem' }}>
+                                      <div>
+                                          <label style={{ display: 'block', color: '#aaa', fontSize: '0.85rem', marginBottom: '6px' }}>
+                                              Método de Distribuição:
+                                          </label>
+                                          <select 
+                                              value={item.rule} 
+                                              onChange={e => handleUpdateRateioRule(item.id, 'rule', e.target.value)} 
+                                              className="select-input" 
+                                              style={{ width: '100%', fontWeight: 'bold' }}
+                                          >
+                                              <option value="proporcional">📈 Automática (Proporcional à Receita dos Projetos de Destino)</option>
+                                              <option value="fixa">🎯 Manual (Porcentagem Fixa % Definida por Projeto)</option>
+                                          </select>
+                                      </div>
+                                  </div>
+
+                                  {/* REGRA FIXA */}
+                                  {isFixed && (
+                                      <div style={{ background: 'rgba(0,0,0,0.3)', padding: '1.2rem', borderRadius: '8px', border: '1px solid #444' }}>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+                                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                  <span style={{ fontSize: '0.9rem', color: '#FF9800', fontWeight: 'bold' }}>Percentual Fixo por Projeto de Destino:</span>
+                                                  <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: isSumOk ? '#4CAF50' : '#FF9800' }}>
+                                                      {isSumOk ? '✓ Soma: 100%' : `⚠️ Soma Atual: ${fixedSum.toFixed(2)}% (deve ser 100%)`}
+                                                  </span>
+                                              </div>
+                                              <button 
+                                                  onClick={() => handleDistributeEvenly(item.id)}
+                                                  className="btn-secondary" 
+                                                  style={{ padding: '0.3rem 0.8rem', fontSize: '0.8rem', color: '#64B5F6', borderColor: '#2196F3' }}
+                                              >
+                                                  ⚖️ Dividir Igualmente
+                                              </button>
+                                          </div>
+
+                                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '10px' }}>
+                                              {targetProjs.map(p => (
+                                                  <div key={p} style={{ background: 'rgba(255,255,255,0.03)', padding: '10px', borderRadius: '6px', border: '1px solid #444' }}>
+                                                      <label style={{ display: 'block', color: '#fff', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '6px' }}>
+                                                          {p}
+                                                      </label>
+                                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                          <input 
+                                                              type="number" 
+                                                              step="0.01"
+                                                              min="0"
+                                                              max="100"
+                                                              value={item.fixedPct?.[p] ?? ''} 
+                                                              onChange={e => handleUpdateFixedPct(item.id, p, e.target.value)}
+                                                              className="text-input" 
+                                                              style={{ width: '100px', padding: '0.3rem', textAlign: 'center', fontWeight: 'bold' }}
+                                                          />
+                                                          <span style={{ color: '#aaa', fontWeight: 'bold' }}>%</span>
+                                                      </div>
+                                                  </div>
+                                              ))}
+                                          </div>
+                                      </div>
+                                  )}
+
+                                  {/* REGRA PROPORCIONAL */}
+                                  {!isFixed && (
+                                      <div style={{ background: 'rgba(0,0,0,0.3)', padding: '1.2rem', borderRadius: '8px', border: '1px solid #444' }}>
+                                          <label style={{ display: 'block', color: '#64B5F6', fontSize: '0.9rem', fontWeight: 'bold', marginBottom: '8px' }}>
+                                              Projetos de Destino que Participam do Rateio Proporcional:
+                                          </label>
+                                          <p style={{ color: '#888', fontSize: '0.8rem', marginBottom: '1rem' }}>
+                                              A despesa deste projeto será fatiada automaticamente entre os projetos selecionados abaixo de acordo com a receita gerada por cada um no período da DRE.
+                                          </p>
+                                          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                                              {targetProjs.map(p => {
+                                                  const isSelected = (item.targetProjects || targetProjs).includes(p);
+                                                  return (
+                                                      <label 
+                                                          key={p} 
+                                                          style={{ 
+                                                              background: isSelected ? 'rgba(33, 150, 243, 0.15)' : 'rgba(255,255,255,0.03)', 
+                                                              border: '1px solid ' + (isSelected ? '#2196F3' : '#444'), 
+                                                              padding: '8px 14px', 
+                                                              borderRadius: '6px', 
+                                                              cursor: 'pointer',
+                                                              display: 'flex',
+                                                              alignItems: 'center',
+                                                              gap: '8px',
+                                                              color: isSelected ? '#fff' : '#888',
+                                                              fontWeight: isSelected ? 'bold' : 'normal'
+                                                          }}
+                                                      >
+                                                          <input 
+                                                              type="checkbox" 
+                                                              checked={isSelected} 
+                                                              onChange={() => handleToggleTargetProject(item.id, p)} 
+                                                          />
+                                                          {p}
+                                                      </label>
+                                                  );
+                                              })}
+                                          </div>
+                                      </div>
+                                  )}
+                              </div>
+                          );
+                      })}
+                  </div>
+              )}
           </div>
       )}
 
