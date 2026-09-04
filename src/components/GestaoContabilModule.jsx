@@ -201,27 +201,31 @@ function GestaoContabilModule({ userRole, userName, companies }) {
         const anoRef = e.target.anoRef ? parseInt(e.target.anoRef.value) : selectedAno;
         if (!doc || !motivo || !resp) return;
 
+        const hist = [{ action: 'Criado', user: userName || 'Sistema', date: new Date().toISOString(), mes: mesRef, ano: anoRef }];
         const payload = {
             id: 'pend-' + Date.now(),
             documento: doc,
             motivo,
             responsavel: resp,
             criador: userName || 'Sistema',
-            mes: mesRef,
-            ano: anoRef,
             status: 'pendente',
             data_criacao: new Date().toISOString(),
             data_correcao: null,
-            historico: JSON.stringify([{ action: 'Criado', user: userName || 'Sistema', date: new Date().toISOString() }])
+            historico: JSON.stringify(hist)
         };
 
-        await fetch(`/api/gestao/pendencias`, {
+        const res = await fetch(`/api/gestao/pendencias`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
-        e.target.reset();
-        loadData();
+        if (res && res.ok) {
+            window.$toast('Documento pendente gravado com sucesso!', { type: 'success' });
+            e.target.reset();
+            await loadData();
+        } else {
+            window.$alert('Erro ao gravar documento pendente.');
+        }
     };
 
     const handleSaveEditPendencia = async (e) => {
@@ -236,26 +240,27 @@ function GestaoContabilModule({ userRole, userName, companies }) {
 
         let hist = [];
         try { hist = JSON.parse(editingPendencia.historico); } catch (err) {}
-        hist.push({ action: 'Alterado por ' + (userName || 'Sistema'), user: userName || 'Sistema', date: new Date().toISOString() });
+        hist.push({ action: 'Alterado por ' + (userName || 'Sistema'), user: userName || 'Sistema', date: new Date().toISOString(), mes: mesRef, ano: anoRef });
 
         const updatedPayload = {
             ...editingPendencia,
             documento: doc,
             motivo,
             responsavel: resp,
-            mes: mesRef,
-            ano: anoRef,
             historico: JSON.stringify(hist)
         };
 
-        await fetch(`/api/gestao/pendencias/${editingPendencia.id}`, {
+        const res = await fetch(`/api/gestao/pendencias/${editingPendencia.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(updatedPayload)
         });
 
-        setEditingPendencia(null);
-        loadData();
+        if (res && res.ok) {
+            window.$toast('Pendência atualizada com sucesso!', { type: 'success' });
+            setEditingPendencia(null);
+            await loadData();
+        }
     };
 
     const handleDeletePendencia = async (p) => {
@@ -539,13 +544,22 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                 const filteredPendencias = pendencias.filter(p => {
                     if (pendenciaFiltroStatus !== 'todos' && p.status !== pendenciaFiltroStatus) return false;
                     
+                    let metaMes = null, metaAno = null;
+                    try {
+                        const hist = typeof p.historico === 'string' ? JSON.parse(p.historico) : p.historico;
+                        if (Array.isArray(hist) && hist[0]) {
+                            if (hist[0].mes) metaMes = hist[0].mes;
+                            if (hist[0].ano) metaAno = hist[0].ano;
+                        }
+                    } catch(err) {}
+
                     if (pendenciaFiltroAno !== 'todos') {
-                        const pAno = p.ano || (p.data_criacao ? new Date(p.data_criacao).getFullYear() : null);
+                        const pAno = p.ano || metaAno || (p.data_criacao ? new Date(p.data_criacao).getFullYear() : null);
                         if (pAno && pAno !== parseInt(pendenciaFiltroAno)) return false;
                     }
 
                     if (pendenciaFiltroMes !== 'todos') {
-                        const pMes = p.mes || (p.data_criacao ? new Date(p.data_criacao).getMonth() + 1 : null);
+                        const pMes = p.mes || metaMes || (p.data_criacao ? new Date(p.data_criacao).getMonth() + 1 : null);
                         if (pMes && pMes !== parseInt(pendenciaFiltroMes)) return false;
                     }
 

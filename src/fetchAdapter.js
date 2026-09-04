@@ -62,12 +62,22 @@ window.fetch = async (...args) => {
         const parts = url.split("/");
         const lastPart = parts[parts.length - 1].split("?")[0];
         const targetId = (lastPart && lastPart !== "pendencias") ? lastPart : body.id;
-        if (targetId) {
-          await supabase.from("agf_pendencias").upsert({ id: targetId, ...body });
-        } else {
-          await supabase.from("agf_pendencias").upsert(body);
-        }
-        return { ok: true, json: async () => ({ success: true }) };
+        
+        const cleanPayload = {
+          id: targetId || ('pend-' + Date.now()),
+          documento: body.documento || '',
+          motivo: body.motivo || '',
+          responsavel: body.responsavel || '',
+          criador: body.criador || body.criado_por || 'Sistema',
+          status: body.status || 'pendente',
+          data_criacao: body.data_criacao || new Date().toISOString(),
+          data_correcao: body.data_correcao || null,
+          historico: typeof body.historico === 'string' ? body.historico : JSON.stringify(body.historico || [])
+        };
+
+        const { error } = await supabase.from("agf_pendencias").upsert(cleanPayload);
+        if (error) console.error("Error upserting agf_pendencias:", error);
+        return { ok: !error, json: async () => ({ success: !error, error }) };
       }
       if (url.includes("/settings/agf_obrigacoes_tipos")) {
         await supabase.from("settings").upsert({ key: "agf_obrigacoes_tipos", value: JSON.stringify(body.value || body) });
