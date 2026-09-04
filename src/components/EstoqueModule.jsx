@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Package, AlertTriangle, TrendingUp, TrendingDown, DollarSign, 
-  FileSpreadsheet, Database, Filter, Search, Download, CheckCircle2, 
+  FileSpreadsheet, Database, Filter, Search, Download, CheckCircle, CheckCircle2, 
   Layers, UserCheck, ShieldAlert, ArrowUpRight, BarChart3, PieChart as PieIcon,
   RefreshCw, Info, Calendar, Building2, HelpCircle, GitBranch, PlusCircle
 } from 'lucide-react';
