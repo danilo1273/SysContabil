@@ -3,7 +3,7 @@ import {
   Package, AlertTriangle, TrendingUp, TrendingDown, DollarSign, 
   FileSpreadsheet, Database, Filter, Search, Download, CheckCircle2, 
   Layers, UserCheck, ShieldAlert, ArrowUpRight, BarChart3, PieChart as PieIcon,
-  RefreshCw, Info, Calendar, Building2, HelpCircle
+  RefreshCw, Info, Calendar, Building2, HelpCircle, GitBranch, PlusCircle
 } from 'lucide-react';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, 
@@ -37,6 +37,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
 
   // Competência e Filtros
   const [selectedEmpresa, setSelectedEmpresa] = useState('todas');
+  const [selectedFilial, setSelectedFilial] = useState('todas');
   const [selectedAno, setSelectedAno] = useState(new Date().getFullYear());
   const [selectedMes, setSelectedMes] = useState(new Date().getMonth() + 1);
   const [filtroTM, setFiltroTM] = useState('criticos'); // 'criticos' (4 grupos), '506_006', '509', '507', '504', 'todos'
@@ -51,12 +52,13 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
   const [savedCompetencias, setSavedCompetencias] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Import State
-  const [importFile, setImportFile] = useState(null);
+  // Import State (Suporte a múltiplos arquivos / filiais)
+  const [importFilesList, setImportFilesList] = useState([]);
   const [importFileData, setImportFileData] = useState(null);
   const [importEmpresa, setImportEmpresa] = useState(companies[0]?.id || 'AGF');
   const [importAno, setImportAno] = useState(new Date().getFullYear());
   const [importMes, setImportMes] = useState(new Date().getMonth() + 1);
+  const [importMode, setImportMode] = useState('replace'); // 'replace' | 'append'
   const [isProcessingImport, setIsProcessingImport] = useState(false);
   const [previewStats, setPreviewStats] = useState(null);
 
@@ -89,7 +91,6 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
   const loadEstoqueData = async () => {
     setIsLoading(true);
     try {
-      // Carregar todos os meses do ano selecionado para poder calcular médias históricas
       const seriesMap = {};
       const empList = (selectedEmpresa === 'todas' || selectedEmpresa === 'consolidado') 
         ? companies.map(c => c.id) 
@@ -119,28 +120,47 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
     }
   };
 
-  // Parsing do Excel do Protheus
-  const handleFileUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  // Extrair nome da Filial do nome do arquivo ou cabeçalho
+  const extractFilialName = (filename) => {
+    const clean = filename.replace(/\.[^/.]+$/, '').trim();
+    const lower = clean.toLowerCase();
+    
+    // Tenta encontrar padrões como "Filial 01", "Filial 1", "F01", "Matriz", "SP", "RJ", etc.
+    const matchFilial = clean.match(/filial[\s_-]?(\d+|[a-zA-Z0-9]+)/i);
+    if (matchFilial) return `Filial ${matchFilial[1]}`.toUpperCase();
 
-    setImportFile(file);
+    const matchF = clean.match(/\bF(\d{1,2})\b/i);
+    if (matchF) return `Filial ${matchF[1].padStart(2, '0')}`.toUpperCase();
+
+    if (lower.includes('matriz')) return 'MATRIZ';
+    
+    return clean.toUpperCase();
+  };
+
+  // Parsing de Múltiplos Arquivos de Filiais do Protheus
+  const handleFileUpload = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    setImportFilesList(files);
     setIsProcessingImport(true);
 
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const bstr = evt.target.result;
-        const wb = XLSX.read(bstr, { type: 'binary', cellDates: true });
+    try {
+      const allParsedRecords = [];
+      const fileSummaries = [];
 
-        // Tentar aba com nome "2-Itens de Movimentação Inter" ou a primeira
+      for (let fIdx = 0; fIdx < files.length; fIdx++) {
+        const file = files[fIdx];
+        const defaultFilial = extractFilialName(file.name);
+
+        const dataBuffer = await file.arrayBuffer();
+        const wb = XLSX.read(dataBuffer, { type: 'array', cellDates: true });
+
         let sheetName = wb.SheetNames.find(n => n.toLowerCase().includes('moviment') || n.toLowerCase().includes('item')) || wb.SheetNames[0];
         const ws = wb.Sheets[sheetName];
         const rawJson = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
 
-        if (!rawJson || rawJson.length < 2) {
-          throw new Error('Arquivo vazio ou formato inválido.');
-        }
+        if (!rawJson || rawJson.length < 2) continue;
 
         // Localizar linha de cabeçalho
         let headerRowIdx = -1;
@@ -159,15 +179,15 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
         const headers = rawJson[headerRowIdx].map(h => (h || '').toString().trim());
         const norm = (s) => (s || '').toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
 
-        // Mapear índices
-        let idxProd = -1, idxDesc = -1, idxTipo = -1, idxGrupo = -1, idxUm = -1;
+        let idxFilial = -1, idxProd = -1, idxDesc = -1, idxTipo = -1, idxGrupo = -1, idxUm = -1;
         let idxArm = -1, idxEntrada = -1, idxSaida = -1, idxCustoUnit = -1, idxCustoTot = -1;
         let idxTM = -1, idxTipoREDE = -1, idxOP = -1, idxItemDoc = -1, idxSeq = -1;
         let idxCC = -1, idxConta = -1, idxDoc = -1, idxData = -1, idxUser = -1;
 
         headers.forEach((h, idx) => {
           const n = norm(h);
-          if (idxProd === -1 && (n === 'produto' || n === 'cod. produto' || n === 'codigo' || n === 'cod produto')) idxProd = idx;
+          if (idxFilial === -1 && (n === 'filial' || n === 'fil.' || n === 'cod. filial' || n === 'unidade')) idxFilial = idx;
+          else if (idxProd === -1 && (n === 'produto' || n === 'cod. produto' || n === 'codigo' || n === 'cod produto')) idxProd = idx;
           else if (idxDesc === -1 && (n.includes('desc') || n.includes('produto desc') || n === 'descricao')) idxDesc = idx;
           else if (idxTipo === -1 && n === 'tipo') idxTipo = idx;
           else if (idxGrupo === -1 && n === 'grupo') idxGrupo = idx;
@@ -189,7 +209,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
           else if (idxUser === -1 && (n.includes('usuario') || n.includes('user') || n === 'responsavel')) idxUser = idx;
         });
 
-        // Fallbacks por posição caso cabeçalho tenha formato padrão da foto (Col B até U)
+        // Fallbacks por posição caso cabeçalho padrão
         if (idxProd === -1) idxProd = 1;
         if (idxDesc === -1) idxDesc = 2;
         if (idxTipo === -1) idxTipo = 3;
@@ -222,10 +242,8 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
           return isNaN(num) ? 0 : num;
         };
 
-        const records = [];
-        let totalVal = 0;
-        let countSemOP = 0;
-        let countComOP = 0;
+        let fileVal = 0;
+        let fileRecordsCount = 0;
 
         for (let r = headerRowIdx + 1; r < rawJson.length; r++) {
           const row = rawJson[r];
@@ -245,6 +263,11 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
           const custoUnit = parseNum(row[idxCustoUnit]);
           const custoTot = parseNum(row[idxCustoTot]);
 
+          let rowFilial = defaultFilial;
+          if (idxFilial !== -1 && row[idxFilial]) {
+            rowFilial = row[idxFilial].toString().trim();
+          }
+
           let dtEmissao = row[idxData];
           if (dtEmissao instanceof Date) {
             dtEmissao = dtEmissao.toLocaleDateString('pt-BR');
@@ -253,7 +276,9 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
           }
 
           const record = {
-            id: `mov_${r}_${prod}_${Date.now()}`,
+            id: `mov_${fIdx}_${r}_${prod}_${Date.now()}`,
+            filial: rowFilial,
+            arquivoOrigem: file.name,
             produto: prod,
             descricao: desc,
             tipo: (row[idxTipo] || '').toString().trim(),
@@ -275,30 +300,41 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
             usuario: (row[idxUser] || '').toString().trim()
           };
 
-          records.push(record);
-          totalVal += custoTot;
-          if (hasOP) countComOP++;
-          else countSemOP++;
+          allParsedRecords.push(record);
+          fileVal += custoTot;
+          fileRecordsCount++;
         }
 
-        setImportFileData(records);
-        setPreviewStats({
-          totalLinhas: records.length,
-          totalValor: totalVal,
-          countSemOP,
-          countComOP,
-          tmsEncontrados: Array.from(new Set(records.map(r => r.tm).filter(Boolean)))
+        fileSummaries.push({
+          filename: file.name,
+          filial: defaultFilial,
+          linhas: fileRecordsCount,
+          valor: fileVal
         });
-
-        window.$toast(`Arquivo lido com sucesso! ${records.length} movimentações encontradas.`, { type: 'success' });
-      } catch (err) {
-        console.error('Erro ao ler planilha:', err);
-        window.$alert('Falha ao processar arquivo: ' + err.message);
-      } finally {
-        setIsProcessingImport(false);
       }
-    };
-    reader.readAsBinaryString(file);
+
+      const totalVal = allParsedRecords.reduce((acc, r) => acc + r.custoTotal, 0);
+      const countSemOP = allParsedRecords.filter(r => !r.hasOP).length;
+      const countComOP = allParsedRecords.filter(r => r.hasOP).length;
+
+      setImportFileData(allParsedRecords);
+      setPreviewStats({
+        arquivos: fileSummaries,
+        totalLinhas: allParsedRecords.length,
+        totalValor: totalVal,
+        countSemOP,
+        countComOP,
+        filiaisIdentificadas: Array.from(new Set(allParsedRecords.map(r => r.filial).filter(Boolean))),
+        tmsEncontrados: Array.from(new Set(allParsedRecords.map(r => r.tm).filter(Boolean)))
+      });
+
+      window.$toast(`${files.length} arquivo(s) de filial lidos com sucesso! Total: ${allParsedRecords.length} movimentações.`, { type: 'success' });
+    } catch (err) {
+      console.error('Erro ao ler planilhas:', err);
+      window.$alert('Falha ao processar arquivos de filial: ' + err.message);
+    } finally {
+      setIsProcessingImport(false);
+    }
   };
 
   const handleSaveImportToDB = async () => {
@@ -307,21 +343,36 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       return;
     }
 
+    const storageKey = `agf_estoque_${importEmpresa}_${importAno}_${importMes}`;
+    let finalRecordsToSave = importFileData;
+
+    // Se o usuário optar por anexar / acumular com os dados já existentes do mês
+    if (importMode === 'append') {
+      const existingData = await getSettings(storageKey);
+      if (Array.isArray(existingData) && existingData.length > 0) {
+        // Remover duplicados pelo hash (produto, documento, data, custoTotal, filial)
+        const existingKeys = new Set(existingData.map(r => `${r.filial}_${r.produto}_${r.documento}_${r.dtEmissao}_${r.custoTotal}`));
+        const newRecords = importFileData.filter(r => !existingKeys.has(`${r.filial}_${r.produto}_${r.documento}_${r.dtEmissao}_${r.custoTotal}`));
+        finalRecordsToSave = existingData.concat(newRecords);
+      }
+    }
+
     const ok = await window.$confirm(
       `Confirma a gravação dos dados de estoque?\n\n` +
       `Empresa: ${companies.find(c => c.id === importEmpresa)?.name || importEmpresa}\n` +
       `Competência: ${MESES[importMes - 1]} / ${importAno}\n` +
-      `Total de Movimentações: ${importFileData.length}\n` +
-      `Valor Total: ${importFileData.reduce((acc, r) => acc + r.custoTotal, 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`,
-      { title: 'Gravar Movimento de Estoque' }
+      `Modo: ${importMode === 'append' ? '➕ Acumular com dados existentes' : '🔄 Substituir competência'}\n` +
+      `Arquivos de Filial: ${previewStats?.arquivos?.length || 1}\n` +
+      `Total de Movimentações: ${finalRecordsToSave.length}\n` +
+      `Valor Total: ${finalRecordsToSave.reduce((acc, r) => acc + r.custoTotal, 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`,
+      { title: 'Gravar Movimento de Estoque por Filial' }
     );
 
     if (!ok) return;
 
     setIsProcessingImport(true);
     try {
-      const storageKey = `agf_estoque_${importEmpresa}_${importAno}_${importMes}`;
-      await saveSettings(storageKey, importFileData);
+      await saveSettings(storageKey, finalRecordsToSave);
 
       // Atualizar lista de competências salvas
       const compKey = `${importEmpresa}_${importAno}_${importMes}`;
@@ -333,8 +384,9 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
           empresaId: importEmpresa,
           ano: importAno,
           mes: importMes,
-          totalRecords: importFileData.length,
-          totalValor: importFileData.reduce((acc, r) => acc + r.custoTotal, 0),
+          filiais: Array.from(new Set(finalRecordsToSave.map(r => r.filial).filter(Boolean))),
+          totalRecords: finalRecordsToSave.length,
+          totalValor: finalRecordsToSave.reduce((acc, r) => acc + r.custoTotal, 0),
           updatedAt: new Date().toISOString()
         }
       ];
@@ -343,7 +395,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       setSavedCompetencias(updatedCompList);
 
       window.$toast('Movimentações de Estoque salvas com sucesso no banco de dados!', { type: 'success' });
-      setImportFile(null);
+      setImportFilesList([]);
       setImportFileData(null);
       setPreviewStats(null);
 
@@ -351,6 +403,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       setSelectedEmpresa(importEmpresa);
       setSelectedAno(importAno);
       setSelectedMes(importMes);
+      setSelectedFilial('todas');
       setActiveTab('dash');
       loadEstoqueData();
     } catch (e) {
@@ -386,6 +439,15 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
     }
   };
 
+  // Lista de Filiais presentes nas movimentações do mês atual
+  const availableFiliais = useMemo(() => {
+    const filiaisSet = new Set();
+    currentRecords.forEach(r => {
+      if (r.filial) filiaisSet.add(r.filial);
+    });
+    return Array.from(filiaisSet).sort();
+  }, [currentRecords]);
+
   // -------------------------------------------------------------
   // MOTOR DE CÁLCULO E ANÁLISE DE DESVIOS (MÉDIA POR MOVIMENTO)
   // -------------------------------------------------------------
@@ -397,6 +459,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
     chartDistribuicaoTM,
     topDesvios,
     chartCC,
+    chartFiliais,
     chartUsuarios
   } = useMemo(() => {
     // 1. Filtrar registros do mês atual conforme opções
@@ -405,6 +468,9 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
     const filterRecord = (r) => {
       // Regra da OP: se filtroApenasSemOP ativo, op deve ser vazia
       if (filtroApenasSemOP && r.hasOP) return false;
+
+      // Filtro de Filial
+      if (selectedFilial !== 'todas' && r.filial !== selectedFilial) return false;
 
       // Filtro TM
       if (filtroTM === 'criticos' && !isCriticalTM(r.tm)) return false;
@@ -419,6 +485,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
         const match = (r.produto && r.produto.toLowerCase().includes(q)) ||
                       (r.descricao && r.descricao.toLowerCase().includes(q)) ||
                       (r.documento && r.documento.toLowerCase().includes(q)) ||
+                      (r.filial && r.filial.toLowerCase().includes(q)) ||
                       (r.cc && r.cc.toLowerCase().includes(q)) ||
                       (r.usuario && r.usuario.toLowerCase().includes(q));
         if (!match) return false;
@@ -454,7 +521,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
     const numPrevMonths = Math.max(1, previousMonths.length);
 
     previousMonths.forEach(m => {
-      const mRecords = (historySeries[m] || []).filter(r => (!filtroApenasSemOP || !r.hasOP));
+      const mRecords = (historySeries[m] || []).filter(r => (!filtroApenasSemOP || !r.hasOP) && (selectedFilial === 'todas' || r.filial === selectedFilial));
       mRecords.forEach(r => {
         const prod = r.produto || r.descricao;
         if (!productHistoryMap[prod]) {
@@ -481,6 +548,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
           tipo: r.tipo,
           grupo: r.grupo,
           armazem: r.armazem,
+          filiais: new Set(),
           tms: new Set(),
           qtdEntrada: 0,
           qtdSaida: 0,
@@ -488,6 +556,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
           lancamentos: []
         };
       }
+      if (r.filial) currentProductMap[prod].filiais.add(r.filial);
       if (r.tm) currentProductMap[prod].tms.add(r.tm);
       currentProductMap[prod].qtdEntrada += (r.qtdEntrada || 0);
       currentProductMap[prod].qtdSaida += (r.qtdSaida || 0);
@@ -504,7 +573,6 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       const hist = productHistoryMap[item.produto] || productHistoryMap[item.descricao];
       const hasHistory = !!hist && hist.totalVal > 0;
       
-      // Média mensal histórica calculada sobre os meses anteriores carregados
       const mediaHistorica = hasHistory ? (hist.totalVal / numPrevMonths) : 0;
       const desvioValor = item.custoTotalMes - mediaHistorica;
       const desvioPct = mediaHistorica > 0 
@@ -535,10 +603,12 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       }
 
       const tmsArr = Array.from(item.tms);
+      const filiaisArr = Array.from(item.filiais);
 
       return {
         ...item,
         tmsArr,
+        filiaisArr,
         hasHistory,
         mediaHistorica,
         desvioValor,
@@ -566,7 +636,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
     // 5. Gráfico de Evolução Histórica das Baixas por TM (Mês a Mês do Ano)
     const evolucaoData = [];
     for (let m = 1; m <= 12; m++) {
-      const mRecs = (historySeries[m] || []).filter(r => (!filtroApenasSemOP || !r.hasOP));
+      const mRecs = (historySeries[m] || []).filter(r => (!filtroApenasSemOP || !r.hasOP) && (selectedFilial === 'todas' || r.filial === selectedFilial));
       if (mRecs.length > 0 || m <= selectedMes) {
         let inv = 0, gar = 0, perd = 0, cons = 0, out = 0, total = 0;
         mRecs.forEach(r => {
@@ -605,7 +675,17 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       distTM.push({ name: 'Outros TMs', valor: totalOutrosTM, fill: '#78909c' });
     }
 
-    // 7. Distribuição por Centro de Custo
+    // 7. Distribuição por Filial
+    const filialMap = {};
+    currentFiltered.forEach(r => {
+      const f = r.filial || 'Sem Filial';
+      filialMap[f] = (filialMap[f] || 0) + (r.custoTotal || 0);
+    });
+    const distFiliais = Object.entries(filialMap)
+      .map(([filial, valor]) => ({ filial, valor }))
+      .sort((a, b) => b.valor - a.valor);
+
+    // 8. Distribuição por Centro de Custo
     const ccMap = {};
     currentFiltered.forEach(r => {
       const cc = r.cc || 'Sem CC';
@@ -616,7 +696,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       .sort((a, b) => b.valor - a.valor)
       .slice(0, 8);
 
-    // 8. Distribuição por Usuário
+    // 9. Distribuição por Usuário
     const userMap = {};
     currentFiltered.forEach(r => {
       const u = r.usuario || 'Outros';
@@ -649,14 +729,16 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       chartDistribuicaoTM: distTM,
       topDesvios: topDesviosList,
       chartCC: distCC,
+      chartFiliais: distFiliais,
       chartUsuarios: distUsers
     };
-  }, [currentRecords, historySeries, selectedMes, filtroTM, filtroApenasSemOP, filtroStatusDesvio, searchQuery, toleranciaDesvioPct]);
+  }, [currentRecords, historySeries, selectedMes, selectedFilial, filtroTM, filtroApenasSemOP, filtroStatusDesvio, searchQuery, toleranciaDesvioPct]);
 
   // Exportar Relatório para Excel
   const handleExportExcel = () => {
     try {
       const exportData = analysisByProduct.map(r => ({
+        'Filial(is)': r.filiaisArr.join(', ') || 'MATRIZ',
         'Código Produto': r.produto,
         'Descrição': r.descricao,
         'Tipo': r.tipo,
@@ -716,11 +798,11 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                 <h2 style={{ margin: 0, fontSize: '1.4rem', color: '#fff', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   Análise de Movimento Interno de Estoque
                   <span style={{ fontSize: '0.75rem', background: 'rgba(33, 150, 243, 0.2)', color: '#64B5F6', border: '1px solid rgba(33, 150, 243, 0.4)', padding: '2px 8px', borderRadius: '12px' }}>
-                    TMs Sem OP & Detecção de Desvios
+                    Multi-Filial & Auditoria por TM
                   </span>
                 </h2>
                 <p style={{ margin: '3px 0 0 0', color: '#888', fontSize: '0.82rem' }}>
-                  Monitoramento de inventário (506/006), garantias (509), perdas (507), consumíveis (504) e auditoria de médias
+                  Consolidação de filiais, inventário (506/006), garantias (509), perdas (507), consumíveis (504) e médias
                 </p>
               </div>
             </div>
@@ -811,7 +893,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                   transition: 'all 0.2s'
                 }}
               >
-                <Database size={16} /> Banco de Dados / Importar
+                <Database size={16} /> Banco de Dados / Importar Filiais
               </button>
             )}
           </div>
@@ -831,9 +913,9 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
             <Building2 size={16} style={{ color: '#64B5F6' }} />
             <select
               value={selectedEmpresa}
-              onChange={(e) => setSelectedEmpresa(e.target.value)}
+              onChange={(e) => { setSelectedEmpresa(e.target.value); setSelectedFilial('todas'); }}
               className="select-input"
-              style={{ minWidth: '180px', padding: '0.45rem 0.7rem', fontSize: '0.85rem' }}
+              style={{ minWidth: '170px', padding: '0.45rem 0.7rem', fontSize: '0.85rem' }}
             >
               <option value="todas">TODAS AS EMPRESAS</option>
               {companies.map(c => (
@@ -841,6 +923,24 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
               ))}
             </select>
           </div>
+
+          {/* Filtro de Filial (se houver filiais registradas) */}
+          {availableFiliais.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <GitBranch size={16} style={{ color: '#81C784' }} />
+              <select
+                value={selectedFilial}
+                onChange={(e) => setSelectedFilial(e.target.value)}
+                className="select-input"
+                style={{ minWidth: '150px', padding: '0.45rem 0.7rem', fontSize: '0.85rem', borderColor: '#81C784' }}
+              >
+                <option value="todas">TODAS AS FILIAIS ({availableFiliais.length})</option>
+                {availableFiliais.map(f => (
+                  <option key={f} value={f}>{f}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Mês & Ano */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -943,8 +1043,8 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
           <h3 style={{ color: '#fff', margin: '0 0 0.5rem 0' }}>
             Nenhuma movimentação de estoque encontrada para {MESES[selectedMes - 1]} / {selectedAno}
           </h3>
-          <p style={{ color: '#888', maxWidth: '500px', margin: '0 auto 1.5rem auto', fontSize: '0.9rem' }}>
-            Importe a planilha de Itens de Movimentação Interna do Protheus na aba "Banco de Dados / Importar" para visualizar os indicadores e médias.
+          <p style={{ color: '#888', maxWidth: '540px', margin: '0 auto 1.5rem auto', fontSize: '0.9rem' }}>
+            Importe as planilhas de filiais do Protheus na aba "Banco de Dados / Importar Filiais" (você pode selecionar todos os arquivos de uma vez só!).
           </p>
           {canAccessDB && (
             <button
@@ -952,7 +1052,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
               className="action-btn"
               style={{ padding: '0.6rem 1.2rem', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
             >
-              <FileSpreadsheet size={16} /> Ir para Importação de Planilha
+              <FileSpreadsheet size={16} /> Ir para Importação de Filiais
             </button>
           )}
         </div>
@@ -983,7 +1083,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                 {kpis.totalBaixadoMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
               </div>
               <div style={{ fontSize: '0.75rem', color: '#aaa' }}>
-                {filteredRecordsCurrent.length} movimentações no período
+                {filteredRecordsCurrent.length} movimentações no período {selectedFilial !== 'todas' ? `(${selectedFilial})` : ''}
               </div>
             </div>
 
@@ -1170,7 +1270,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
 
           </div>
 
-          {/* SEÇÃO: TOP 10 MAIORES DESVIOS EM R$ & VISÃO CC / USUÁRIOS */}
+          {/* SEÇÃO: TOP 10 MAIORES DESVIOS EM R$ & FILIAIS / CC */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: '1.5rem', marginBottom: '1.5rem' }}>
             
             {/* Top 10 Desvios */}
@@ -1224,6 +1324,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                           </span>
                         </div>
                         <div style={{ fontSize: '0.72rem', color: '#888', marginTop: '2px', display: 'flex', gap: '10px' }}>
+                          {item.filiaisArr.length > 0 && <span>Filial: <strong>{item.filiaisArr.join(', ')}</strong></span>}
                           <span>TMs: {item.tmsArr.join(', ') || '-'}</span>
                           <span>Média: {item.mediaHistorica.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
                         </div>
@@ -1243,7 +1344,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
               )}
             </div>
 
-            {/* Visão por Centro de Custo */}
+            {/* Visão por Filial & Centro de Custo */}
             <div style={{
               background: 'rgba(20, 24, 38, 0.8)',
               border: '1px solid rgba(255, 255, 255, 0.08)',
@@ -1251,24 +1352,24 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
               padding: '1.2rem'
             }}>
               <h4 style={{ margin: '0 0 1rem 0', color: '#fff', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span>🏢 Baixas por Centro de Custo</span>
+                <span>🏢 Baixas por Filial ({chartFiliais.length})</span>
               </h4>
-              {chartCC.length === 0 ? (
+              {chartFiliais.length === 0 ? (
                 <div style={{ height: '240px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666' }}>
-                  Sem dados de Centro de Custo
+                  Sem dados de filiais
                 </div>
               ) : (
                 <div style={{ width: '100%', height: '250px' }}>
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={chartCC} layout="vertical" margin={{ top: 5, right: 20, left: 40, bottom: 5 }}>
+                    <BarChart data={chartFiliais} layout="vertical" margin={{ top: 5, right: 20, left: 40, bottom: 5 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
                       <XAxis type="number" stroke="#888" fontSize={11} tickFormatter={(v) => `R$ ${(v / 1000).toFixed(0)}k`} />
-                      <YAxis type="category" dataKey="cc" stroke="#888" fontSize={11} />
+                      <YAxis type="category" dataKey="filial" stroke="#888" fontSize={11} />
                       <Tooltip 
                         formatter={(val) => val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                         contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: '8px' }}
                       />
-                      <Bar dataKey="valor" fill="#64B5F6" radius={[0, 4, 4, 0]} />
+                      <Bar dataKey="valor" fill="#81C784" radius={[0, 4, 4, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -1323,7 +1424,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                 <Search size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#888' }} />
                 <input
                   type="text"
-                  placeholder="Buscar produto, código..."
+                  placeholder="Buscar produto, código, filial..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="select-input"
@@ -1358,6 +1459,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
             <table className="data-table">
               <thead>
                 <tr>
+                  <th>Filial(is)</th>
                   <th style={{ minWidth: '100px' }}>Código</th>
                   <th style={{ minWidth: '220px' }}>Descrição do Produto</th>
                   <th>Arm.</th>
@@ -1374,13 +1476,18 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
               <tbody>
                 {analysisByProduct.length === 0 ? (
                   <tr>
-                    <td colSpan={11} style={{ textAlign: 'center', padding: '2rem', color: '#888' }}>
+                    <td colSpan={12} style={{ textAlign: 'center', padding: '2rem', color: '#888' }}>
                       Nenhum item encontrado com os filtros selecionados.
                     </td>
                   </tr>
                 ) : (
                   analysisByProduct.map((row, idx) => (
                     <tr key={idx} style={{ background: row.status === 'critico' ? 'rgba(239, 83, 80, 0.05)' : 'transparent' }}>
+                      <td>
+                        <span style={{ background: 'rgba(255,255,255,0.06)', color: '#81C784', padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                          {row.filiaisArr.join(', ') || 'MATRIZ'}
+                        </span>
+                      </td>
                       <td style={{ color: 'var(--color-primary)', fontWeight: 'bold' }}>{row.produto}</td>
                       <td style={{ color: '#fff', fontWeight: '500' }}>{row.descricao}</td>
                       <td>{row.armazem || '-'}</td>
@@ -1478,7 +1585,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                 Movimentações Individuais do Mês ({filteredRecordsCurrent.length})
               </h3>
               <p style={{ margin: '3px 0 0 0', color: '#888', fontSize: '0.84rem' }}>
-                Detalhamento linha a linha do relatório importado ({MESES[selectedMes - 1]} / {selectedAno})
+                Detalhamento linha a linha ({MESES[selectedMes - 1]} / {selectedAno}) {selectedFilial !== 'todas' ? `- Filial: ${selectedFilial}` : ''}
               </p>
             </div>
 
@@ -1501,6 +1608,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
             <table className="data-table">
               <thead>
                 <tr>
+                  <th>Filial</th>
                   <th>Data</th>
                   <th>Produto</th>
                   <th>Descrição</th>
@@ -1519,13 +1627,14 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
               <tbody>
                 {filteredRecordsCurrent.length === 0 ? (
                   <tr>
-                    <td colSpan={13} style={{ textAlign: 'center', padding: '2rem', color: '#888' }}>
+                    <td colSpan={14} style={{ textAlign: 'center', padding: '2rem', color: '#888' }}>
                       Nenhum lançamento encontrado.
                     </td>
                   </tr>
                 ) : (
                   filteredRecordsCurrent.map((r, idx) => (
                     <tr key={idx}>
+                      <td style={{ fontWeight: 'bold', color: '#81C784' }}>{r.filial || '-'}</td>
                       <td>{r.dtEmissao || '-'}</td>
                       <td style={{ color: 'var(--color-primary)', fontWeight: 'bold' }}>{r.produto}</td>
                       <td style={{ color: '#fff' }}>{r.descricao}</td>
@@ -1571,7 +1680,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       )}
 
       {/* ----------------------------------------------------------------- */}
-      {/* ABA 4: BANCO DE DADOS & IMPORTAÇÃO DE PLANILHA */}
+      {/* ABA 4: BANCO DE DADOS & IMPORTAÇÃO DE PLANILHAS (MULTI-FILIAL) */}
       {/* ----------------------------------------------------------------- */}
       {activeTab === 'import' && canAccessDB && (
         <div style={{
@@ -1585,10 +1694,10 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
           <div style={{ marginBottom: '1.5rem' }}>
             <h3 style={{ margin: 0, color: '#FFB74D', fontSize: '1.3rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Database size={22} />
-              Importação & Banco de Dados de Movimentações
+              Importação Multi-Filial & Banco de Dados
             </h3>
             <p style={{ margin: '4px 0 0 0', color: '#aaa', fontSize: '0.85rem' }}>
-              Faça o upload da planilha de Itens de Movimentação Interna exportada do Protheus (.xlsx) para gravar no banco de dados e calcular médias históricas.
+              Você pode selecionar <strong>vários arquivos de filiais simultaneamente</strong> (ou subir um por um no modo acumular). O sistema consolida todas as filiais automaticamente.
             </p>
           </div>
 
@@ -1653,72 +1762,102 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                 </select>
               </div>
 
-              {/* Input de Arquivo */}
+              {/* Modo de Gravação */}
               <div>
                 <label style={{ display: 'block', fontSize: '0.82rem', color: '#ccc', marginBottom: '4px', fontWeight: 'bold' }}>
-                  Selecionar Planilha Protheus (.xlsx):
+                  Modo de Gravação:
                 </label>
-                <input
-                  type="file"
-                  accept=".xlsx, .xls"
-                  onChange={handleFileUpload}
-                  style={{
-                    width: '100%',
-                    padding: '0.45rem',
-                    background: 'rgba(0,0,0,0.3)',
-                    border: '1px solid #444',
-                    borderRadius: '8px',
-                    color: '#fff',
-                    fontSize: '0.82rem'
-                  }}
-                />
+                <select
+                  value={importMode}
+                  onChange={(e) => setImportMode(e.target.value)}
+                  className="select-input"
+                  style={{ width: '100%', padding: '0.55rem' }}
+                >
+                  <option value="replace">🔄 Substituir dados do mês</option>
+                  <option value="append">➕ Acumular / Concatenar filiais</option>
+                </select>
               </div>
 
             </div>
 
-            {/* PREVIEW DA PLANILHA LIDA */}
+            {/* Input de Arquivo com suporte a MULTIPLE */}
+            <div style={{ marginTop: '0.5rem' }}>
+              <label style={{ display: 'block', fontSize: '0.84rem', color: '#FFD54F', marginBottom: '6px', fontWeight: 'bold' }}>
+                📁 Selecionar Planilhas das Filiais (Pode selecionar múltiplos arquivos .xlsx):
+              </label>
+              <input
+                type="file"
+                multiple
+                accept=".xlsx, .xls"
+                onChange={handleFileUpload}
+                style={{
+                  width: '100%',
+                  padding: '0.6rem',
+                  background: 'rgba(0,0,0,0.3)',
+                  border: '1px solid #555',
+                  borderRadius: '8px',
+                  color: '#fff',
+                  fontSize: '0.85rem'
+                }}
+              />
+              <small style={{ color: '#888', display: 'block', marginTop: '4px' }}>
+                Dica: Você pode segurar <strong>Ctrl</strong> ou <strong>Shift</strong> para selecionar todos os arquivos de filiais de uma vez só!
+              </small>
+            </div>
+
+            {/* PREVIEW DA PLANILHA LIDA COM RESUMO DE FILIAIS */}
             {previewStats && (
               <div style={{
                 background: 'rgba(0,0,0,0.4)',
                 border: '1px solid rgba(76, 175, 80, 0.4)',
                 borderRadius: '8px',
-                padding: '1rem',
-                marginTop: '1rem',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                flexWrap: 'wrap',
-                gap: '1rem'
+                padding: '1.2rem',
+                marginTop: '1.2rem'
               }}>
-                <div>
-                  <div style={{ color: '#81C784', fontWeight: 'bold', fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <CheckCircle2 size={18} /> Planilha Processada com Sucesso!
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1rem' }}>
+                  <div>
+                    <div style={{ color: '#81C784', fontWeight: 'bold', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <CheckCircle2 size={20} /> {previewStats.arquivos.length} Arquivo(s) de Filial Processado(s)!
+                    </div>
+                    <div style={{ color: '#ccc', fontSize: '0.85rem', marginTop: '4px', display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
+                      <span><strong>Total Linhas:</strong> {previewStats.totalLinhas.toLocaleString('pt-BR')}</span>
+                      <span><strong>Sem OP (Baixas):</strong> {previewStats.countSemOP.toLocaleString('pt-BR')}</span>
+                      <span><strong>Com OP:</strong> {previewStats.countComOP.toLocaleString('pt-BR')}</span>
+                      <span><strong>Valor Total:</strong> {previewStats.totalValor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                    </div>
                   </div>
-                  <div style={{ color: '#ccc', fontSize: '0.82rem', marginTop: '4px', display: 'flex', gap: '15px' }}>
-                    <span><strong>Total Linhas:</strong> {previewStats.totalLinhas}</span>
-                    <span><strong>Sem OP (Baixas):</strong> {previewStats.countSemOP}</span>
-                    <span><strong>Com OP:</strong> {previewStats.countComOP}</span>
-                    <span><strong>Valor Total:</strong> {previewStats.totalValor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+
+                  <button
+                    onClick={handleSaveImportToDB}
+                    disabled={isProcessingImport}
+                    className="action-btn"
+                    style={{
+                      background: '#4CAF50',
+                      padding: '0.7rem 1.5rem',
+                      fontSize: '0.95rem',
+                      fontWeight: 'bold',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px'
+                    }}
+                  >
+                    <Database size={18} />
+                    {isProcessingImport ? 'Gravando no Banco...' : '💾 Gravar Todas as Filiais'}
+                  </button>
+                </div>
+
+                {/* Lista dos arquivos lidos com totalizadores individuais */}
+                <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '6px', padding: '0.6rem 0.8rem', border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <span style={{ fontSize: '0.75rem', color: '#aaa', fontWeight: 'bold', textTransform: 'uppercase' }}>Filiais Carregadas:</span>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '4px' }}>
+                    {previewStats.arquivos.map((af, idx) => (
+                      <span key={idx} style={{ background: 'rgba(76, 175, 80, 0.15)', color: '#81C784', border: '1px solid rgba(76, 175, 80, 0.3)', padding: '3px 8px', borderRadius: '6px', fontSize: '0.78rem' }}>
+                        🏢 <strong>{af.filial}</strong>: {af.linhas} linhas ({af.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})
+                      </span>
+                    ))}
                   </div>
                 </div>
 
-                <button
-                  onClick={handleSaveImportToDB}
-                  disabled={isProcessingImport}
-                  className="action-btn"
-                  style={{
-                    background: '#4CAF50',
-                    padding: '0.65rem 1.4rem',
-                    fontSize: '0.9rem',
-                    fontWeight: 'bold',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px'
-                  }}
-                >
-                  <Database size={18} />
-                  {isProcessingImport ? 'Gravando no Banco...' : '💾 Gravar no Banco de Dados'}
-                </button>
               </div>
             )}
 
@@ -1739,6 +1878,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                     <tr>
                       <th>Empresa</th>
                       <th>Competência</th>
+                      <th>Filiais Incluídas</th>
                       <th style={{ textAlign: 'right' }}>Total Movimentações</th>
                       <th style={{ textAlign: 'right' }}>Valor Total Gravado</th>
                       <th>Data de Gravação</th>
@@ -1752,6 +1892,19 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                           {companies.find(c => c.id === comp.empresaId)?.name || comp.empresaId}
                         </td>
                         <td>{MESES[comp.mes - 1]} / {comp.ano}</td>
+                        <td>
+                          {comp.filiais && comp.filiais.length > 0 ? (
+                            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                              {comp.filiais.map(f => (
+                                <span key={f} style={{ background: 'rgba(255,255,255,0.06)', color: '#81C784', padding: '1px 5px', borderRadius: '4px', fontSize: '0.72rem' }}>
+                                  {f}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span style={{ color: '#888', fontSize: '0.75rem' }}>Consolidado</span>
+                          )}
+                        </td>
                         <td style={{ textAlign: 'right' }}>{comp.totalRecords.toLocaleString('pt-BR')}</td>
                         <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#fff' }}>
                           {comp.totalValor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
@@ -1765,6 +1918,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                               setSelectedEmpresa(comp.empresaId);
                               setSelectedAno(comp.ano);
                               setSelectedMes(comp.mes);
+                              setSelectedFilial('todas');
                               setActiveTab('dash');
                             }}
                             style={{
@@ -1829,7 +1983,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
             background: '#181a26',
             border: '1px solid rgba(255, 255, 255, 0.15)',
             borderRadius: '14px',
-            width: '900px',
+            width: '920px',
             maxWidth: '95vw',
             maxHeight: '90vh',
             display: 'flex',
@@ -1857,7 +2011,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                   </span>
                 </div>
                 <div style={{ color: '#888', fontSize: '0.8rem', marginTop: '3px' }}>
-                  Competência: {MESES[selectedMes - 1]} / {selectedAno} | Total Mês: {selectedItemForModal.custoTotalMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                  Competência: {MESES[selectedMes - 1]} / {selectedAno} | Filiais: {selectedItemForModal.filiaisArr?.join(', ') || 'Todas'} | Total Mês: {selectedItemForModal.custoTotalMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                 </div>
               </div>
 
@@ -1880,6 +2034,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
               <table className="data-table">
                 <thead>
                   <tr>
+                    <th>Filial</th>
                     <th>Data</th>
                     <th>Documento</th>
                     <th>TM</th>
@@ -1895,6 +2050,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                 <tbody>
                   {selectedItemForModal.lancamentos.map((l, idx) => (
                     <tr key={idx}>
+                      <td style={{ color: '#81C784', fontWeight: 'bold' }}>{l.filial || '-'}</td>
                       <td>{l.dtEmissao || '-'}</td>
                       <td style={{ color: '#fff', fontWeight: '500' }}>{l.documento || '-'}</td>
                       <td>
