@@ -33,6 +33,7 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
   const [cifRateioList, setCifRateioList] = useState([]); // [{ id, empresaId, conta, descricao, rule, fixedPct: {} }]
   const [cifEmpresa, setCifEmpresa] = useState('');
   const [cifConta, setCifConta] = useState('');
+  const [cifAccountSearch, setCifAccountSearch] = useState('');
   const [availableBalanceteAccounts, setAvailableBalanceteAccounts] = useState([]);
   const [balanceteAccountBalances, setBalanceteAccountBalances] = useState({});
   const [includeRateio, setIncludeRateio] = useState(false);
@@ -60,7 +61,12 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
   useEffect(() => {
     loadSettings();
     loadUniqueCCs();
+    loadBalanceteAccounts(cifEmpresa);
   }, []);
+
+  useEffect(() => {
+    loadBalanceteAccounts(cifEmpresa);
+  }, [cifEmpresa]);
 
   useEffect(() => {
     if (!selectedComp && companies && companies.length > 0) {
@@ -89,6 +95,63 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
     }
   };
 
+  const loadBalanceteAccounts = async (empresaId) => {
+    try {
+      let query = supabase.from('dre_history').select('conta, descricao, empresaId, valorMensal');
+      if (empresaId) {
+        query = query.eq('empresaId', empresaId);
+      }
+      const { data, error } = await query.limit(5000);
+      if (error) throw error;
+
+      const accountMap = new Map();
+      const balanceMap = {};
+
+      if (data) {
+        data.forEach(r => {
+          if (r.conta) {
+            const c = r.conta.toString().trim();
+            const desc = (r.descricao || '').toString().trim();
+            if (!accountMap.has(c) || desc.length > (accountMap.get(c)?.descricao || '').length) {
+              accountMap.set(c, { conta: c, descricao: desc, empresaId: r.empresaId });
+            }
+            balanceMap[c] = (balanceMap[c] || 0) + (r.valorMensal || 0);
+          }
+        });
+      }
+
+      // Also query balanco_history
+      let bQuery = supabase.from('balanco_history').select('conta, descricao, empresaId');
+      if (empresaId) {
+        bQuery = bQuery.eq('empresaId', empresaId);
+      }
+      const { data: bData } = await bQuery.limit(3000);
+      if (bData) {
+        bData.forEach(r => {
+          if (r.conta) {
+            const c = r.conta.toString().trim();
+            const desc = (r.descricao || '').toString().trim();
+            if (!accountMap.has(c)) {
+              accountMap.set(c, { conta: c, descricao: desc, empresaId: r.empresaId });
+            }
+          }
+        });
+      }
+
+      const arr = Array.from(accountMap.values()).map(a => ({
+        ...a,
+        saldo: balanceMap[a.conta] || 0
+      }));
+
+      arr.sort((a, b) => a.conta.localeCompare(b.conta, undefined, { numeric: true, sensitivity: 'base' }));
+      setAvailableBalanceteAccounts(arr);
+      setBalanceteAccountBalances(balanceMap);
+    } catch (e) {
+      console.error('Erro ao carregar contas do balancete:', e);
+      setAvailableBalanceteAccounts([]);
+    }
+  };
+
   const loadSettings = async () => {
       try {
           const p = await getSettings('agf_cc_projects');
@@ -106,13 +169,84 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
                       targetProjects: []
                   }]);
               }
+              if (Array.isArray(r.cifRateioList)) {
+                  setCifRateioList(r.cifRateioList);
+              }
           }
       } catch (e) { console.error(e); }
   };
 
   const saveRateioListToDB = async (newList) => {
       setRateioList(newList);
-      await saveSettings('agf_cc_rateio_config', { rateioList: newList });
+      await saveSettings('agf_cc_rateio_config', { rateioList: newList, cifRateioList });
+  };
+
+  const saveCifRateioListToDB = async (newCifList) => {
+      setCifRateioList(newCifList);
+      await saveSettings('agf_cc_rateio_config', { rateioList, cifRateioList: newCifList });
+  };
+
+  const handleAddCifAccount = (empresaId, conta) => {
+      if (!conta) return;
+      const acc = availableBalanceteAccounts.find(a => a.conta === conta);
+      const initialFixed = {};
+      Object.keys(projects).forEach(p => {
+          initialFixed[p] = 0;
+      });
+      const newEntry = {
+          id: 'cif-' + Date.now(),
+          empresaId: empresaId || '',
+          conta: conta,
+          descricao: acc?.descricao || 'Despesa Indireta',
+          rule: 'fixa',
+          fixedPct: initialFixed
+      };
+      const updated = [...cifRateioList, newEntry];
+      saveCifRateioListToDB(updated);
+      setCifConta('');
+      window.$toast(`Conta "${conta} - ${newEntry.descricao}" adicionada ao rateio indireto!`, { type: 'success' });
+  };
+
+  const handleRemoveCifAccount = (id) => {
+      const updated = cifRateioList.filter(item => item.id !== id);
+      saveCifRateioListToDB(updated);
+      window.$toast('Conta de rateio indireto removida.', { type: 'info' });
+  };
+
+  const handleUpdateCifFixedPct = (id, targetProj, pct) => {
+      const updated = cifRateioList.map(item => {
+          if (item.id === id) {
+              return {
+                  ...item,
+                  fixedPct: {
+                      ...(item.fixedPct || {}),
+                      [targetProj]: parseFloat(pct) || 0
+                  }
+              };
+          }
+          return item;
+      });
+      saveCifRateioListToDB(updated);
+  };
+
+  const handleDistributeCifEvenly = (id) => {
+      const item = cifRateioList.find(r => r.id === id);
+      if (!item) return;
+      const targets = Object.keys(projects);
+      if (targets.length === 0) return;
+      const evenPct = parseFloat((100 / targets.length).toFixed(2));
+      const newFixed = {};
+      targets.forEach((p, idx) => {
+          if (idx === targets.length - 1) {
+              const sumPrev = evenPct * (targets.length - 1);
+              newFixed[p] = parseFloat((100 - sumPrev).toFixed(2));
+          } else {
+              newFixed[p] = evenPct;
+          }
+      });
+      const updated = cifRateioList.map(r => r.id === id ? { ...r, fixedPct: newFixed } : r);
+      saveCifRateioListToDB(updated);
+      window.$toast('Percentuais divididos igualmente!', { type: 'success' });
   };
 
   const handleAddRateioProject = (sourceProj) => {
@@ -1172,26 +1306,41 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
                           </select>
                       </div>
 
-                      <div style={{ flex: 1, minWidth: '280px' }}>
+                      <div style={{ flex: 1, minWidth: '320px' }}>
                           <label style={{ display: 'block', color: '#FFCA28', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '4px' }}>
                               Conta Contábil do Balancete:
                           </label>
-                          <select 
-                              value={cifConta} 
-                              onChange={e => setCifConta(e.target.value)} 
-                              className="select-input" 
-                              style={{ width: '100%' }}
-                          >
-                              <option value="">Selecione a conta contábil...</option>
-                              {availableBalanceteAccounts
-                                  .filter(a => !cifRateioList.some(item => item.conta === a.conta && item.empresaId === cifEmpresa))
-                                  .map(a => (
-                                      <option key={a.conta} value={a.conta}>
-                                          {a.conta} - {a.descricao} {a.saldo > 0 ? `(${a.saldo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})` : ''}
-                                      </option>
-                                  ))
-                              }
-                          </select>
+                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                              <input
+                                  type="text"
+                                  placeholder="🔍 Filtrar conta (ex: energia, aluguel)..."
+                                  value={cifAccountSearch}
+                                  onChange={e => setCifAccountSearch(e.target.value)}
+                                  className="select-input"
+                                  style={{ width: '220px', fontSize: '0.82rem', padding: '0.45rem 0.6rem' }}
+                              />
+                              <select 
+                                  value={cifConta} 
+                                  onChange={e => setCifConta(e.target.value)} 
+                                  className="select-input" 
+                                  style={{ flex: 1, minWidth: '220px' }}
+                              >
+                                  <option value="">
+                                      {availableBalanceteAccounts.length === 0 
+                                          ? 'Carregando contas do balancete...' 
+                                          : `Selecione a conta (${availableBalanceteAccounts.filter(a => !cifRateioList.some(item => item.conta === a.conta && item.empresaId === cifEmpresa) && (!cifAccountSearch || a.conta.toLowerCase().includes(cifAccountSearch.toLowerCase()) || a.descricao.toLowerCase().includes(cifAccountSearch.toLowerCase()))).length} disponíveis)...`}
+                                  </option>
+                                  {availableBalanceteAccounts
+                                      .filter(a => !cifRateioList.some(item => item.conta === a.conta && item.empresaId === cifEmpresa))
+                                      .filter(a => !cifAccountSearch || a.conta.toLowerCase().includes(cifAccountSearch.toLowerCase()) || a.descricao.toLowerCase().includes(cifAccountSearch.toLowerCase()))
+                                      .map(a => (
+                                          <option key={a.conta} value={a.conta}>
+                                              {a.conta} - {a.descricao} {a.saldo > 0 ? `(${a.saldo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})` : ''}
+                                          </option>
+                                      ))
+                                  }
+                              </select>
+                          </div>
                       </div>
 
                       <button 
