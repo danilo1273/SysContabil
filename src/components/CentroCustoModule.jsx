@@ -4,8 +4,12 @@ import { getRawRecords, saveCCToDB, getSettings, saveSettings } from '../utils/d
 import { applyMapping, protheusMapping } from '../utils/mappingConfig';
 import { supabase } from '../supabaseClient';
 
-export default function CentroCustoModule({ companies, userRole }) {
-  const [activeTab, setActiveTab] = useState((userRole === 'admin' || userRole === 'superadmin') ? 'import' : 'dre'); // import, config, dre, rateio
+export default function CentroCustoModule({ companies, userRole, userPermissions, username }) {
+  const isSuper = (['danilo', 'ryan.santos'].includes(username)) || userRole === 'admin' || userRole === 'superadmin';
+  const canAccessDB = isSuper || userPermissions?.includes('db');
+  const canConfig = isSuper || userPermissions?.includes('contabil') || userPermissions?.includes('db');
+
+  const [activeTab, setActiveTab] = useState(canAccessDB ? 'import' : 'dre'); // import, config, dre, rateio
   
   // Settings
   const [projects, setProjects] = useState({}); // { "Multifio": ["20108", "20208"] }
@@ -551,14 +555,16 @@ export default function CentroCustoModule({ companies, userRole }) {
 
   return (
     <div className="glass-panel" style={{ padding: '1.5rem', marginTop: '1rem' }}>
-      <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid #333', paddingBottom: '1rem', marginBottom: '1.5rem' }}>
-        <button className={activeTab === 'dre' ? 'btn-primary' : 'btn-secondary'} onClick={() => setActiveTab('dre')}>DRE</button>
-        {(userRole === 'admin' || userRole === 'superadmin') && (
-            <>
-                <button className={activeTab === 'config' ? 'btn-primary' : 'btn-secondary'} onClick={() => setActiveTab('config')}>Configuração Projetos</button>
-                <button className={activeTab === 'rateio' ? 'btn-primary' : 'btn-secondary'} onClick={() => setActiveTab('rateio')}>Regras de Rateio</button>
-                <button className={activeTab === 'import' ? 'btn-primary' : 'btn-secondary'} onClick={() => setActiveTab('import')}>Banco de Dados</button>
-            </>
+      <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid #333', paddingBottom: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+        <button className={activeTab === 'dre' ? 'btn-primary' : 'btn-secondary'} onClick={() => setActiveTab('dre')}>📊 DRE por Projeto</button>
+        {canConfig && (
+            <button className={activeTab === 'config' ? 'btn-primary' : 'btn-secondary'} onClick={() => setActiveTab('config')}>⚙️ Configuração Projetos</button>
+        )}
+        {canConfig && (
+            <button className={activeTab === 'rateio' ? 'btn-primary' : 'btn-secondary'} onClick={() => setActiveTab('rateio')}>📐 Regras de Rateio</button>
+        )}
+        {canAccessDB && (
+            <button className={activeTab === 'import' ? 'btn-primary' : 'btn-secondary'} onClick={() => setActiveTab('import')}>💾 Banco de Dados / Importação</button>
         )}
       </div>
 

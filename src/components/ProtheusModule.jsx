@@ -2058,7 +2058,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
       )}
 
       {activeTab === 'cc' && (
-        <CentroCustoModule companies={companies} userRole={userRole} />
+        <CentroCustoModule companies={companies} userRole={userRole} userPermissions={userPermissions} username={username} />
       )}
 
       {activeTab === 'gestao' && (
