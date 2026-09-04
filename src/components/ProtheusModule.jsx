@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Upload, UploadCloud, Plus, FileText, CheckCircle, AlertTriangle, Play, Database, FileSpreadsheet, Activity, ChevronRight, ChevronDown, RefreshCw } from 'lucide-react';
+import { Upload, UploadCloud, Plus, FileText, CheckCircle, AlertTriangle, Play, Database, FileSpreadsheet, Activity, ChevronRight, ChevronDown, RefreshCw, Package } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, Cell } from 'recharts';
 import { parseProtheusExcel } from '../utils/protheusParser';
@@ -13,6 +13,7 @@ import RateioModule from './RateioModule';
 import CentroCustoModule from './CentroCustoModule';
 import GestaoContabilModule from './GestaoContabilModule';
 import PerdcompModule from './PerdcompModule';
+import EstoqueModule from './EstoqueModule';
 
 const COLORS = ['#4CAF50', '#2196F3', '#f7c324', '#9C27B0', '#FF9800'];
 
@@ -111,7 +112,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
 
   useEffect(() => {
     if (moduleMode === 'indicadores') {
-      if (activeTab !== 'resultados' && activeTab !== 'cc') {
+      if (activeTab !== 'resultados' && activeTab !== 'cc' && activeTab !== 'estoque') {
         setActiveTab('resultados');
       }
     } else if (moduleMode === 'contabil') {
@@ -1482,6 +1483,13 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
               >
                 <Database size={20} /> Dashboard Centro de Custo
               </button>
+
+              <button
+                className={`tab-btn ${activeTab === 'estoque' ? 'active' : ''}`}
+                onClick={() => setActiveTab('estoque')}
+              >
+                <Package size={20} /> Movimento de Estoque
+              </button>
             </>
           )}
 
@@ -2059,6 +2067,10 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
 
       {activeTab === 'cc' && (
         <CentroCustoModule companies={companies} userRole={userRole} userPermissions={userPermissions} username={username} />
+      )}
+
+      {activeTab === 'estoque' && (
+        <EstoqueModule companies={companies} userRole={userRole} userPermissions={userPermissions} username={username} />
       )}
 
       {activeTab === 'gestao' && (

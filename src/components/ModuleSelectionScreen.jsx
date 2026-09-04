@@ -121,6 +121,7 @@ export default function ModuleSelectionScreen({ user, onSelectModule }) {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '2rem' }}>
               <span style={{ background: 'rgba(255,255,255,0.05)', color: '#ccc', padding: '4px 10px', borderRadius: '6px', fontSize: '0.8rem' }}>📊 Dashboard Contábil</span>
               <span style={{ background: 'rgba(255,255,255,0.05)', color: '#ccc', padding: '4px 10px', borderRadius: '6px', fontSize: '0.8rem' }}>🏢 Centro de Custo</span>
+              <span style={{ background: 'rgba(255,255,255,0.05)', color: '#ccc', padding: '4px 10px', borderRadius: '6px', fontSize: '0.8rem' }}>📦 Movimento de Estoque</span>
               <span style={{ background: 'rgba(255,255,255,0.05)', color: '#ccc', padding: '4px 10px', borderRadius: '6px', fontSize: '0.8rem' }}>📈 Gráficos & BI</span>
             </div>
           </div>
