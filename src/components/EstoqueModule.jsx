@@ -2,8 +2,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Package, AlertTriangle, TrendingUp, TrendingDown, DollarSign, 
   FileSpreadsheet, Database, Filter, Search, Download, CheckCircle, CheckCircle2, 
-  Layers, UserCheck, ShieldAlert, ArrowUpRight, BarChart3, PieChart as PieIcon,
-  RefreshCw, Info, Calendar, Building2, HelpCircle, GitBranch, PlusCircle
+  Layers, UserCheck, ShieldAlert, ArrowUpRight, ArrowDownRight, BarChart3, PieChart as PieIcon,
+  RefreshCw, Info, Calendar, Building2, HelpCircle, GitBranch, PlusCircle,
+  Target, MessageSquare, AlertCircle, FileText, ChevronRight, Activity
 } from 'lucide-react';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, 
@@ -14,11 +15,11 @@ import { supabase } from '../supabaseClient';
 import { getSettings, saveSettings } from '../utils/db';
 
 const CRITICAL_TMS = {
-  '506': { label: '506 - Inventário (Saída)', color: '#ef5350', bg: 'rgba(239, 83, 80, 0.15)', group: 'inventario' },
-  '006': { label: '006 - Inventário (Entrada)', color: '#26a69a', bg: 'rgba(38, 166, 154, 0.15)', group: 'inventario' },
-  '509': { label: '509 - Baixa Justificada Garantia', color: '#ab47bc', bg: 'rgba(171, 71, 188, 0.15)', group: 'garantia' },
-  '507': { label: '507 - Perda de Material', color: '#ff7043', bg: 'rgba(255, 112, 67, 0.15)', group: 'perda' },
-  '504': { label: '504 - Baixa Consumível', color: '#42a5f5', bg: 'rgba(66, 165, 245, 0.15)', group: 'consumivel' },
+  '506': { label: '506 - Inventário (Saída / Falta)', color: '#ef5350', bg: 'rgba(239, 83, 80, 0.15)', group: 'inventario', icon: '📦', question: 'Houve contagem física no mês? Por que o saldo físico apurou faltas expressivas acima da média?' },
+  '006': { label: '006 - Inventário (Entrada / Sobra)', color: '#26a69a', bg: 'rgba(38, 166, 154, 0.15)', group: 'inventario', icon: '📥', question: 'Entradas por sobras físicas no inventário foram conciliadas e justificadas?' },
+  '509': { label: '509 - Baixa Justificada Garantia', color: '#ab47bc', bg: 'rgba(171, 71, 188, 0.15)', group: 'garantia', icon: '🛡️', question: 'Quais clientes/equipamentos acionaram garantia? O PCP/Engenharia investigou se foi falha de projeto ou qualidade de componentes?' },
+  '507': { label: '507 - Perda de Material / Refugo', color: '#ff7043', bg: 'rgba(255, 112, 67, 0.15)', group: 'perda', icon: '⚠️', question: 'Qual posto de trabalho, máquina ou lote gerou refugo anormal? Houve erro operacional ou lote de matéria-prima avariado?' },
+  '504': { label: '504 - Baixa Consumível Fábrica', color: '#42a5f5', bg: 'rgba(66, 165, 245, 0.15)', group: 'consumivel', icon: '🔧', question: 'O volume de insumos/consumíveis retirados do almoxarifado foi proporcional ao volume de ordens de produção abertas no mês?' },
 };
 
 const COLORS_CHART = ['#ef5350', '#26a69a', '#ab47bc', '#ff7043', '#42a5f5', '#ffa726', '#8d6e63', '#78909c'];
@@ -62,8 +63,10 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
   const [isProcessingImport, setIsProcessingImport] = useState(false);
   const [previewStats, setPreviewStats] = useState(null);
 
-  // Modal de Detalhes de Item
+  // Modal de Detalhes de Item e de Tipo de Movimento (TM / PCP)
   const [selectedItemForModal, setSelectedItemForModal] = useState(null);
+  const [selectedTMForModal, setSelectedTMForModal] = useState(null);
+  const [subTabDesvios, setSubTabDesvios] = useState('tm'); // 'tm' | 'produto'
 
   // Carregar lista de competências salvas ao montar
   useEffect(() => {
@@ -515,29 +518,194 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       else totalOutrosTM += val;
     });
 
-    // 3. Calcular Histórico e Média por Produto / TM nos meses anteriores
-    const productHistoryMap = {};
+    // 3. Histórico e Médias dos Meses Anteriores
     const previousMonths = Object.keys(historySeries).map(Number).filter(m => m < selectedMes);
     const numPrevMonths = Math.max(1, previousMonths.length);
 
+    // 4. ANÁLISE DE DESVIO POR TIPO DE MOVIMENTO (TM) - Foco Estratégico PCP & DRE
+    const allTMsSet = new Set();
+    currentFiltered.forEach(r => { if (r.tm) allTMsSet.add(r.tm); });
+    previousMonths.forEach(m => {
+      (historySeries[m] || []).forEach(r => { if (r.tm) allTMsSet.add(r.tm); });
+    });
+    ['506', '509', '507', '504', '006'].forEach(tm => allTMsSet.add(tm));
+
+    let totalDesvioLiquido = 0;
+    let tmCountCriticos = 0;
+    let tmCountAtencao = 0;
+    let tmCountReducao = 0;
+    let tmCountNovos = 0;
+
+    const analysisByTM = Array.from(allTMsSet).map(tm => {
+      const tmInfo = CRITICAL_TMS[tm] || {
+        label: `TM ${tm} - Movimento Interno`,
+        color: '#ffa726',
+        bg: 'rgba(255, 167, 38, 0.15)',
+        group: 'outros',
+        icon: '📋',
+        question: 'Verificar justificativa e motivo do lançamento diretamente com a equipe do PCP e Almoxarifado.'
+      };
+
+      const currentTMRecords = currentFiltered.filter(r => r.tm === tm);
+      const valorMes = currentTMRecords.reduce((sum, r) => sum + (r.custoTotal || 0), 0);
+      const qtdSaidaMes = currentTMRecords.reduce((sum, r) => sum + (r.qtdSaida || 0), 0);
+      const qtdEntradaMes = currentTMRecords.reduce((sum, r) => sum + (r.qtdEntrada || 0), 0);
+      const lancamentosCount = currentTMRecords.length;
+
+      let totalHistVal = 0;
+      previousMonths.forEach(m => {
+        const mRecords = (historySeries[m] || []).filter(r => (!filtroApenasSemOP || !r.hasOP) && (selectedFilial === 'todas' || r.filial === selectedFilial) && r.tm === tm);
+        totalHistVal += mRecords.reduce((sum, r) => sum + (r.custoTotal || 0), 0);
+      });
+
+      const hasHistory = previousMonths.length > 0 && totalHistVal > 0;
+      const mediaHistorica = hasHistory ? (totalHistVal / numPrevMonths) : 0;
+      const desvioValor = hasHistory ? (valorMes - mediaHistorica) : 0;
+      const desvioPct = (hasHistory && mediaHistorica > 0) 
+        ? ((valorMes - mediaHistorica) / mediaHistorica) * 100 
+        : 0;
+
+      if (hasHistory) {
+        totalDesvioLiquido += desvioValor;
+      }
+
+      let status = 'normal';
+      let statusLabel = 'Estável (Na Média)';
+      let statusColor = '#4caf50';
+
+      if (!hasHistory) {
+        status = valorMes > 0 ? 'novo' : 'sem_mov';
+        statusLabel = valorMes > 0 ? '🆕 TM Novo' : 'Sem Movimento';
+        statusColor = valorMes > 0 ? '#29b6f6' : '#666';
+        if (valorMes > 0) tmCountNovos++;
+      } else if (desvioPct > 25 || (desvioValor > 5000 && desvioPct > 10)) {
+        status = 'critico';
+        statusLabel = `🚨 Crítico (+${desvioPct.toFixed(0)}%)`;
+        statusColor = '#ef5350';
+        tmCountCriticos++;
+      } else if (desvioPct > 10) {
+        status = 'atencao';
+        statusLabel = `⚠️ Atenção (+${desvioPct.toFixed(0)}%)`;
+        statusColor = '#ffa726';
+        tmCountAtencao++;
+      } else if (desvioPct < -15) {
+        status = 'reducao';
+        statusLabel = `📉 Redução (${desvioPct.toFixed(0)}%)`;
+        statusColor = '#66bb6a';
+        tmCountReducao++;
+      }
+
+      // Top 5 produtos vilões deste TM
+      const prodMap = {};
+      currentTMRecords.forEach(r => {
+        const pKey = r.produto || r.descricao;
+        if (!prodMap[pKey]) {
+          prodMap[pKey] = {
+            produto: r.produto,
+            descricao: r.descricao,
+            tipo: r.tipo,
+            grupo: r.grupo,
+            filiais: new Set(),
+            cc: r.cc,
+            qtdSaida: 0,
+            qtdEntrada: 0,
+            custoTotal: 0,
+            lancamentos: []
+          };
+        }
+        if (r.filial) prodMap[pKey].filiais.add(r.filial);
+        prodMap[pKey].qtdSaida += (r.qtdSaida || 0);
+        prodMap[pKey].qtdEntrada += (r.qtdEntrada || 0);
+        prodMap[pKey].custoTotal += (r.custoTotal || 0);
+        prodMap[pKey].lancamentos.push(r);
+      });
+
+      const topProdutos = Object.values(prodMap)
+        .sort((a, b) => b.custoTotal - a.custoTotal)
+        .slice(0, 5)
+        .map(p => ({
+          ...p,
+          filiaisArr: Array.from(p.filiais),
+          pctDoTM: valorMes > 0 ? (p.custoTotal / valorMes) * 100 : 0
+        }));
+
+      // Centros de custo deste TM
+      const ccMap = {};
+      currentTMRecords.forEach(r => {
+        const ccName = r.cc || 'Sem CC';
+        ccMap[ccName] = (ccMap[ccName] || 0) + (r.custoTotal || 0);
+      });
+      const topCCs = Object.entries(ccMap)
+        .map(([cc, val]) => ({ cc, val, pct: valorMes > 0 ? (val / valorMes) * 100 : 0 }))
+        .sort((a, b) => b.val - a.val)
+        .slice(0, 4);
+
+      // Série Histórica Jan..Dez deste TM
+      const historicoMeses = [];
+      for (let m = 1; m <= 12; m++) {
+        const mRecs = (historySeries[m] || []).filter(r => (!filtroApenasSemOP || !r.hasOP) && (selectedFilial === 'todas' || r.filial === selectedFilial) && r.tm === tm);
+        const v = mRecs.reduce((sum, r) => sum + (r.custoTotal || 0), 0);
+        historicoMeses.push({
+          mesNum: m,
+          mesNome: MESES[m - 1].substring(0, 3),
+          valor: v
+        });
+      }
+
+      return {
+        tm,
+        ...tmInfo,
+        valorMes,
+        qtdSaidaMes,
+        qtdEntradaMes,
+        lancamentosCount,
+        hasHistory,
+        mediaHistorica,
+        desvioValor,
+        desvioPct,
+        status,
+        statusLabel,
+        statusColor,
+        topProdutos,
+        topCCs,
+        historicoMeses,
+        records: currentTMRecords
+      };
+    })
+    .filter(t => t.valorMes > 0 || t.hasHistory)
+    .sort((a, b) => {
+      if (a.status === 'critico' && b.status !== 'critico') return -1;
+      if (b.status === 'critico' && a.status !== 'critico') return 1;
+      return b.desvioValor - a.desvioValor;
+    });
+
+    // Gráfico Comparativo Mês Atual vs Média Histórica por TM
+    const chartComparativoTM = analysisByTM
+      .filter(t => t.valorMes > 0 || t.mediaHistorica > 0)
+      .map(t => ({
+        tm: t.tm,
+        nome: `${t.tm} - ${t.label.split(' - ')[1]?.split('/')[0] || t.label}`.substring(0, 18),
+        'Mês Atual': t.valorMes,
+        'Média Histórica': t.mediaHistorica,
+        desvioValor: t.desvioValor,
+        desvioPct: t.desvioPct,
+        color: t.color
+      }));
+
+    // 5. Agrupamento por Produto (para detalhamento de itens)
+    const productHistoryMap = {};
     previousMonths.forEach(m => {
       const mRecords = (historySeries[m] || []).filter(r => (!filtroApenasSemOP || !r.hasOP) && (selectedFilial === 'todas' || r.filial === selectedFilial));
       mRecords.forEach(r => {
         const prod = r.produto || r.descricao;
         if (!productHistoryMap[prod]) {
-          productHistoryMap[prod] = {
-            totalVal: 0,
-            monthsWithMov: new Set(),
-            records: []
-          };
+          productHistoryMap[prod] = { totalVal: 0, records: [] };
         }
         productHistoryMap[prod].totalVal += (r.custoTotal || 0);
-        productHistoryMap[prod].monthsWithMov.add(m);
         productHistoryMap[prod].records.push(r);
       });
     });
 
-    // 4. Agrupamento por Produto no mês atual com comparação com a Média
     const currentProductMap = {};
     currentFiltered.forEach(r => {
       const prod = r.produto || r.descricao;
@@ -564,18 +732,16 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       currentProductMap[prod].lancamentos.push(r);
     });
 
-    let countCriticos = 0;
-    let countAtencao = 0;
-    let countNormal = 0;
-    let countNovos = 0;
+    let countProdCriticos = 0;
+    let countProdAtencao = 0;
+    let countProdNormal = 0;
+    let countProdNovos = 0;
 
     const analysisRows = Object.values(currentProductMap).map(item => {
       const hist = productHistoryMap[item.produto] || productHistoryMap[item.descricao];
       const hasHistory = !!hist && hist.totalVal > 0;
       
       const mediaHistorica = hasHistory ? (hist.totalVal / numPrevMonths) : 0;
-      
-      // Se não há histórico prévio (média zero), não há desvio/variação: é apenas um item novo
       const desvioValor = hasHistory ? (item.custoTotalMes - mediaHistorica) : 0;
       const desvioPct = (hasHistory && mediaHistorica > 0)
         ? ((item.custoTotalMes - mediaHistorica) / mediaHistorica) * 100 
@@ -589,28 +755,25 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
         status = 'novo';
         statusLabel = '🆕 Item Novo';
         statusBadgeColor = '#29b6f6';
-        countNovos++;
+        countProdNovos++;
       } else if (desvioPct > 100 || (desvioValor > 2000 && desvioPct > toleranciaDesvioPct)) {
         status = 'critico';
         statusLabel = `⚠️ Crítico (+${desvioPct.toFixed(0)}%)`;
         statusBadgeColor = '#ef5350';
-        countCriticos++;
+        countProdCriticos++;
       } else if (desvioPct > toleranciaDesvioPct) {
         status = 'atencao';
         statusLabel = `Atenção (+${desvioPct.toFixed(0)}%)`;
         statusBadgeColor = '#ffa726';
-        countAtencao++;
+        countProdAtencao++;
       } else {
-        countNormal++;
+        countProdNormal++;
       }
-
-      const tmsArr = Array.from(item.tms);
-      const filiaisArr = Array.from(item.filiais);
 
       return {
         ...item,
-        tmsArr,
-        filiaisArr,
+        tmsArr: Array.from(item.tms),
+        filiaisArr: Array.from(item.filiais),
         hasHistory,
         mediaHistorica,
         desvioValor,
@@ -621,25 +784,22 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       };
     });
 
-    // Ordenar produtos: itens com histórico de desvio primeiro (maior desvio em R$), depois os demais
     analysisRows.sort((a, b) => {
       if (a.status === 'novo' && b.status !== 'novo') return 1;
       if (b.status === 'novo' && a.status !== 'novo') return -1;
       return b.desvioValor - a.desvioValor;
     });
 
-    // Filtrar linhas por status de desvio se solicitado
     const filteredAnalysisRows = analysisRows.filter(r => {
       if (filtroStatusDesvio === 'todos') return true;
       return r.status === filtroStatusDesvio;
     });
 
-    // Top 10 maiores desvios em R$ (Apenas itens com histórico prévio que ultrapassaram a média)
     const topDesviosList = analysisRows
       .filter(r => r.hasHistory && r.mediaHistorica > 0 && r.desvioValor > 0)
       .slice(0, 10);
 
-    // 5. Gráfico de Evolução Histórica das Baixas por TM (Mês a Mês do Ano)
+    // 6. Gráfico de Evolução Histórica das Baixas por TM (Mês a Mês do Ano)
     const evolucaoData = [];
     for (let m = 1; m <= 12; m++) {
       const mRecs = (historySeries[m] || []).filter(r => (!filtroApenasSemOP || !r.hasOP) && (selectedFilial === 'todas' || r.filial === selectedFilial));
@@ -668,7 +828,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       }
     }
 
-    // 6. Gráfico de Distribuição por TM no mês atual
+    // 7. Gráfico de Distribuição por TM no mês atual
     const distTM = [
       { name: '506 Inventário', valor: totalInventario506, fill: CRITICAL_TMS['506'].color },
       { name: '006 Entrada Inv.', valor: totalInventario006, fill: CRITICAL_TMS['006'].color },
@@ -681,7 +841,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       distTM.push({ name: 'Outros TMs', valor: totalOutrosTM, fill: '#78909c' });
     }
 
-    // 7. Distribuição por Filial
+    // 8. Distribuição por Filial
     const filialMap = {};
     currentFiltered.forEach(r => {
       const f = r.filial || 'Sem Filial';
@@ -691,7 +851,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       .map(([filial, valor]) => ({ filial, valor }))
       .sort((a, b) => b.valor - a.valor);
 
-    // 8. Distribuição por Centro de Custo
+    // 9. Distribuição por Centro de Custo
     const ccMap = {};
     currentFiltered.forEach(r => {
       const cc = r.cc || 'Sem CC';
@@ -702,7 +862,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       .sort((a, b) => b.valor - a.valor)
       .slice(0, 8);
 
-    // 9. Distribuição por Usuário
+    // 10. Distribuição por Usuário
     const userMap = {};
     currentFiltered.forEach(r => {
       const u = r.usuario || 'Outros';
@@ -717,19 +877,26 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       filteredRecordsCurrent: currentFiltered,
       kpis: {
         totalBaixadoMes,
+        totalDesvioLiquido,
         totalInventario506,
         totalInventario006,
         totalGarantia509,
         totalPerda507,
         totalConsumivel504,
         totalOutrosTM,
-        countCriticos,
-        countAtencao,
-        countNormal,
-        countNovos,
+        tmCountCriticos,
+        tmCountAtencao,
+        tmCountReducao,
+        tmCountNovos,
+        countProdCriticos,
+        countProdAtencao,
+        countProdNormal,
+        countProdNovos,
         totalItens: Object.keys(currentProductMap).length,
         numPrevMonths: previousMonths.length
       },
+      analysisByTM,
+      chartComparativoTM,
       analysisByProduct: filteredAnalysisRows,
       chartEvolucaoTM: evolucaoData,
       chartDistribuicaoTM: distTM,
@@ -1070,12 +1237,12 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       {activeTab === 'dash' && (
         <div>
           
-          {/* CARDS KPIS EXECUTIVOS */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+          {/* CARDS KPIS EXECUTIVOS COM FOCO EM TMs */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
             
             {/* Card Total Geral */}
             <div style={{
-              background: 'linear-gradient(135deg, rgba(33, 150, 243, 0.15), rgba(20, 24, 38, 0.9))',
+              background: 'linear-gradient(135deg, rgba(33, 150, 243, 0.15), rgba(20, 24, 38, 0.95))',
               border: '1px solid rgba(33, 150, 243, 0.35)',
               borderRadius: '12px',
               padding: '1.2rem',
@@ -1088,91 +1255,91 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
               <div style={{ fontSize: '1.6rem', fontWeight: 'bold', color: '#fff', margin: '0.5rem 0 0.2rem 0' }}>
                 {kpis.totalBaixadoMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
               </div>
-              <div style={{ fontSize: '0.75rem', color: '#aaa' }}>
-                {filteredRecordsCurrent.length} movimentações no período {selectedFilial !== 'todas' ? `(${selectedFilial})` : ''}
+              <div style={{ fontSize: '0.75rem', color: '#aaa', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                {kpis.numPrevMonths > 0 ? (
+                  <span style={{ color: kpis.totalDesvioLiquido > 0 ? '#ef5350' : '#81c784', fontWeight: 'bold' }}>
+                    {kpis.totalDesvioLiquido > 0 ? `+${kpis.totalDesvioLiquido.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} vs Média` : `${kpis.totalDesvioLiquido.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} vs Média`}
+                  </span>
+                ) : (
+                  <span>Mês Base ({filteredRecordsCurrent.length} mov.)</span>
+                )}
               </div>
             </div>
 
-            {/* Card 506/006 Inventário */}
-            <div style={{
-              background: 'linear-gradient(135deg, rgba(239, 83, 80, 0.12), rgba(20, 24, 38, 0.9))',
-              border: '1px solid rgba(239, 83, 80, 0.3)',
-              borderRadius: '12px',
-              padding: '1.2rem'
-            }}>
-              <div style={{ fontSize: '0.8rem', color: '#ef5350', fontWeight: 'bold', textTransform: 'uppercase' }}>
-                506 / 006 Inventário
-              </div>
-              <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#fff', margin: '0.5rem 0 0.2rem 0' }}>
-                {kpis.totalInventario506.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-              </div>
-              <div style={{ fontSize: '0.74rem', color: '#26a69a' }}>
-                Entradas (006): +{kpis.totalInventario006.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-              </div>
-            </div>
+            {/* Cards para os 4 TMs Críticos */}
+            {[
+              { tmKey: '506', title: '506 / 006 Inventário', color: '#ef5350', bgGrad: 'rgba(239, 83, 80, 0.12)' },
+              { tmKey: '509', title: '509 Baixa Garantia', color: '#ab47bc', bgGrad: 'rgba(171, 71, 188, 0.12)' },
+              { tmKey: '507', title: '507 Perda de Material', color: '#ff7043', bgGrad: 'rgba(255, 112, 67, 0.12)' },
+              { tmKey: '504', title: '504 Baixa Consumível', color: '#42a5f5', bgGrad: 'rgba(66, 165, 245, 0.12)' }
+            ].map(({ tmKey, title, color, bgGrad }) => {
+              const tmObj = analysisByTM.find(t => t.tm === tmKey) || {
+                valorMes: 0, mediaHistorica: 0, desvioValor: 0, desvioPct: 0, status: 'normal', topProdutos: []
+              };
+              const hasAlert = tmObj.status === 'critico' || tmObj.status === 'atencao';
+              return (
+                <div 
+                  key={tmKey}
+                  onClick={() => tmObj.records?.length > 0 && setSelectedTMForModal(tmObj)}
+                  style={{
+                    background: `linear-gradient(135deg, ${bgGrad}, rgba(20, 24, 38, 0.95))`,
+                    border: hasAlert ? `1px solid ${color}` : `1px solid ${color}44`,
+                    borderRadius: '12px',
+                    padding: '1.2rem',
+                    cursor: tmObj.records?.length > 0 ? 'pointer' : 'default',
+                    transition: 'all 0.2s',
+                    position: 'relative'
+                  }}
+                  onMouseEnter={(e) => tmObj.records?.length > 0 && (e.currentTarget.style.transform = 'translateY(-2px)')}
+                  onMouseLeave={(e) => tmObj.records?.length > 0 && (e.currentTarget.style.transform = 'translateY(0)')}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ fontSize: '0.8rem', color: color, fontWeight: 'bold', textTransform: 'uppercase' }}>
+                      {title}
+                    </div>
+                    {tmObj.hasHistory && tmObj.desvioPct !== 0 && (
+                      <span style={{
+                        background: tmObj.desvioPct > 0 ? 'rgba(239, 83, 80, 0.2)' : 'rgba(76, 175, 80, 0.2)',
+                        color: tmObj.desvioPct > 0 ? '#ff8a80' : '#81c784',
+                        border: `1px solid ${tmObj.desvioPct > 0 ? '#ef5350' : '#4caf50'}66`,
+                        padding: '1px 6px',
+                        borderRadius: '10px',
+                        fontSize: '0.72rem',
+                        fontWeight: 'bold',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '2px'
+                      }}>
+                        {tmObj.desvioPct > 0 ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
+                        {tmObj.desvioPct > 0 ? `+${tmObj.desvioPct.toFixed(0)}%` : `${tmObj.desvioPct.toFixed(0)}%`}
+                      </span>
+                    )}
+                  </div>
 
-            {/* Card 509 Garantia */}
-            <div style={{
-              background: 'linear-gradient(135deg, rgba(171, 71, 188, 0.12), rgba(20, 24, 38, 0.9))',
-              border: '1px solid rgba(171, 71, 188, 0.3)',
-              borderRadius: '12px',
-              padding: '1.2rem'
-            }}>
-              <div style={{ fontSize: '0.8rem', color: '#ce93d8', fontWeight: 'bold', textTransform: 'uppercase' }}>
-                509 Baixa Garantia
-              </div>
-              <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#fff', margin: '0.5rem 0 0.2rem 0' }}>
-                {kpis.totalGarantia509.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-              </div>
-              <div style={{ fontSize: '0.74rem', color: '#aaa' }}>
-                Baixas justificadas
-              </div>
-            </div>
+                  <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#fff', margin: '0.4rem 0 0.1rem 0' }}>
+                    {tmObj.valorMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                  </div>
 
-            {/* Card 507 Perda Material */}
-            <div style={{
-              background: 'linear-gradient(135deg, rgba(255, 112, 67, 0.12), rgba(20, 24, 38, 0.9))',
-              border: '1px solid rgba(255, 112, 67, 0.3)',
-              borderRadius: '12px',
-              padding: '1.2rem'
-            }}>
-              <div style={{ fontSize: '0.8rem', color: '#ff8a65', fontWeight: 'bold', textTransform: 'uppercase' }}>
-                507 Perda de Material
-              </div>
-              <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#fff', margin: '0.5rem 0 0.2rem 0' }}>
-                {kpis.totalPerda507.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-              </div>
-              <div style={{ fontSize: '0.74rem', color: '#aaa' }}>
-                Refugos / Perdas avulsas
-              </div>
-            </div>
+                  <div style={{ fontSize: '0.73rem', color: '#aaa', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>Média: {tmObj.hasHistory ? tmObj.mediaHistorica.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'Sem hist.'}</span>
+                    {tmObj.records?.length > 0 && (
+                      <span style={{ color: '#64B5F6', fontSize: '0.72rem', fontWeight: 'bold' }}>
+                        🎯 Questionar PCP →
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
 
-            {/* Card 504 Consumível */}
-            <div style={{
-              background: 'linear-gradient(135deg, rgba(66, 165, 245, 0.12), rgba(20, 24, 38, 0.9))',
-              border: '1px solid rgba(66, 165, 245, 0.3)',
-              borderRadius: '12px',
-              padding: '1.2rem'
-            }}>
-              <div style={{ fontSize: '0.8rem', color: '#90caf9', fontWeight: 'bold', textTransform: 'uppercase' }}>
-                504 Baixa Consumível
-              </div>
-              <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#fff', margin: '0.5rem 0 0.2rem 0' }}>
-                {kpis.totalConsumivel504.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-              </div>
-              <div style={{ fontSize: '0.74rem', color: '#aaa' }}>
-                Materiais consumíveis
-              </div>
-            </div>
-
-            {/* Card Alertas Fora da Média */}
+            {/* Card Alertas e Desvios por TM */}
             <div 
               onClick={() => setActiveTab('desvios')}
               style={{
-                background: kpis.countCriticos > 0 
-                  ? 'linear-gradient(135deg, rgba(239, 83, 80, 0.25), rgba(40, 15, 20, 0.9))' 
-                  : 'linear-gradient(135deg, rgba(76, 175, 80, 0.12), rgba(20, 24, 38, 0.9))',
-                border: kpis.countCriticos > 0 ? '1px solid #ef5350' : '1px solid rgba(76, 175, 80, 0.3)',
+                background: kpis.tmCountCriticos > 0 
+                  ? 'linear-gradient(135deg, rgba(239, 83, 80, 0.25), rgba(40, 15, 20, 0.95))' 
+                  : 'linear-gradient(135deg, rgba(76, 175, 80, 0.12), rgba(20, 24, 38, 0.95))',
+                border: kpis.tmCountCriticos > 0 ? '1px solid #ef5350' : '1px solid rgba(76, 175, 80, 0.3)',
                 borderRadius: '12px',
                 padding: '1.2rem',
                 cursor: 'pointer',
@@ -1181,21 +1348,209 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
               onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
               onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
             >
-              <div style={{ fontSize: '0.8rem', color: kpis.countCriticos > 0 ? '#ff8a80' : '#81c784', fontWeight: 'bold', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>Itens Fora da Média</span>
+              <div style={{ fontSize: '0.8rem', color: kpis.tmCountCriticos > 0 ? '#ff8a80' : '#81c784', fontWeight: 'bold', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>Alertas por TM</span>
                 <ShieldAlert size={16} />
               </div>
-              <div style={{ fontSize: '1.6rem', fontWeight: 'bold', color: '#fff', margin: '0.5rem 0 0.2rem 0' }}>
-                {kpis.countCriticos} <span style={{ fontSize: '0.9rem', color: '#ef5350', fontWeight: 'normal' }}>críticos</span>
+              <div style={{ fontSize: '1.6rem', fontWeight: 'bold', color: '#fff', margin: '0.4rem 0 0.1rem 0' }}>
+                {kpis.tmCountCriticos} <span style={{ fontSize: '0.85rem', color: '#ef5350', fontWeight: 'normal' }}>TMs Críticos</span>
               </div>
               <div style={{ fontSize: '0.74rem', color: '#ccc' }}>
-                +{kpis.countAtencao} itens em atenção (ver lista →)
+                +{kpis.tmCountAtencao} em atenção | {kpis.tmCountReducao} c/ redução
               </div>
             </div>
 
           </div>
 
-          {/* SEÇÃO DE GRÁFICOS: EVOLUÇÃO TEMPORAL & DISTRIBUIÇÃO TM */}
+          {/* PAINEL PRINCIPAL: AUDITORIA DE DESVIOS POR TIPO DE MOVIMENTO (TM) & IMPACTO NO RESULTADO */}
+          <div style={{
+            background: 'rgba(20, 24, 38, 0.9)',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            borderRadius: '14px',
+            padding: '1.5rem',
+            marginBottom: '1.5rem',
+            boxShadow: '0 8px 30px rgba(0,0,0,0.4)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.2rem', flexWrap: 'wrap', gap: '10px' }}>
+              <div>
+                <h3 style={{ margin: 0, color: '#fff', fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Target size={22} style={{ color: '#2196F3' }} />
+                  Auditoria de Desvios por Tipo de Movimento (TM) & Impacto no Resultado
+                </h3>
+                <p style={{ margin: '3px 0 0 0', color: '#888', fontSize: '0.84rem' }}>
+                  Identificação das movimentações com maior variação vs média mensal para questionamento ao PCP, Engenharia e Manutenção
+                </p>
+              </div>
+
+              <button
+                onClick={() => setActiveTab('desvios')}
+                style={{
+                  background: 'rgba(33, 150, 243, 0.15)',
+                  border: '1px solid rgba(33, 150, 243, 0.4)',
+                  color: '#64B5F6',
+                  padding: '0.4rem 0.9rem',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontWeight: 'bold',
+                  fontSize: '0.84rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <ShieldAlert size={15} /> Ver Análise Detalhada
+              </button>
+            </div>
+
+            {/* Gráfico Comparativo: Mês Atual vs Média Histórica por TM */}
+            <div style={{ width: '100%', height: '300px', marginBottom: '1.5rem', background: 'rgba(0,0,0,0.25)', padding: '1rem', borderRadius: '10px' }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartComparativoTM} margin={{ top: 10, right: 20, left: 10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                  <XAxis dataKey="nome" stroke="#aaa" fontSize={11} />
+                  <YAxis stroke="#aaa" fontSize={11} tickFormatter={(v) => `R$ ${(v / 1000).toFixed(0)}k`} />
+                  <Tooltip 
+                    formatter={(val) => val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: '8px' }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: '0.8rem', paddingTop: '8px' }} />
+                  <Bar dataKey="Mês Atual" fill="#2196F3" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="Média Histórica" fill="#78909c" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* TABELA DE AUDITORIA DE DESVIOS POR TM */}
+            <div className="table-wrapper">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th style={{ minWidth: '180px' }}>Tipo de Movimento (TM)</th>
+                    <th style={{ textAlign: 'right' }}>Total no Mês (R$)</th>
+                    <th style={{ textAlign: 'right' }}>Média Histórica (R$)</th>
+                    <th style={{ textAlign: 'right' }}>Desvio (R$)</th>
+                    <th style={{ textAlign: 'center' }}>Variação %</th>
+                    <th style={{ minWidth: '180px' }}>Impacto no Resultado / DRE</th>
+                    <th style={{ minWidth: '220px' }}>Principal Item Vilão no Mês</th>
+                    <th style={{ textAlign: 'center' }}>Status</th>
+                    <th style={{ textAlign: 'center' }}>Ação PCP</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {analysisByTM.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} style={{ textAlign: 'center', padding: '2rem', color: '#888' }}>
+                        Nenhum tipo de movimento com dados neste período.
+                      </td>
+                    </tr>
+                  ) : (
+                    analysisByTM.map((t, idx) => {
+                      const topItem = t.topProdutos[0];
+                      const isCritical = t.status === 'critico';
+                      return (
+                        <tr 
+                          key={idx}
+                          style={{ background: isCritical ? 'rgba(239, 83, 80, 0.05)' : 'transparent' }}
+                        >
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontSize: '1.1rem' }}>{t.icon || '📋'}</span>
+                              <div>
+                                <span style={{ fontWeight: 'bold', color: t.color }}>{t.label}</span>
+                                <div style={{ fontSize: '0.72rem', color: '#888' }}>{t.lancamentosCount} lançamento(s)</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#fff', fontSize: '0.95rem' }}>
+                            {t.valorMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </td>
+                          <td style={{ textAlign: 'right', color: '#aaa' }}>
+                            {t.hasHistory 
+                              ? t.mediaHistorica.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                              : <span style={{ color: '#666', fontStyle: 'italic' }}>-</span>}
+                          </td>
+                          <td style={{ textAlign: 'right', fontWeight: 'bold', color: !t.hasHistory ? '#888' : t.desvioValor > 0 ? '#ef5350' : '#81c784' }}>
+                            {!t.hasHistory 
+                              ? '-' 
+                              : `${t.desvioValor > 0 ? '+' : ''}${t.desvioValor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`}
+                          </td>
+                          <td style={{ textAlign: 'center', fontWeight: 'bold', color: !t.hasHistory ? '#29b6f6' : t.desvioPct > 20 ? '#ef5350' : t.desvioPct > 0 ? '#ffa726' : '#81c784' }}>
+                            {!t.hasHistory 
+                              ? <span style={{ fontSize: '0.75rem', color: '#29b6f6' }}>Novo</span> 
+                              : `${t.desvioPct > 0 ? '+' : ''}${t.desvioPct.toFixed(1)}%`}
+                          </td>
+                          <td>
+                            {!t.hasHistory ? (
+                              <span style={{ color: '#aaa', fontSize: '0.75rem' }}>Lançamento novo</span>
+                            ) : t.desvioValor > 0 ? (
+                              <span style={{ color: '#ff8a80', fontSize: '0.78rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <AlertTriangle size={13} />
+                                +{t.desvioValor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} custo extra
+                              </span>
+                            ) : (
+                              <span style={{ color: '#81c784', fontSize: '0.78rem', fontWeight: 'bold' }}>
+                                Economia de {Math.abs(t.desvioValor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            {topItem ? (
+                              <div style={{ fontSize: '0.78rem' }}>
+                                <div style={{ color: 'var(--color-primary)', fontWeight: 'bold' }}>
+                                  {topItem.produto} <span style={{ color: '#ccc', fontWeight: 'normal' }}>({topItem.pctDoTM.toFixed(0)}% do TM)</span>
+                                </div>
+                                <div style={{ color: '#888', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '200px' }}>
+                                  {topItem.descricao}
+                                </div>
+                              </div>
+                            ) : (
+                              <span style={{ color: '#666' }}>-</span>
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            <span style={{
+                              background: t.statusColor + '22',
+                              color: t.statusColor,
+                              border: `1px solid ${t.statusColor}66`,
+                              padding: '2px 8px',
+                              borderRadius: '6px',
+                              fontSize: '0.74rem',
+                              fontWeight: 'bold',
+                              whiteSpace: 'nowrap'
+                            }}>
+                              {t.statusLabel}
+                            </span>
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            <button
+                              onClick={() => setSelectedTMForModal(t)}
+                              style={{
+                                background: isCritical ? 'rgba(239, 83, 80, 0.2)' : 'rgba(33, 150, 243, 0.15)',
+                                color: isCritical ? '#ff8a80' : '#64B5F6',
+                                border: `1px solid ${isCritical ? '#ef5350' : '#3399ff'}66`,
+                                borderRadius: '6px',
+                                padding: '4px 10px',
+                                fontSize: '0.76rem',
+                                cursor: 'pointer',
+                                fontWeight: 'bold',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px'
+                              }}
+                            >
+                              <Target size={13} /> Questionar PCP
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* SEÇÃO SECUNDÁRIA: EVOLUÇÃO TEMPORAL & FILIAIS */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: '1.5rem', marginBottom: '1.5rem' }}>
             
             {/* Gráfico 1: Evolução Temporal por TM */}
@@ -1209,7 +1564,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
               <h4 style={{ margin: '0 0 1rem 0', color: '#fff', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span>📈 Evolução das Baixas por Tipo de Movimento ({selectedAno})</span>
               </h4>
-              <div style={{ width: '100%', height: '280px' }}>
+              <div style={{ width: '100%', height: '260px' }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={chartEvolucaoTM} margin={{ top: 10, right: 10, left: 10, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
@@ -1229,134 +1584,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
               </div>
             </div>
 
-            {/* Gráfico 2: Composição por TM (Donut) */}
-            <div style={{
-              background: 'rgba(20, 24, 38, 0.8)',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              borderRadius: '12px',
-              padding: '1.2rem',
-              boxShadow: '0 8px 24px rgba(0,0,0,0.3)'
-            }}>
-              <h4 style={{ margin: '0 0 1rem 0', color: '#fff', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span>🍩 Composição de Baixas em {MESES[selectedMes - 1]}</span>
-              </h4>
-              {chartDistribuicaoTM.length === 0 ? (
-                <div style={{ height: '280px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666' }}>
-                  Sem movimentações para exibir no gráfico
-                </div>
-              ) : (
-                <div style={{ width: '100%', height: '280px' }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={chartDistribuicaoTM}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={95}
-                        paddingAngle={3}
-                        dataKey="valor"
-                        nameKey="name"
-                        label={({ name, percent }) => `${name.split(' ')[0]} (${(percent * 100).toFixed(0)}%)`}
-                        labelLine={false}
-                      >
-                        {chartDistribuicaoTM.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.fill || COLORS_CHART[index % COLORS_CHART.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip 
-                        formatter={(val) => val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                        contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: '8px' }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-            </div>
-
-          </div>
-
-          {/* SEÇÃO: TOP 10 MAIORES DESVIOS EM R$ & FILIAIS / CC */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: '1.5rem', marginBottom: '1.5rem' }}>
-            
-            {/* Top 10 Desvios */}
-            <div style={{
-              background: 'rgba(20, 24, 38, 0.8)',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
-              borderRadius: '12px',
-              padding: '1.2rem'
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                <h4 style={{ margin: 0, color: '#fff', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span>⚠️ Top 10 Itens com Maior Desvio Acima da Média</span>
-                </h4>
-                <button
-                  onClick={() => { setFiltroStatusDesvio('critico'); setActiveTab('desvios'); }}
-                  style={{ background: 'transparent', border: 'none', color: '#64B5F6', fontSize: '0.8rem', cursor: 'pointer', textDecoration: 'underline' }}
-                >
-                  Ver Todos
-                </button>
-              </div>
-
-              {topDesvios.length === 0 ? (
-                <div style={{ padding: '2.5rem 1.5rem', textAlign: 'center', color: '#888', fontSize: '0.9rem', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                  <CheckCircle size={32} style={{ color: '#4caf50', marginBottom: '8px' }} />
-                  <span style={{ fontWeight: '500', color: '#ccc' }}>Nenhum item com desvio acima da média histórica detectado.</span>
-                  <span style={{ fontSize: '0.78rem', color: '#666', marginTop: '6px' }}>
-                    {kpis.countNovos > 0 
-                      ? `${kpis.countNovos} movimentações identificadas como itens novos (sem histórico anterior de comparação).` 
-                      : 'Todos os produtos movimentados estão dentro da média histórica normal.'}
-                  </span>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {topDesvios.map((item, idx) => (
-                    <div
-                      key={idx}
-                      onClick={() => setSelectedItemForModal(item)}
-                      style={{
-                        background: 'rgba(255, 255, 255, 0.03)',
-                        borderLeft: `4px solid ${item.statusBadgeColor}`,
-                        borderRadius: '6px',
-                        padding: '0.6rem 0.8rem',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        cursor: 'pointer',
-                        transition: 'background 0.2s'
-                      }}
-                      onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.07)'}
-                      onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
-                    >
-                      <div style={{ flex: 1, minWidth: 0, marginRight: '10px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span style={{ color: 'var(--color-primary)', fontWeight: 'bold', fontSize: '0.85rem' }}>{item.produto}</span>
-                          <span style={{ color: '#fff', fontSize: '0.85rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {item.descricao}
-                          </span>
-                        </div>
-                        <div style={{ fontSize: '0.72rem', color: '#888', marginTop: '2px', display: 'flex', gap: '10px' }}>
-                          {item.filiaisArr.length > 0 && <span>Filial: <strong>{item.filiaisArr.join(', ')}</strong></span>}
-                          <span>TMs: {item.tmsArr.join(', ') || '-'}</span>
-                          <span>Média: {item.mediaHistorica.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
-                        </div>
-                      </div>
-
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={{ color: '#ef5350', fontWeight: 'bold', fontSize: '0.9rem' }}>
-                          {item.custoTotalMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                        </div>
-                        <div style={{ fontSize: '0.72rem', color: '#ff8a80', fontWeight: 'bold' }}>
-                          +{item.desvioValor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} (+{item.desvioPct.toFixed(0)}%)
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Visão por Filial & Centro de Custo */}
+            {/* Visão por Filial */}
             <div style={{
               background: 'rgba(20, 24, 38, 0.8)',
               border: '1px solid rgba(255, 255, 255, 0.08)',
@@ -1371,7 +1599,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                   Sem dados de filiais
                 </div>
               ) : (
-                <div style={{ width: '100%', height: '250px' }}>
+                <div style={{ width: '100%', height: '260px' }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={chartFiliais} layout="vertical" margin={{ top: 5, right: 20, left: 40, bottom: 5 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
@@ -1394,7 +1622,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       )}
 
       {/* ----------------------------------------------------------------- */}
-      {/* ABA 2: ANÁLISE DETALHADA DE DESVIOS POR PRODUTO */}
+      {/* ABA 2: ANÁLISE DETALHADA DE DESVIOS (TM & PRODUTOS) */}
       {/* ----------------------------------------------------------------- */}
       {activeTab === 'desvios' && (
         <div style={{
@@ -1412,38 +1640,52 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                 Auditoria de Médias & Detecção de Desvios
               </h3>
               <p style={{ margin: '3px 0 0 0', color: '#888', fontSize: '0.84rem' }}>
-                Comparação do custo total movimentado no mês contra a média dos {kpis.numPrevMonths} meses anteriores carregados
+                Identificação de distorções por Tipo de Movimento (PCP) e detalhamento por item em relação aos {kpis.numPrevMonths} meses anteriores
               </p>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-              {/* Filtro Status */}
-              <select
-                value={filtroStatusDesvio}
-                onChange={(e) => setFiltroStatusDesvio(e.target.value)}
-                className="select-input"
-                style={{ width: '190px', padding: '0.45rem 0.7rem', fontSize: '0.85rem' }}
+            {/* SUB-ABAS: VISÃO POR TM VS VISÃO POR ITEM */}
+            <div style={{ display: 'flex', gap: '6px', background: 'rgba(0,0,0,0.4)', padding: '4px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <button
+                onClick={() => setSubTabDesvios('tm')}
+                style={{
+                  background: subTabDesvios === 'tm' ? '#2196F3' : 'transparent',
+                  color: subTabDesvios === 'tm' ? '#fff' : '#aaa',
+                  border: 'none',
+                  padding: '0.4rem 0.8rem',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontWeight: 'bold',
+                  fontSize: '0.82rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
               >
-                <option value="todos">Todos os Status ({analysisByProduct.length})</option>
-                <option value="critico">⚠️ Apenas Críticos (+100%)</option>
-                <option value="atencao">Atenção (+{toleranciaDesvioPct}%)</option>
-                <option value="novo">Novos / Sem Histórico</option>
-                <option value="normal">Normais (Dentro do padrão)</option>
-              </select>
+                <Target size={14} /> Por Tipo de Movimento ({analysisByTM.length})
+              </button>
 
-              {/* Busca */}
-              <div style={{ position: 'relative' }}>
-                <Search size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#888' }} />
-                <input
-                  type="text"
-                  placeholder="Buscar produto, código, filial..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="select-input"
-                  style={{ paddingLeft: '32px', width: '220px', fontSize: '0.85rem' }}
-                />
-              </div>
+              <button
+                onClick={() => setSubTabDesvios('produto')}
+                style={{
+                  background: subTabDesvios === 'produto' ? '#2196F3' : 'transparent',
+                  color: subTabDesvios === 'produto' ? '#fff' : '#aaa',
+                  border: 'none',
+                  padding: '0.4rem 0.8rem',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontWeight: 'bold',
+                  fontSize: '0.82rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <Package size={14} /> Detalhe por Produto ({analysisByProduct.length})
+              </button>
+            </div>
 
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
               {/* Exportar Excel */}
               <button
                 onClick={handleExportExcel}
@@ -1466,114 +1708,290 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
             </div>
           </div>
 
-          {/* TABELA DE DESVIOS */}
-          <div className="table-wrapper" style={{ maxHeight: '650px', overflowY: 'auto' }}>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Filial(is)</th>
-                  <th style={{ minWidth: '100px' }}>Código</th>
-                  <th style={{ minWidth: '220px' }}>Descrição do Produto</th>
-                  <th>Arm.</th>
-                  <th>TMs</th>
-                  <th style={{ textAlign: 'right' }}>Qtd Saída</th>
-                  <th style={{ textAlign: 'right' }}>Custo Mês (R$)</th>
-                  <th style={{ textAlign: 'right' }}>Média Hist. (R$)</th>
-                  <th style={{ textAlign: 'right' }}>Desvio (R$)</th>
-                  <th style={{ textAlign: 'center' }}>Variação %</th>
-                  <th style={{ textAlign: 'center' }}>Status / Alerta</th>
-                  <th style={{ textAlign: 'center' }}>Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {analysisByProduct.length === 0 ? (
-                  <tr>
-                    <td colSpan={12} style={{ textAlign: 'center', padding: '2rem', color: '#888' }}>
-                      Nenhum item encontrado com os filtros selecionados.
-                    </td>
-                  </tr>
-                ) : (
-                  analysisByProduct.map((row, idx) => (
-                    <tr key={idx} style={{ background: row.status === 'critico' ? 'rgba(239, 83, 80, 0.05)' : 'transparent' }}>
-                      <td>
-                        <span style={{ background: 'rgba(255,255,255,0.06)', color: '#81C784', padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold' }}>
-                          {row.filiaisArr.join(', ') || 'MATRIZ'}
-                        </span>
-                      </td>
-                      <td style={{ color: 'var(--color-primary)', fontWeight: 'bold' }}>{row.produto}</td>
-                      <td style={{ color: '#fff', fontWeight: '500' }}>{row.descricao}</td>
-                      <td>{row.armazem || '-'}</td>
-                      <td>
-                        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                          {row.tmsArr.map(tm => (
-                            <span 
-                              key={tm} 
-                              style={{ 
-                                background: CRITICAL_TMS[tm]?.bg || 'rgba(255,255,255,0.1)', 
-                                color: CRITICAL_TMS[tm]?.color || '#ccc',
-                                padding: '1px 6px',
-                                borderRadius: '4px',
-                                fontSize: '0.72rem',
-                                fontWeight: 'bold'
-                              }}
-                            >
-                              {tm}
-                            </span>
-                          ))}
+          {/* SUB-ABA 1: AUDITORIA POR TIPO DE MOVIMENTO (TM & PCP) */}
+          {subTabDesvios === 'tm' && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: '1.2rem', marginTop: '1rem' }}>
+              {analysisByTM.map((t, idx) => {
+                const isCritical = t.status === 'critico';
+                return (
+                  <div
+                    key={idx}
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.03)',
+                      border: `1px solid ${t.color}55`,
+                      borderLeft: `5px solid ${t.color}`,
+                      borderRadius: '10px',
+                      padding: '1.2rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between'
+                    }}
+                  >
+                    <div>
+                      {/* Top Header do Card de TM */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.8rem' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <span style={{ fontSize: '1.2rem' }}>{t.icon || '📋'}</span>
+                            <span style={{ color: '#fff', fontWeight: 'bold', fontSize: '1rem' }}>{t.label}</span>
+                          </div>
+                          <div style={{ fontSize: '0.74rem', color: '#888', marginTop: '2px' }}>
+                            {t.lancamentosCount} lançamento(s) | {t.qtdSaidaMes.toLocaleString('pt-BR')} peças movimentadas
+                          </div>
                         </div>
-                      </td>
-                      <td style={{ textAlign: 'right' }}>{row.qtdSaida.toLocaleString('pt-BR')}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#fff' }}>
-                        {row.custoTotalMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                      </td>
-                      <td style={{ textAlign: 'right', color: '#aaa' }}>
-                        {row.hasHistory 
-                          ? row.mediaHistorica.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-                          : <span style={{ color: '#666', fontStyle: 'italic' }}>-</span>}
-                      </td>
-                      <td style={{ textAlign: 'right', fontWeight: 'bold', color: row.status === 'novo' ? '#666' : row.desvioValor > 0 ? '#ef5350' : '#4caf50' }}>
-                        {row.status === 'novo' ? '-' : `${row.desvioValor > 0 ? '+' : ''}${row.desvioValor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`}
-                      </td>
-                      <td style={{ textAlign: 'center', fontWeight: 'bold', color: row.status === 'novo' ? '#29b6f6' : row.desvioPct > 50 ? '#ef5350' : row.desvioPct > 0 ? '#ffa726' : '#4caf50' }}>
-                        {row.status === 'novo' ? <span style={{ fontSize: '0.75rem' }}>-</span> : `${row.desvioPct > 0 ? '+' : ''}${row.desvioPct.toFixed(1)}%`}
-                      </td>
-                      <td style={{ textAlign: 'center' }}>
+
                         <span style={{
-                          background: row.statusBadgeColor + '22',
-                          color: row.statusBadgeColor,
-                          border: `1px solid ${row.statusBadgeColor}66`,
-                          padding: '3px 8px',
+                          background: t.statusColor + '22',
+                          color: t.statusColor,
+                          border: `1px solid ${t.statusColor}66`,
+                          padding: '2px 8px',
                           borderRadius: '6px',
-                          fontSize: '0.75rem',
+                          fontSize: '0.74rem',
                           fontWeight: 'bold',
                           whiteSpace: 'nowrap'
                         }}>
-                          {row.statusLabel}
+                          {t.statusLabel}
                         </span>
-                      </td>
-                      <td style={{ textAlign: 'center' }}>
-                        <button
-                          onClick={() => setSelectedItemForModal(row)}
-                          style={{
-                            background: 'rgba(33, 150, 243, 0.15)',
-                            color: '#64B5F6',
-                            border: '1px solid rgba(33, 150, 243, 0.4)',
-                            borderRadius: '6px',
-                            padding: '3px 8px',
-                            fontSize: '0.75rem',
-                            cursor: 'pointer',
-                            fontWeight: 'bold'
-                          }}
-                        >
-                          🔍 Lançamentos ({row.lancamentos.length})
-                        </button>
-                      </td>
+                      </div>
+
+                      {/* Métricas Financeiras */}
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(3, 1fr)',
+                        gap: '8px',
+                        background: 'rgba(0,0,0,0.25)',
+                        padding: '0.7rem',
+                        borderRadius: '8px',
+                        marginBottom: '0.8rem'
+                      }}>
+                        <div>
+                          <div style={{ fontSize: '0.7rem', color: '#888' }}>Mês Atual</div>
+                          <div style={{ fontSize: '0.95rem', fontWeight: 'bold', color: '#fff' }}>
+                            {t.valorMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '0.7rem', color: '#888' }}>Média Hist.</div>
+                          <div style={{ fontSize: '0.95rem', fontWeight: 'bold', color: '#aaa' }}>
+                            {t.hasHistory ? t.mediaHistorica.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '0.7rem', color: '#888' }}>Desvio R$</div>
+                          <div style={{ fontSize: '0.95rem', fontWeight: 'bold', color: !t.hasHistory ? '#888' : t.desvioValor > 0 ? '#ef5350' : '#81c784' }}>
+                            {!t.hasHistory ? '-' : `${t.desvioValor > 0 ? '+' : ''}${t.desvioValor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Questionamento PCP */}
+                      <div style={{
+                        background: 'rgba(33, 150, 243, 0.08)',
+                        border: '1px dashed rgba(33, 150, 243, 0.3)',
+                        borderRadius: '8px',
+                        padding: '0.6rem 0.8rem',
+                        marginBottom: '0.8rem',
+                        fontSize: '0.76rem',
+                        color: '#90CAF9',
+                        lineHeight: '1.3'
+                      }}>
+                        <strong>🎯 Questionamento PCP:</strong> {t.question}
+                      </div>
+
+                      {/* Top Vilões do TM */}
+                      <div>
+                        <div style={{ fontSize: '0.74rem', color: '#aaa', fontWeight: 'bold', marginBottom: '4px' }}>
+                          Principais Itens com Maior Custo neste TM:
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          {t.topProdutos.slice(0, 3).map((p, pIdx) => (
+                            <div key={pIdx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.74rem', background: 'rgba(255,255,255,0.02)', padding: '3px 6px', borderRadius: '4px' }}>
+                              <span style={{ color: 'var(--color-primary)', fontWeight: '500', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '210px' }}>
+                                {p.produto} - {p.descricao}
+                              </span>
+                              <span style={{ color: '#fff', fontWeight: 'bold' }}>
+                                {p.custoTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} ({p.pctDoTM.toFixed(0)}%)
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Botão para Abrir Auditoria Completa */}
+                    <div style={{ marginTop: '1rem', paddingTop: '0.8rem', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                      <button
+                        onClick={() => setSelectedTMForModal(t)}
+                        style={{
+                          width: '100%',
+                          background: isCritical ? 'rgba(239, 83, 80, 0.2)' : 'rgba(33, 150, 243, 0.15)',
+                          color: isCritical ? '#ff8a80' : '#64B5F6',
+                          border: `1px solid ${isCritical ? '#ef5350' : '#2196F3'}66`,
+                          borderRadius: '6px',
+                          padding: '0.5rem',
+                          fontSize: '0.82rem',
+                          fontWeight: 'bold',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px'
+                        }}
+                      >
+                        <Target size={15} /> Abrir Auditoria Completa & Lançamentos do TM
+                      </button>
+                    </div>
+
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* SUB-ABA 2: DETALHAMENTO POR ITEM DE ESTOQUE */}
+          {subTabDesvios === 'produto' && (
+            <div style={{ marginTop: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  {/* Filtro Status */}
+                  <select
+                    value={filtroStatusDesvio}
+                    onChange={(e) => setFiltroStatusDesvio(e.target.value)}
+                    className="select-input"
+                    style={{ width: '190px', padding: '0.45rem 0.7rem', fontSize: '0.85rem' }}
+                  >
+                    <option value="todos">Todos os Status ({analysisByProduct.length})</option>
+                    <option value="critico">⚠️ Apenas Críticos (+100%)</option>
+                    <option value="atencao">Atenção (+{toleranciaDesvioPct}%)</option>
+                    <option value="novo">Novos / Sem Histórico</option>
+                    <option value="normal">Normais (Dentro do padrão)</option>
+                  </select>
+
+                  {/* Busca */}
+                  <div style={{ position: 'relative' }}>
+                    <Search size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#888' }} />
+                    <input
+                      type="text"
+                      placeholder="Buscar produto, código, filial..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="select-input"
+                      style={{ paddingLeft: '32px', width: '240px', fontSize: '0.85rem' }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* TABELA DE DESVIOS POR PRODUTO */}
+              <div className="table-wrapper" style={{ maxHeight: '650px', overflowY: 'auto' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Filial(is)</th>
+                      <th style={{ minWidth: '100px' }}>Código</th>
+                      <th style={{ minWidth: '220px' }}>Descrição do Produto</th>
+                      <th>Arm.</th>
+                      <th>TMs</th>
+                      <th style={{ textAlign: 'right' }}>Qtd Saída</th>
+                      <th style={{ textAlign: 'right' }}>Custo Mês (R$)</th>
+                      <th style={{ textAlign: 'right' }}>Média Hist. (R$)</th>
+                      <th style={{ textAlign: 'right' }}>Desvio (R$)</th>
+                      <th style={{ textAlign: 'center' }}>Variação %</th>
+                      <th style={{ textAlign: 'center' }}>Status / Alerta</th>
+                      <th style={{ textAlign: 'center' }}>Ações</th>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                  </thead>
+                  <tbody>
+                    {analysisByProduct.length === 0 ? (
+                      <tr>
+                        <td colSpan={12} style={{ textAlign: 'center', padding: '2rem', color: '#888' }}>
+                          Nenhum item encontrado com os filtros selecionados.
+                        </td>
+                      </tr>
+                    ) : (
+                      analysisByProduct.map((row, idx) => (
+                        <tr key={idx} style={{ background: row.status === 'critico' ? 'rgba(239, 83, 80, 0.05)' : 'transparent' }}>
+                          <td>
+                            <span style={{ background: 'rgba(255,255,255,0.06)', color: '#81C784', padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                              {row.filiaisArr.join(', ') || 'MATRIZ'}
+                            </span>
+                          </td>
+                          <td style={{ color: 'var(--color-primary)', fontWeight: 'bold' }}>{row.produto}</td>
+                          <td style={{ color: '#fff', fontWeight: '500' }}>{row.descricao}</td>
+                          <td>{row.armazem || '-'}</td>
+                          <td>
+                            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                              {row.tmsArr.map(tm => (
+                                <span 
+                                  key={tm} 
+                                  style={{ 
+                                    background: CRITICAL_TMS[tm]?.bg || 'rgba(255,255,255,0.1)', 
+                                    color: CRITICAL_TMS[tm]?.color || '#ccc',
+                                    padding: '1px 6px',
+                                    borderRadius: '4px',
+                                    fontSize: '0.72rem',
+                                    fontWeight: 'bold'
+                                  }}
+                                >
+                                  {tm}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+                          <td style={{ textAlign: 'right' }}>{row.qtdSaida.toLocaleString('pt-BR')}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#fff' }}>
+                            {row.custoTotalMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </td>
+                          <td style={{ textAlign: 'right', color: '#aaa' }}>
+                            {row.hasHistory 
+                              ? row.mediaHistorica.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                              : <span style={{ color: '#666', fontStyle: 'italic' }}>-</span>}
+                          </td>
+                          <td style={{ textAlign: 'right', fontWeight: 'bold', color: row.status === 'novo' ? '#666' : row.desvioValor > 0 ? '#ef5350' : '#4caf50' }}>
+                            {row.status === 'novo' ? '-' : `${row.desvioValor > 0 ? '+' : ''}${row.desvioValor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`}
+                          </td>
+                          <td style={{ textAlign: 'center', fontWeight: 'bold', color: row.status === 'novo' ? '#29b6f6' : row.desvioPct > 50 ? '#ef5350' : row.desvioPct > 0 ? '#ffa726' : '#4caf50' }}>
+                            {row.status === 'novo' ? <span style={{ fontSize: '0.75rem' }}>-</span> : `${row.desvioPct > 0 ? '+' : ''}${row.desvioPct.toFixed(1)}%`}
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            <span style={{
+                              background: row.statusBadgeColor + '22',
+                              color: row.statusBadgeColor,
+                              border: `1px solid ${row.statusBadgeColor}66`,
+                              padding: '3px 8px',
+                              borderRadius: '6px',
+                              fontSize: '0.75rem',
+                              fontWeight: 'bold',
+                              whiteSpace: 'nowrap'
+                            }}>
+                              {row.statusLabel}
+                            </span>
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            <button
+                              onClick={() => setSelectedItemForModal(row)}
+                              style={{
+                                background: 'rgba(33, 150, 243, 0.15)',
+                                color: '#64B5F6',
+                                border: '1px solid rgba(33, 150, 243, 0.4)',
+                                borderRadius: '6px',
+                                padding: '3px 8px',
+                                fontSize: '0.75rem',
+                                cursor: 'pointer',
+                                fontWeight: 'bold'
+                              }}
+                            >
+                              🔍 Lançamentos ({row.lancamentos.length})
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
         </div>
       )}
@@ -2119,6 +2537,272 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                 }}
               >
                 Fechar
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ----------------------------------------------------------------- */}
+      {/* MODAL DE AUDITORIA DO TIPO DE MOVIMENTO (TM & PCP) */}
+      {/* ----------------------------------------------------------------- */}
+      {selectedTMForModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0,0,0,0.85)',
+          backdropFilter: 'blur(8px)',
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '1rem'
+        }}>
+          <div style={{
+            background: '#161824',
+            border: `1px solid ${selectedTMForModal.color || 'rgba(255, 255, 255, 0.2)'}`,
+            borderRadius: '14px',
+            width: '980px',
+            maxWidth: '96vw',
+            maxHeight: '92vh',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            boxShadow: '0 25px 60px rgba(0,0,0,0.9)'
+          }}>
+            
+            {/* Modal Header */}
+            <div style={{
+              padding: '1.2rem 1.5rem',
+              borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: 'rgba(0,0,0,0.35)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{
+                  background: selectedTMForModal.bg || 'rgba(255, 255, 255, 0.1)',
+                  padding: '8px',
+                  borderRadius: '8px',
+                  fontSize: '1.4rem'
+                }}>
+                  {selectedTMForModal.icon || '📋'}
+                </div>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ color: selectedTMForModal.color || '#fff', fontWeight: 'bold', fontSize: '1.2rem' }}>
+                      {selectedTMForModal.label}
+                    </span>
+                    <span style={{
+                      background: selectedTMForModal.statusColor + '22',
+                      color: selectedTMForModal.statusColor,
+                      border: `1px solid ${selectedTMForModal.statusColor}66`,
+                      padding: '2px 8px',
+                      borderRadius: '6px',
+                      fontSize: '0.75rem',
+                      fontWeight: 'bold'
+                    }}>
+                      {selectedTMForModal.statusLabel}
+                    </span>
+                  </div>
+                  <div style={{ color: '#888', fontSize: '0.8rem', marginTop: '3px' }}>
+                    Competência: {MESES[selectedMes - 1]} / {selectedAno} | {selectedTMForModal.lancamentosCount} lançamento(s) | {selectedTMForModal.qtdSaidaMes.toLocaleString('pt-BR')} peças movimentadas
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setSelectedTMForModal(null)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#aaa',
+                  fontSize: '1.4rem',
+                  cursor: 'pointer'
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '1.2rem', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+              
+              {/* KPIS STRIP */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }}>
+                <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '0.7rem', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
+                  <div style={{ fontSize: '0.72rem', color: '#888' }}>Total no Mês</div>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: '#fff' }}>
+                    {selectedTMForModal.valorMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                  </div>
+                </div>
+                <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '0.7rem', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
+                  <div style={{ fontSize: '0.72rem', color: '#888' }}>Média Histórica Mensal</div>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: '#aaa' }}>
+                    {selectedTMForModal.hasHistory ? selectedTMForModal.mediaHistorica.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'Sem hist.'}
+                  </div>
+                </div>
+                <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '0.7rem', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
+                  <div style={{ fontSize: '0.72rem', color: '#888' }}>Desvio em Valor</div>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: !selectedTMForModal.hasHistory ? '#888' : selectedTMForModal.desvioValor > 0 ? '#ef5350' : '#81c784' }}>
+                    {!selectedTMForModal.hasHistory ? '-' : `${selectedTMForModal.desvioValor > 0 ? '+' : ''}${selectedTMForModal.desvioValor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`}
+                  </div>
+                </div>
+                <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '0.7rem', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
+                  <div style={{ fontSize: '0.72rem', color: '#888' }}>Variação % vs Média</div>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: !selectedTMForModal.hasHistory ? '#29b6f6' : selectedTMForModal.desvioPct > 0 ? '#ef5350' : '#81c784' }}>
+                    {!selectedTMForModal.hasHistory ? 'Novo TM' : `${selectedTMForModal.desvioPct > 0 ? '+' : ''}${selectedTMForModal.desvioPct.toFixed(1)}%`}
+                  </div>
+                </div>
+              </div>
+
+              {/* ROTEIRO DE QUESTIONAMENTO COM PCP / DIRETORIA */}
+              <div style={{
+                background: 'linear-gradient(135deg, rgba(33, 150, 243, 0.12), rgba(20, 24, 38, 0.8))',
+                border: '1px solid rgba(33, 150, 243, 0.4)',
+                borderRadius: '10px',
+                padding: '1rem 1.2rem'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#90CAF9', fontWeight: 'bold', fontSize: '0.92rem', marginBottom: '6px' }}>
+                  <Target size={18} /> Roteiro de Auditoria & Alinhamento com o PCP / Engenharia Fabril:
+                </div>
+                <p style={{ margin: '0 0 6px 0', color: '#fff', fontSize: '0.86rem', lineHeight: '1.4' }}>
+                  👉 <strong>Pergunta-Chave:</strong> {selectedTMForModal.question}
+                </p>
+                <div style={{ fontSize: '0.78rem', color: '#ccc', display: 'flex', gap: '20px', flexWrap: 'wrap', marginTop: '6px' }}>
+                  <span>📌 <strong>Impacto no Resultado:</strong> {selectedTMForModal.desvioValor > 0 ? `Gerou um custo excedente de ${selectedTMForModal.desvioValor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} na DRE fabril.` : 'Operação dentro ou abaixo da média histórica prevista.'}</span>
+                  <span>📌 <strong>Ação Recomendada:</strong> Solicitar justificativa formal dos 3 maiores produtos ao responsável da fábrica.</span>
+                </div>
+              </div>
+
+              {/* TOP PRODUTOS VILÕES DO TM */}
+              <div>
+                <h4 style={{ color: '#fff', margin: '0 0 0.6rem 0', fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Package size={16} style={{ color: 'var(--color-primary)' }} />
+                  Principais Produtos com Maior Custo neste TM (Vilões do Mês):
+                </h4>
+                <div className="table-wrapper">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Código</th>
+                        <th>Descrição do Produto</th>
+                        <th>Filial(is)</th>
+                        <th style={{ textAlign: 'right' }}>Qtd Movimentada</th>
+                        <th style={{ textAlign: 'right' }}>Custo Total no TM</th>
+                        <th style={{ textAlign: 'center' }}>% do TM</th>
+                        <th style={{ textAlign: 'center' }}>Lançamentos</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedTMForModal.topProdutos.map((p, idx) => (
+                        <tr key={idx}>
+                          <td style={{ color: 'var(--color-primary)', fontWeight: 'bold' }}>{p.produto}</td>
+                          <td style={{ color: '#fff', fontWeight: '500' }}>{p.descricao}</td>
+                          <td>
+                            <span style={{ background: 'rgba(255,255,255,0.06)', color: '#81C784', padding: '1px 5px', borderRadius: '4px', fontSize: '0.72rem' }}>
+                              {p.filiaisArr?.join(', ') || 'MATRIZ'}
+                            </span>
+                          </td>
+                          <td style={{ textAlign: 'right' }}>{p.qtdSaida.toLocaleString('pt-BR')}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#ef5350' }}>
+                            {p.custoTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </td>
+                          <td style={{ textAlign: 'center', fontWeight: 'bold', color: '#ffb74d' }}>
+                            {p.pctDoTM.toFixed(1)}%
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            <button
+                              onClick={() => setSelectedItemForModal(p)}
+                              style={{
+                                background: 'rgba(33, 150, 243, 0.15)',
+                                color: '#64B5F6',
+                                border: '1px solid rgba(33, 150, 243, 0.4)',
+                                borderRadius: '4px',
+                                padding: '2px 6px',
+                                fontSize: '0.72rem',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              🔍 Ver {p.lancamentos.length} item(ns)
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* TABELA DE TODOS OS LANÇAMENTOS DO TM NO MÊS */}
+              <div>
+                <h4 style={{ color: '#fff', margin: '0 0 0.6rem 0', fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Layers size={16} /> Todos os Lançamentos deste Tipo de Movimento ({selectedTMForModal.records.length})
+                </h4>
+                <div className="table-wrapper" style={{ maxHeight: '250px', overflowY: 'auto' }}>
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Filial</th>
+                        <th>Data</th>
+                        <th>Documento</th>
+                        <th>Código</th>
+                        <th>Descrição</th>
+                        <th style={{ textAlign: 'right' }}>Qtd Saída</th>
+                        <th style={{ textAlign: 'right' }}>Custo Total</th>
+                        <th>Centro de Custo</th>
+                        <th>Usuário</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedTMForModal.records.map((r, idx) => (
+                        <tr key={idx}>
+                          <td style={{ color: '#81C784', fontWeight: 'bold' }}>{r.filial || '-'}</td>
+                          <td>{r.dtEmissao || '-'}</td>
+                          <td>{r.documento || '-'}</td>
+                          <td style={{ color: 'var(--color-primary)', fontWeight: 'bold' }}>{r.produto}</td>
+                          <td style={{ color: '#fff' }}>{r.descricao}</td>
+                          <td style={{ textAlign: 'right' }}>{r.qtdSaida?.toLocaleString('pt-BR') || '-'}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#fff' }}>
+                            {r.custoTotal?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </td>
+                          <td>{r.cc || '-'}</td>
+                          <td style={{ color: '#aaa', fontSize: '0.8rem' }}>{r.usuario || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{
+              padding: '0.8rem 1.5rem',
+              borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+              background: 'rgba(0,0,0,0.3)',
+              display: 'flex',
+              justifyContent: 'flex-end'
+            }}>
+              <button
+                onClick={() => setSelectedTMForModal(null)}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  color: '#fff',
+                  padding: '0.4rem 1.2rem',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontWeight: 'bold'
+                }}
+              >
+                Fechar Auditoria
               </button>
             </div>
 
