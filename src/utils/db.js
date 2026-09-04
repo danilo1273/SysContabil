@@ -199,11 +199,28 @@ export async function saveSettings(key, value) {
 export async function getRawRecords(ano, mes) {
   let dre = await fetchAll(supabase.from("dre_history").select("*").eq("ano", ano).eq("mes", mes));
   let balanco = await fetchAll(supabase.from("balanco_history").select("*").eq("ano", ano).eq("mes", mes));
+  let cc = await fetchAll(supabase.from("cc_history").select("*").eq("ano", ano).eq("mes", mes));
   
   if (dre) dre = dre.filter(r => !( (r.conta.startsWith("7") || r.conta.startsWith("6") || r.conta.startsWith("5.1.1.1.01")) && !r.id.includes("tax-dre") && !r.id.includes("manual_") ));
   if (balanco) balanco = balanco.filter(r => !( r.conta.startsWith("2.1.1.6") && !r.id.includes("tax-bal") && !r.id.includes("manual_") ));
   
-  return { dre: dre || [], balanco: balanco || [] };
+  return { dre: dre || [], balanco: balanco || [], cc: cc || [] };
+}
+
+export async function getCCFromDB(empresaId, ano, mes, tipoConsulta = "mensal") {
+  let query = supabase.from("cc_history").select("*").eq("ano", ano);
+  if (empresaId && empresaId !== "consolidado" && empresaId !== "todas") {
+    query = query.eq("empresaId", empresaId);
+  }
+  if (tipoConsulta === "mensal") {
+    query = query.eq("mes", mes);
+  } else if (tipoConsulta === "trimestre") {
+    const trimestre = Math.ceil(mes / 3);
+    query = query.eq("trimestre", trimestre).lte("mes", mes);
+  } else if (tipoConsulta === "acumulado") {
+    query = query.lte("mes", mes);
+  }
+  return (await fetchAll(query)) || [];
 }
 
 export async function bulkPutRecords(table, entries) {

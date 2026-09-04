@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { getRawRecords, saveCCToDB, getSettings, saveSettings } from '../utils/db';
 import { applyMapping, protheusMapping } from '../utils/mappingConfig';
+import { supabase } from '../supabaseClient';
 
 export default function CentroCustoModule({ companies, userRole }) {
   const [activeTab, setActiveTab] = useState((userRole === 'admin' || userRole === 'superadmin') ? 'import' : 'dre'); // import, config, dre, rateio
@@ -60,15 +61,16 @@ export default function CentroCustoModule({ companies, userRole }) {
 
   const loadDbRecords = async () => {
     try {
-      const res = await getRawRecords(selectedAno, selectedMes);
-      if (res && res.cc) {
-          const compCC = res.cc.filter(r => r.empresaId === selectedComp);
-          setDbRecords(compCC);
-      } else {
-          setDbRecords([]);
+      let query = supabase.from('cc_history').select('*').eq('ano', selectedAno).eq('mes', selectedMes);
+      if (selectedComp) {
+        query = query.eq('empresaId', selectedComp);
       }
+      const { data, error } = await query;
+      if (error) throw error;
+      setDbRecords(data || []);
     } catch (e) {
-      console.error(e);
+      console.error("Erro ao carregar CC do banco:", e);
+      setDbRecords([]);
     }
   };
 
@@ -94,18 +96,17 @@ export default function CentroCustoModule({ companies, userRole }) {
 
   const loadUniqueCCs = async () => {
     try {
+      const { data, error } = await supabase.from('cc_history').select('cc_codigo, cc_descricao');
+      if (error) throw error;
       let allCCs = new Map();
-      for (let m = 1; m <= 12; m++) {
-        const res = await getRawRecords(new Date().getFullYear(), m);
-        if (res.cc) {
-          res.cc.forEach(r => {
-             allCCs.set(r.cc_codigo, r.cc_descricao);
-          });
-        }
+      if (data) {
+        data.forEach(r => {
+          if (r.cc_codigo) allCCs.set(r.cc_codigo.toString().trim(), (r.cc_descricao || '').toString().trim());
+        });
       }
       const arr = Array.from(allCCs).map(([codigo, descricao]) => ({ codigo, descricao }));
       setUniqueCCs(arr.sort((a,b) => a.codigo.localeCompare(b.codigo)));
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error("Erro ao carregar CCs únicos:", e); }
   };
 
   const handleFileUpload = (e) => {
@@ -123,6 +124,33 @@ export default function CentroCustoModule({ companies, userRole }) {
             let headerIdx = -1;
             let idxConta = -1, idxContaDesc = -1, idxCC = -1, idxCCDesc = -1, idxValor = -1;
 
+            const norm = (str) => (str || '').toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+
+            const isContaCol = (h) => {
+                const n = norm(h);
+                return n.includes('cod conta') || n.includes('conta mascara') || n.includes('conta contabil') || n === 'conta' || n === 'cod. conta' || n === 'codigo conta' || n === 'cod conta mascara';
+            };
+
+            const isContaDescCol = (h) => {
+                const n = norm(h);
+                return (n.includes('desc') || n.includes('nome') || n.includes('titulo')) && n.includes('conta');
+            };
+
+            const isCCCol = (h) => {
+                const n = norm(h);
+                return (n.includes('centro') && n.includes('custo') && (n.includes('cod') || !n.includes('desc'))) || n === 'cc' || n === 'cod cc' || n === 'cod. cc' || n.includes('codigo do centro de custo') || n === 'centro de custo' || n === 'centro custo';
+            };
+
+            const isCCDescCol = (h) => {
+                const n = norm(h);
+                return (n.includes('desc') || n.includes('nome') || n.includes('titulo')) && (n.includes('centro') || n.includes('cc') || n.includes('custo'));
+            };
+
+            const isValorCol = (h) => {
+                const n = norm(h);
+                return n.includes('soma movimento') || n.includes('movimento') || n.includes('saldo') || n.includes('valor') || n.includes('debito') || n.includes('credito');
+            };
+
             // Procura a aba correta e a linha de cabeçalho
             for (const sheetName of wb.SheetNames) {
                 if (sheetName.toLowerCase() === 'parametros') continue;
@@ -132,11 +160,11 @@ export default function CentroCustoModule({ companies, userRole }) {
                 
                 for (let r = 0; r < Math.min(sheetData.length, 50); r++) {
                     const row = sheetData[r];
-                    if (!row) continue;
+                    if (!row || !Array.isArray(row)) continue;
                     
-                    const tempIdxConta = row.findIndex(h => h && typeof h === 'string' && h.includes('Cod Conta Mascara'));
-                    const tempIdxCC = row.findIndex(h => h && typeof h === 'string' && h.includes('Codigo do Centro de Custo'));
-                    const tempIdxValor = row.findIndex(h => h && typeof h === 'string' && h.includes('Soma Movimento'));
+                    const tempIdxConta = row.findIndex(h => isContaCol(h));
+                    const tempIdxCC = row.findIndex(h => isCCCol(h));
+                    const tempIdxValor = row.findIndex(h => isValorCol(h));
                     
                     if (tempIdxConta !== -1 && tempIdxCC !== -1 && tempIdxValor !== -1) {
                         data = sheetData;
@@ -144,8 +172,8 @@ export default function CentroCustoModule({ companies, userRole }) {
                         idxConta = tempIdxConta;
                         idxCC = tempIdxCC;
                         idxValor = tempIdxValor;
-                        idxContaDesc = row.findIndex(h => h && typeof h === 'string' && h.includes('Descricao da Conta'));
-                        idxCCDesc = row.findIndex(h => h && typeof h === 'string' && h.includes('Descricao do Centro de Custo'));
+                        idxContaDesc = row.findIndex(h => isContaDescCol(h));
+                        idxCCDesc = row.findIndex(h => isCCDescCol(h));
                         break;
                     }
                 }
@@ -153,7 +181,7 @@ export default function CentroCustoModule({ companies, userRole }) {
             }
 
             if (headerIdx === -1 || data.length < 2) {
-                throw new Error("Colunas necessárias não encontradas em nenhuma aba. Esperado: 'Cod Conta Mascara', 'Codigo do Centro de Custo', 'Soma Movimento'.");
+                throw new Error("Colunas necessárias não encontradas na planilha. Esperado colunas para Conta Contábil, Centro de Custo e Valor/Movimento.");
             }
 
             const parsedRecords = [];
@@ -165,23 +193,39 @@ export default function CentroCustoModule({ companies, userRole }) {
                 if (!cc) continue;
 
                 const valRaw = row[idxValor];
-            let valor = 0;
-            if (typeof valRaw === 'number') valor = valRaw;
-            else if (typeof valRaw === 'string') valor = parseFloat(valRaw.replace(/\./g, '').replace(',', '.'));
+                let valor = 0;
+                if (typeof valRaw === 'number') valor = valRaw;
+                else if (typeof valRaw === 'string') {
+                    const cleanStr = valRaw.trim().replace(/\s/g, '');
+                    if (cleanStr.includes(',') && cleanStr.includes('.')) {
+                        valor = parseFloat(cleanStr.replace(/\./g, '').replace(',', '.'));
+                    } else if (cleanStr.includes(',')) {
+                        valor = parseFloat(cleanStr.replace(',', '.'));
+                    } else {
+                        valor = parseFloat(cleanStr);
+                    }
+                }
 
-            if (isNaN(valor)) valor = 0;
+                if (isNaN(valor)) valor = 0;
 
-            parsedRecords.push({
-                conta: row[idxConta] ? row[idxConta].toString().trim() : '',
-                conta_descricao: row[idxContaDesc] ? row[idxContaDesc].toString().trim() : '',
-                cc_codigo: cc,
-                cc_descricao: row[idxCCDesc] ? row[idxCCDesc].toString().trim() : '',
-                valor: valor
-            });
-        }
-        setFileData(parsedRecords);
+                parsedRecords.push({
+                    conta: row[idxConta] ? row[idxConta].toString().trim() : '',
+                    conta_descricao: (idxContaDesc !== -1 && row[idxContaDesc]) ? row[idxContaDesc].toString().trim() : '',
+                    cc_codigo: cc,
+                    cc_descricao: (idxCCDesc !== -1 && row[idxCCDesc]) ? row[idxCCDesc].toString().trim() : '',
+                    valor: valor
+                });
+            }
+
+            if (parsedRecords.length === 0) {
+                throw new Error("Nenhum registro com Centro de Custo preenchido foi encontrado após a linha de cabeçalho.");
+            }
+
+            setFileData(parsedRecords);
+            window.$toast(`${parsedRecords.length} lançamentos de Centro de Custo carregados do arquivo! Clique em Gravar para salvar no banco.`, { type: 'info' });
       } catch (err) {
-        window.$alert("Erro ao processar arquivo: " + err.message);
+        console.error(err);
+        window.$alert("Erro ao processar arquivo: " + err.message, { type: 'danger' });
       } finally {
         setIsProcessing(false);
       }
@@ -197,12 +241,12 @@ export default function CentroCustoModule({ companies, userRole }) {
     setIsProcessing(true);
     try {
       await saveCCToDB(fileData, selectedComp, selectedAno, selectedMes);
-      window.$toast("Centros de Custo gravados com sucesso!", { type: 'success' });
+      window.$toast("Centros de Custo gravados com sucesso no banco de dados!", { type: 'success' });
       setFileData(null);
-      loadUniqueCCs();
-      loadDbRecords();
+      await loadUniqueCCs();
+      await loadDbRecords();
     } catch (e) {
-      window.$alert("Erro ao salvar: " + e.message);
+      window.$alert("Erro ao salvar: " + e.message, { type: 'danger' });
     } finally {
       setIsProcessing(false);
     }
