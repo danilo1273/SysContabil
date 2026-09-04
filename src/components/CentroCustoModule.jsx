@@ -528,13 +528,33 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
                   
                   const appendRateio = (records, pct, targetArray) => {
                       if (pct > 0 && records && records.length > 0) {
+                          // Agrupar por Centro de Custo da Origem para demonstrar o CC claramente e sem divergencia de soma
+                          const ccTotals = {};
                           records.forEach(r => {
-                              targetArray.push({
-                                  ...r,
-                                  valor: (r.valor || 0) * pct,
-                                  conta: '9.9.9.9.01',
-                                  conta_descricao: `Rateio de ${sourceName} (${(pct * 100).toFixed(2)}%) - ${r.conta_descricao || r.conta}`
-                              });
+                              const ccKey = r.cc_codigo || 'GERAL';
+                              const ccDesc = r.cc_descricao || '';
+                              if (!ccTotals[ccKey]) {
+                                  ccTotals[ccKey] = {
+                                      cc_codigo: ccKey,
+                                      cc_descricao: ccDesc,
+                                      valor: 0
+                                  };
+                              }
+                              ccTotals[ccKey].valor += (r.valor || 0);
+                          });
+
+                          Object.values(ccTotals).forEach(ccItem => {
+                              const valAbsorvido = ccItem.valor * pct;
+                              if (Math.abs(valAbsorvido) > 0.001) {
+                                  targetArray.push({
+                                      conta: '9.9.9.9.01',
+                                      conta_descricao: `Rateio: CC ${ccItem.cc_codigo}${ccItem.cc_descricao ? ' - ' + ccItem.cc_descricao : ''} (${sourceName} ${(pct * 100).toFixed(2)}%)`,
+                                      cc_codigo: ccItem.cc_codigo,
+                                      cc_descricao: ccItem.cc_descricao,
+                                      valor: valAbsorvido,
+                                      isRateio: true
+                                  });
+                              }
                           });
                       }
                   };
@@ -544,8 +564,16 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
               }
           }
 
-          const baseDbData = baseRecords.map(r => ({ conta: r.conta, descricao: `${r.cc_codigo ? r.cc_codigo + ' | ' : ''}${r.conta_descricao}`, valorMensal: r.valor }));
-          const compDbData = compRecords.map(r => ({ conta: r.conta, descricao: `${r.cc_codigo ? r.cc_codigo + ' | ' : ''}${r.conta_descricao}`, valorMensal: r.valor }));
+          const baseDbData = baseRecords.map(r => ({ 
+              conta: r.conta, 
+              descricao: r.isRateio ? r.conta_descricao : `${r.cc_codigo ? r.cc_codigo + ' | ' : ''}${r.conta_descricao}`, 
+              valorMensal: r.valor 
+          }));
+          const compDbData = compRecords.map(r => ({ 
+              conta: r.conta, 
+              descricao: r.isRateio ? r.conta_descricao : `${r.cc_codigo ? r.cc_codigo + ' | ' : ''}${r.conta_descricao}`, 
+              valorMensal: r.valor 
+          }));
 
           const mappedBase = applyMapping(baseDbData, protheusMapping.dre, 1, 'valorMensal');
           const mappedComp = applyMapping(compDbData, protheusMapping.dre, 1, 'valorMensal');
@@ -610,24 +638,37 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
               const detailsC = (dreComp && dreComp[groupName] && dreComp[groupName][acc] && dreComp[groupName][acc].details) || [];
               
               const allAccounts = {};
-              detailsB.forEach(d => { allAccounts[d.conta] = { descricao: d.descricao, b: Math.abs(d.valor), c: 0 }; });
+              detailsB.forEach(d => { 
+                  const key = d.conta + '_' + (d.descricao || '');
+                  if (!allAccounts[key]) {
+                      allAccounts[key] = { conta: d.conta, descricao: d.descricao, b: 0, c: 0 };
+                  }
+                  allAccounts[key].b += Math.abs(d.valor);
+              });
               detailsC.forEach(d => { 
-                  if (!allAccounts[d.conta]) allAccounts[d.conta] = { descricao: d.descricao, b: 0, c: 0 };
-                  allAccounts[d.conta].c = Math.abs(d.valor);
+                  const key = d.conta + '_' + (d.descricao || '');
+                  if (!allAccounts[key]) {
+                      allAccounts[key] = { conta: d.conta, descricao: d.descricao, b: 0, c: 0 };
+                  }
+                  allAccounts[key].c += Math.abs(d.valor);
               });
 
-              return Object.keys(allAccounts).map(conta => {
-                  const b = allAccounts[conta].b;
-                  const c = allAccounts[conta].c;
-                  const desc = allAccounts[conta].descricao;
+              return Object.keys(allAccounts).map(key => {
+                  const item = allAccounts[key];
+                  const b = item.b;
+                  const c = item.c;
+                  const desc = item.descricao;
+                  const conta = item.conta;
                   if (b === 0 && c === 0) return null;
                   
                   const vRs = b - c;
                   const vPct = c !== 0 ? (vRs / Math.abs(c)) * 100 : 0;
                   
                   return (
-                      <tr key={acc + conta} style={{ background: 'transparent', fontSize: '0.85rem' }}>
-                          <td style={{ paddingLeft: '3rem', color: '#999' }}>{conta} - {desc}</td>
+                      <tr key={acc + key} style={{ background: 'transparent', fontSize: '0.85rem' }}>
+                          <td style={{ paddingLeft: '3rem', color: '#999' }}>
+                              {conta.startsWith('9.9.9.9') ? desc : `${conta} - ${desc}`}
+                          </td>
                           <td style={{ textAlign: 'right', color: '#999' }}>{b.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
                           <td style={{ textAlign: 'right', color: '#666' }}>{bRec ? ((b / bRec)*100).toFixed(1) + '%' : '0.0%'}</td>
                           <td style={{ textAlign: 'right', color: '#777' }}>{c.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
