@@ -9,7 +9,7 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
   const canAccessDB = isSuper || userPermissions?.includes('db');
   const canConfig = isSuper || userPermissions?.includes('contabil') || userPermissions?.includes('db');
 
-  const [activeTab, setActiveTab] = useState(canAccessDB ? 'import' : 'dre'); // import, config, dre, rateio
+  const [activeTab, setActiveTab] = useState('dre'); // dre, rateio, config, import
   
   // Settings
   const [projects, setProjects] = useState({}); // { "Multifio": ["20108", "20208"] }
