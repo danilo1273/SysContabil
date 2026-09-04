@@ -574,18 +574,20 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       const hasHistory = !!hist && hist.totalVal > 0;
       
       const mediaHistorica = hasHistory ? (hist.totalVal / numPrevMonths) : 0;
-      const desvioValor = item.custoTotalMes - mediaHistorica;
-      const desvioPct = mediaHistorica > 0 
+      
+      // Se não há histórico prévio (média zero), não há desvio/variação: é apenas um item novo
+      const desvioValor = hasHistory ? (item.custoTotalMes - mediaHistorica) : 0;
+      const desvioPct = (hasHistory && mediaHistorica > 0)
         ? ((item.custoTotalMes - mediaHistorica) / mediaHistorica) * 100 
-        : (item.custoTotalMes > 0 ? 100 : 0);
+        : 0;
 
       let status = 'normal';
       let statusLabel = 'Normal';
       let statusBadgeColor = '#4caf50';
 
-      if (!hasHistory && previousMonths.length > 0) {
+      if (!hasHistory) {
         status = 'novo';
-        statusLabel = 'Novo / Sem Histórico';
+        statusLabel = '🆕 Item Novo';
         statusBadgeColor = '#29b6f6';
         countNovos++;
       } else if (desvioPct > 100 || (desvioValor > 2000 && desvioPct > toleranciaDesvioPct)) {
@@ -619,8 +621,12 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       };
     });
 
-    // Ordenar produtos por maior desvio em R$
-    analysisRows.sort((a, b) => b.desvioValor - a.desvioValor);
+    // Ordenar produtos: itens com histórico de desvio primeiro (maior desvio em R$), depois os demais
+    analysisRows.sort((a, b) => {
+      if (a.status === 'novo' && b.status !== 'novo') return 1;
+      if (b.status === 'novo' && a.status !== 'novo') return -1;
+      return b.desvioValor - a.desvioValor;
+    });
 
     // Filtrar linhas por status de desvio se solicitado
     const filteredAnalysisRows = analysisRows.filter(r => {
@@ -628,9 +634,9 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       return r.status === filtroStatusDesvio;
     });
 
-    // Top 10 maiores desvios em R$
+    // Top 10 maiores desvios em R$ (Apenas itens com histórico prévio que ultrapassaram a média)
     const topDesviosList = analysisRows
-      .filter(r => r.desvioValor > 0)
+      .filter(r => r.hasHistory && r.mediaHistorica > 0 && r.desvioValor > 0)
       .slice(0, 10);
 
     // 5. Gráfico de Evolução Histórica das Baixas por TM (Mês a Mês do Ano)
@@ -748,9 +754,9 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
         'Qtd Entrada': r.qtdEntrada,
         'Qtd Saída': r.qtdSaida,
         'Custo Total Mês (R$)': r.custoTotalMes,
-        'Média Histórica Mensal (R$)': r.mediaHistorica,
-        'Desvio em Valor (R$)': r.desvioValor,
-        'Variação % vs Média': r.desvioPct ? `${r.desvioPct.toFixed(1)}%` : '0%',
+        'Média Histórica Mensal (R$)': r.hasHistory ? r.mediaHistorica : 0,
+        'Desvio em Valor (R$)': r.hasHistory ? r.desvioValor : 0,
+        'Variação % vs Média': r.hasHistory ? `${r.desvioPct.toFixed(1)}%` : 'Item Novo',
         'Status do Desvio': r.statusLabel,
         'Qtd Lançamentos': r.lancamentos.length
       }));
@@ -1293,8 +1299,14 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
               </div>
 
               {topDesvios.length === 0 ? (
-                <div style={{ padding: '2rem', textAlign: 'center', color: '#888', fontSize: '0.9rem' }}>
-                  Nenhum desvio expressivo detectado neste mês em relação às médias históricas.
+                <div style={{ padding: '2.5rem 1.5rem', textAlign: 'center', color: '#888', fontSize: '0.9rem', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                  <CheckCircle size={32} style={{ color: '#4caf50', marginBottom: '8px' }} />
+                  <span style={{ fontWeight: '500', color: '#ccc' }}>Nenhum item com desvio acima da média histórica detectado.</span>
+                  <span style={{ fontSize: '0.78rem', color: '#666', marginTop: '6px' }}>
+                    {kpis.countNovos > 0 
+                      ? `${kpis.countNovos} movimentações identificadas como itens novos (sem histórico anterior de comparação).` 
+                      : 'Todos os produtos movimentados estão dentro da média histórica normal.'}
+                  </span>
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -1335,7 +1347,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                           {item.custoTotalMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                         </div>
                         <div style={{ fontSize: '0.72rem', color: '#ff8a80', fontWeight: 'bold' }}>
-                          +{item.desvioValor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} ({item.desvioPct > 0 ? `+${item.desvioPct.toFixed(0)}%` : 'Novo'})
+                          +{item.desvioValor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} (+{item.desvioPct.toFixed(0)}%)
                         </div>
                       </div>
                     </div>
@@ -1517,13 +1529,13 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                       <td style={{ textAlign: 'right', color: '#aaa' }}>
                         {row.hasHistory 
                           ? row.mediaHistorica.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-                          : <span style={{ color: '#666', fontStyle: 'italic' }}>Sem hist.</span>}
+                          : <span style={{ color: '#666', fontStyle: 'italic' }}>-</span>}
                       </td>
-                      <td style={{ textAlign: 'right', fontWeight: 'bold', color: row.desvioValor > 0 ? '#ef5350' : '#4caf50' }}>
-                        {row.desvioValor > 0 ? '+' : ''}{row.desvioValor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                      <td style={{ textAlign: 'right', fontWeight: 'bold', color: row.status === 'novo' ? '#666' : row.desvioValor > 0 ? '#ef5350' : '#4caf50' }}>
+                        {row.status === 'novo' ? '-' : `${row.desvioValor > 0 ? '+' : ''}${row.desvioValor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`}
                       </td>
-                      <td style={{ textAlign: 'center', fontWeight: 'bold', color: row.desvioPct > 50 ? '#ef5350' : row.desvioPct > 0 ? '#ffa726' : '#4caf50' }}>
-                        {row.hasHistory ? `${row.desvioPct > 0 ? '+' : ''}${row.desvioPct.toFixed(1)}%` : '-'}
+                      <td style={{ textAlign: 'center', fontWeight: 'bold', color: row.status === 'novo' ? '#29b6f6' : row.desvioPct > 50 ? '#ef5350' : row.desvioPct > 0 ? '#ffa726' : '#4caf50' }}>
+                        {row.status === 'novo' ? <span style={{ fontSize: '0.75rem' }}>-</span> : `${row.desvioPct > 0 ? '+' : ''}${row.desvioPct.toFixed(1)}%`}
                       </td>
                       <td style={{ textAlign: 'center' }}>
                         <span style={{
