@@ -21,6 +21,7 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
   const [selectedMes, setSelectedMes] = useState(new Date().getMonth() + 1);
   const [selectedAno, setSelectedAno] = useState(new Date().getFullYear());
   const [fileData, setFileData] = useState(null);
+  const [dbSearch, setDbSearch] = useState('');
 
   // Config State
   const [ccSearch, setCcSearch] = useState('');
@@ -62,7 +63,13 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
   }, []);
 
   useEffect(() => {
-    if (activeTab === 'import' && selectedComp) {
+    if (!selectedComp && companies && companies.length > 0) {
+      setSelectedComp(companies[0].id);
+    }
+  }, [companies]);
+
+  useEffect(() => {
+    if (activeTab === 'import') {
       loadDbRecords();
     }
   }, [activeTab, selectedComp, selectedAno, selectedMes]);
@@ -810,31 +817,66 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
             </div>
           )}
 
-          {dbRecords.length > 0 && !fileData && (
+          {!fileData && (
               <div style={{ marginTop: '2rem' }}>
-                  <h4 style={{ color: '#FF9800', marginBottom: '1rem' }}>
-                      Dados no Banco ({dbRecords.length} registros)
-                  </h4>
-                  <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
-                      <table className="data-table">
-                          <thead>
-                              <tr>
-                                  <th>Centro de Custo</th>
-                                  <th>Conta</th>
-                                  <th>Valor (R$)</th>
-                              </tr>
-                          </thead>
-                          <tbody>
-                              {dbRecords.map((r, i) => (
-                                  <tr key={i}>
-                                      <td>{r.cc_codigo} - {r.cc_descricao}</td>
-                                      <td>{r.conta} - {r.conta_descricao}</td>
-                                      <td style={{ textAlign: 'right' }}>{r.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                                  </tr>
-                              ))}
-                          </tbody>
-                      </table>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
+                      <h4 style={{ color: '#FF9800', margin: 0 }}>
+                          Dados no Banco de Dados ({dbRecords.length} lançamentos gravados em {['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][selectedMes - 1]}/{selectedAno})
+                      </h4>
+                      {dbRecords.length > 0 && (
+                          <input 
+                              type="text"
+                              placeholder="🔍 Filtrar por CC ou Conta..."
+                              value={dbSearch}
+                              onChange={e => setDbSearch(e.target.value)}
+                              className="text-input"
+                              style={{ width: '250px', padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}
+                          />
+                      )}
                   </div>
+
+                  {dbRecords.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '2.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px dashed #444', color: '#888' }}>
+                          <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📭</div>
+                          <strong>Nenhum lançamento de Centro de Custo encontrado no banco para este mês/empresa.</strong>
+                          <p style={{ fontSize: '0.85rem', color: '#666', marginTop: '4px' }}>
+                              Selecione a empresa correta e o período, ou importe uma nova planilha acima para gravar no banco.
+                          </p>
+                      </div>
+                  ) : (
+                      <div style={{ maxHeight: '450px', overflowY: 'auto' }}>
+                          <table className="data-table">
+                              <thead>
+                                  <tr>
+                                      <th>Centro de Custo</th>
+                                      <th>Conta Contábil</th>
+                                      <th style={{ textAlign: 'right' }}>Valor Movimento (R$)</th>
+                                  </tr>
+                              </thead>
+                              <tbody>
+                                  {dbRecords
+                                      .filter(r => {
+                                          if (!dbSearch.trim()) return true;
+                                          const s = dbSearch.toLowerCase();
+                                          return (r.cc_codigo || '').toLowerCase().includes(s) ||
+                                                 (r.cc_descricao || '').toLowerCase().includes(s) ||
+                                                 (r.conta || '').toLowerCase().includes(s) ||
+                                                 (r.conta_descricao || '').toLowerCase().includes(s);
+                                      })
+                                      .map((r, i) => (
+                                          <tr key={i}>
+                                              <td><strong>{r.cc_codigo}</strong> - {r.cc_descricao}</td>
+                                              <td>{r.conta} - {r.conta_descricao}</td>
+                                              <td style={{ textAlign: 'right', fontWeight: 'bold', color: r.valor < 0 ? '#E57373' : '#81C784' }}>
+                                                  {r.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                              </td>
+                                          </tr>
+                                      ))
+                                  }
+                              </tbody>
+                          </table>
+                      </div>
+                  )}
               </div>
           )}
         </div>
