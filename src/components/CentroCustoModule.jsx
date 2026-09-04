@@ -26,9 +26,14 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
   const [ccSearch, setCcSearch] = useState('');
   const [expandedConfigProject, setExpandedConfigProject] = useState(null);
 
-  // Rateio State (Suporte a múltiplos Projetos de Rateio)
+  // Rateio State (Suporte a múltiplos Projetos de Rateio e Balancete CIF)
   const [rateioList, setRateioList] = useState([]); // [{ id, source, rule, fixedPct: {}, targetProjects: [] }]
   const [selectedNewRateioSource, setSelectedNewRateioSource] = useState('');
+  const [cifRateioList, setCifRateioList] = useState([]); // [{ id, empresaId, conta, descricao, rule, fixedPct: {} }]
+  const [cifEmpresa, setCifEmpresa] = useState('');
+  const [cifConta, setCifConta] = useState('');
+  const [availableBalanceteAccounts, setAvailableBalanceteAccounts] = useState([]);
+  const [balanceteAccountBalances, setBalanceteAccountBalances] = useState({});
   const [includeRateio, setIncludeRateio] = useState(false);
 
   // DRE State
@@ -564,6 +569,50 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
               }
           }
 
+          if (includeRateio && cifRateioList && cifRateioList.length > 0) {
+              const fetchBalanceteAccount = async (ano, mes, tri, type, empresaId, conta) => {
+                  const targets = getTargetPeriods(ano, mes, tri, type);
+                  let totalVal = 0;
+                  for (const t of targets) {
+                      const res = await getRawRecords(t.ano, t.mes);
+                      const rows = res.dre || [];
+                      rows.forEach(r => {
+                          if (r.conta === conta && (!empresaId || r.empresaId === empresaId)) {
+                              totalVal += (r.valorMensal || 0);
+                          }
+                      });
+                  }
+                  return totalVal;
+              };
+
+              for (const cifItem of cifRateioList) {
+                  const valBase = await fetchBalanceteAccount(periodoBaseAno, periodoBaseMes, periodoBaseTri, periodType, cifItem.empresaId, cifItem.conta);
+                  const valComp = await fetchBalanceteAccount(periodoCompAno, periodoCompMes, periodoCompTri, periodType, cifItem.empresaId, cifItem.conta);
+
+                  let pctBase = (cifItem.fixedPct?.[selectedProject] || 0) / 100;
+                  let pctComp = pctBase;
+
+                  if (pctBase > 0 && Math.abs(valBase) > 0.001) {
+                      const empName = companies.find(c => c.id === cifItem.empresaId)?.name || cifItem.empresaId || '';
+                      baseRecords.push({
+                          conta: '9.9.9.9.02',
+                          conta_descricao: `Rateio Balancete: ${cifItem.descricao || cifItem.conta} (${(pctBase * 100).toFixed(2)}%)${empName ? ' - ' + empName : ''}`,
+                          valor: valBase * pctBase,
+                          isRateio: true
+                      });
+                  }
+                  if (pctComp > 0 && Math.abs(valComp) > 0.001) {
+                      const empName = companies.find(c => c.id === cifItem.empresaId)?.name || cifItem.empresaId || '';
+                      compRecords.push({
+                          conta: '9.9.9.9.02',
+                          conta_descricao: `Rateio Balancete: ${cifItem.descricao || cifItem.conta} (${(pctComp * 100).toFixed(2)}%)${empName ? ' - ' + empName : ''}`,
+                          valor: valComp * pctComp,
+                          isRateio: true
+                      });
+                  }
+              }
+          }
+
           const baseDbData = baseRecords.map(r => ({ 
               conta: r.conta, 
               descricao: r.isRateio ? r.conta_descricao : `${r.cc_codigo ? r.cc_codigo + ' | ' : ''}${r.conta_descricao}`, 
@@ -1047,6 +1096,161 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
                       })}
                   </div>
               )}
+
+              {/* SEÇÃO 2: CUSTOS INDIRETOS DO BALANCETE CONTÁBIL (CIF) */}
+              <div style={{ marginTop: '3rem', borderTop: '2px solid rgba(255,255,255,0.1)', paddingTop: '2rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.5rem' }}>
+                      <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <span style={{ fontSize: '1.4rem' }}>🏭</span>
+                              <h3 style={{ color: '#FFCA28', margin: 0 }}>Custos Indiretos de Produção / Balancete Contábil</h3>
+                          </div>
+                          <p style={{ color: '#aaa', margin: '6px 0 0 0', fontSize: '0.85rem' }}>
+                              Custos que sustentam a operação mas não possuem Centro de Custo analítico no Protheus (ex: <i>Energia Elétrica, Aluguel, Internet, Água, Depreciação</i>). O sistema busca o saldo contábil direto do Balancete.
+                          </p>
+                      </div>
+                  </div>
+
+                  {/* BARRA DE ADIÇÃO DE CONTA DO BALANCETE */}
+                  <div style={{ background: 'rgba(255, 202, 40, 0.08)', border: '1px solid rgba(255, 202, 40, 0.3)', padding: '1.2rem', borderRadius: '10px', marginBottom: '2rem', display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <div style={{ width: '220px' }}>
+                          <label style={{ display: 'block', color: '#FFCA28', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '4px' }}>
+                              Empresa do Balancete:
+                          </label>
+                          <select 
+                              value={cifEmpresa} 
+                              onChange={e => setCifEmpresa(e.target.value)} 
+                              className="select-input" 
+                              style={{ width: '100%' }}
+                          >
+                              <option value="">Todas as Empresas...</option>
+                              {companies.map(c => (
+                                  <option key={c.id} value={c.id}>{c.name}</option>
+                              ))}
+                          </select>
+                      </div>
+
+                      <div style={{ flex: 1, minWidth: '280px' }}>
+                          <label style={{ display: 'block', color: '#FFCA28', fontSize: '0.85rem', fontWeight: 'bold', marginBottom: '4px' }}>
+                              Conta Contábil do Balancete:
+                          </label>
+                          <select 
+                              value={cifConta} 
+                              onChange={e => setCifConta(e.target.value)} 
+                              className="select-input" 
+                              style={{ width: '100%' }}
+                          >
+                              <option value="">Selecione a conta contábil...</option>
+                              {availableBalanceteAccounts
+                                  .filter(a => !cifRateioList.some(item => item.conta === a.conta && item.empresaId === cifEmpresa))
+                                  .map(a => (
+                                      <option key={a.conta} value={a.conta}>
+                                          {a.conta} - {a.descricao} {a.saldo > 0 ? `(${a.saldo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})` : ''}
+                                      </option>
+                                  ))
+                              }
+                          </select>
+                      </div>
+
+                      <button 
+                          className="btn-primary" 
+                          onClick={() => handleAddCifAccount(cifEmpresa, cifConta)} 
+                          disabled={!cifConta}
+                          style={{ padding: '0.6rem 1.4rem', fontSize: '0.9rem', marginTop: '1.2rem', background: '#FFB300', color: '#000', fontWeight: 'bold' }}
+                      >
+                          + Adicionar Despesa Indireta
+                      </button>
+                  </div>
+
+                  {/* TABELA DE CUSTOS INDIRETOS DO BALANCETE */}
+                  {cifRateioList.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '2rem 1rem', background: 'rgba(255,255,255,0.02)', borderRadius: '10px', border: '1px dashed #444', color: '#888' }}>
+                          <div style={{ fontSize: '1.8rem', marginBottom: '0.5rem' }}>⚡🏢</div>
+                          <strong>Nenhuma conta do balancete cadastrada para rateio indireto.</strong>
+                          <p style={{ fontSize: '0.85rem', color: '#666', marginTop: '4px' }}>
+                              Selecione uma conta (ex: Energia Elétrica, Aluguel) acima para ratear entre os projetos.
+                          </p>
+                      </div>
+                  ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+                          {cifRateioList.map(item => {
+                              const empName = companies.find(c => c.id === item.empresaId)?.name || 'Todas as Empresas';
+                              const totalSaldoMes = balanceteAccountBalances[item.conta] || 0;
+                              const fixedSum = Object.keys(item.fixedPct || {}).reduce((acc, p) => acc + (parseFloat(item.fixedPct[p]) || 0), 0);
+                              const isSumOk = Math.abs(fixedSum - 100) < 0.01;
+
+                              return (
+                                  <div key={item.id} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '10px', border: '1px solid #444', padding: '1.2rem' }}>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '0.6rem', flexWrap: 'wrap', gap: '1rem' }}>
+                                          <div>
+                                              <strong style={{ color: '#FFCA28', fontSize: '1.05rem' }}>
+                                                  {item.descricao || item.conta}
+                                              </strong>
+                                              <div style={{ fontSize: '0.8rem', color: '#aaa', marginTop: '2px' }}>
+                                                  Conta: <b style={{ color: '#fff' }}>{item.conta}</b> | Empresa: <b style={{ color: '#64B5F6' }}>{empName}</b> | Valor no Balancete ({periodoBaseMes}/{periodoBaseAno}): <b style={{ color: '#81C784' }}>{totalSaldoMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</b>
+                                              </div>
+                                          </div>
+
+                                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                              <button 
+                                                  onClick={() => handleDistributeCifEvenly(item.id)}
+                                                  className="btn-secondary" 
+                                                  style={{ padding: '0.3rem 0.7rem', fontSize: '0.75rem', color: '#FFCA28', borderColor: '#FFCA28' }}
+                                              >
+                                                  ⚖️ Dividir % Igualmente
+                                              </button>
+                                              <button 
+                                                  onClick={() => handleRemoveCifAccount(item.id)}
+                                                  style={{ background: 'rgba(244,67,54,0.15)', border: '1px solid #F44336', color: '#FF8A80', padding: '0.3rem 0.7rem', borderRadius: '6px', cursor: 'pointer', fontSize: '0.75rem' }}
+                                              >
+                                                  🗑️ Remover
+                                              </button>
+                                          </div>
+                                      </div>
+
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+                                          <span style={{ fontSize: '0.8rem', color: '#aaa' }}>% de Rateio e Valor Atribuído por Projeto:</span>
+                                          <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: isSumOk ? '#4CAF50' : '#FF9800' }}>
+                                              {isSumOk ? '✓ Soma: 100%' : `⚠️ Soma: ${fixedSum.toFixed(2)}% (deve ser 100%)`}
+                                          </span>
+                                      </div>
+
+                                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '10px' }}>
+                                          {Object.keys(projects).map(p => {
+                                              const pct = item.fixedPct?.[p] || 0;
+                                              const valAtribuido = (totalSaldoMes * (pct / 100));
+
+                                              return (
+                                                  <div key={p} style={{ background: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '6px', border: '1px solid #333' }}>
+                                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                                                          <strong style={{ color: '#fff', fontSize: '0.85rem' }}>{p}</strong>
+                                                          <span style={{ fontSize: '0.75rem', color: '#81C784', fontWeight: 'bold' }}>
+                                                              {valAtribuido.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                                          </span>
+                                                      </div>
+                                                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                          <input 
+                                                              type="number" 
+                                                              step="0.01"
+                                                              min="0"
+                                                              max="100"
+                                                              value={item.fixedPct?.[p] ?? ''} 
+                                                              onChange={e => handleUpdateCifFixedPct(item.id, p, e.target.value)}
+                                                              className="text-input" 
+                                                              style={{ width: '90px', padding: '0.3rem', textAlign: 'center', fontWeight: 'bold', fontSize: '0.85rem' }}
+                                                          />
+                                                          <span style={{ color: '#aaa', fontWeight: 'bold' }}>%</span>
+                                                      </div>
+                                                  </div>
+                                              );
+                                          })}
+                                      </div>
+                                  </div>
+                              );
+                          })}
+                      </div>
+                  )}
+              </div>
           </div>
       )}
 
