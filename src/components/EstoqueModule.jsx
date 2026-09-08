@@ -457,6 +457,8 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
   const {
     filteredRecordsCurrent,
     kpis,
+    analysisByTM,
+    chartComparativoTM,
     analysisByProduct,
     chartEvolucaoTM,
     chartDistribuicaoTM,
