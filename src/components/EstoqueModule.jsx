@@ -467,8 +467,9 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
     chartFiliais,
     chartUsuarios
   } = useMemo(() => {
-    // 1. Filtrar registros do mês atual conforme opções
-    const isCriticalTM = (tm) => ['506', '006', '509', '507', '504'].includes(tm);
+    // 1. Normalização de TM e Filtrar registros do mês atual conforme opções
+    const normTM = (val) => String(val || '').trim().padStart(3, '0');
+    const isCriticalTM = (tm) => ['506', '006', '509', '507', '504'].includes(normTM(tm));
 
     const filterRecord = (r) => {
       // Regra da OP: se filtroApenasSemOP ativo, op deve ser vazia
@@ -477,12 +478,15 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       // Filtro de Filial
       if (selectedFilial !== 'todas' && r.filial !== selectedFilial) return false;
 
+      // Normalizar TM
+      const tm = normTM(r.tm);
+
       // Filtro TM
-      if (filtroTM === 'criticos' && !isCriticalTM(r.tm)) return false;
-      if (filtroTM === '506_006' && !['506', '006'].includes(r.tm)) return false;
-      if (filtroTM === '509' && r.tm !== '509') return false;
-      if (filtroTM === '507' && r.tm !== '507') return false;
-      if (filtroTM === '504' && r.tm !== '504') return false;
+      if (filtroTM === 'criticos' && !isCriticalTM(tm)) return false;
+      if (filtroTM === '506_006' && !['506', '006'].includes(tm)) return false;
+      if (filtroTM === '509' && tm !== '509') return false;
+      if (filtroTM === '507' && tm !== '507') return false;
+      if (filtroTM === '504' && tm !== '504') return false;
 
       // Busca textual
       if (searchQuery) {
@@ -501,7 +505,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
     const currentFiltered = currentRecords.filter(filterRecord);
 
     // 2. Calcular Totais e KPIs do mês atual
-    let totalBaixadoMes = 0;
+    let totalBaixadoMes = 0; // Baixas brutas (saídas)
     let totalInventario506 = 0;
     let totalInventario006 = 0;
     let totalGarantia509 = 0;
@@ -510,15 +514,21 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
     let totalOutrosTM = 0;
 
     currentFiltered.forEach(r => {
-      const val = r.custoTotal || 0;
-      totalBaixadoMes += val;
-      if (r.tm === '506') totalInventario506 += val;
-      else if (r.tm === '006') totalInventario006 += val;
-      else if (r.tm === '509') totalGarantia509 += val;
-      else if (r.tm === '507') totalPerda507 += val;
-      else if (r.tm === '504') totalConsumivel504 += val;
-      else totalOutrosTM += val;
+      const tm = normTM(r.tm);
+      const absVal = Math.abs(r.custoTotal || 0);
+      if (tm === '006') {
+        totalInventario006 += absVal;
+      } else {
+        totalBaixadoMes += absVal;
+        if (tm === '506') totalInventario506 += absVal;
+        else if (tm === '509') totalGarantia509 += absVal;
+        else if (tm === '507') totalPerda507 += absVal;
+        else if (tm === '504') totalConsumivel504 += absVal;
+        else totalOutrosTM += absVal;
+      }
     });
+
+    const totalLiquidoMes = totalBaixadoMes - totalInventario006;
 
     // 3. Histórico e Médias dos Meses Anteriores
     const previousMonths = Object.keys(historySeries).map(Number).filter(m => m < selectedMes);
@@ -526,11 +536,23 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
 
     // 4. ANÁLISE DE DESVIO POR TIPO DE MOVIMENTO (TM) - Foco Estratégico PCP & DRE
     const allTMsSet = new Set();
-    currentFiltered.forEach(r => { if (r.tm) allTMsSet.add(r.tm); });
+    currentFiltered.forEach(r => { if (r.tm) allTMsSet.add(normTM(r.tm)); });
     previousMonths.forEach(m => {
-      (historySeries[m] || []).forEach(r => { if (r.tm) allTMsSet.add(r.tm); });
+      (historySeries[m] || []).filter(filterRecord).forEach(r => {
+        if (r.tm) allTMsSet.add(normTM(r.tm));
+      });
     });
-    ['506', '509', '507', '504', '006'].forEach(tm => allTMsSet.add(tm));
+    if (filtroTM === 'criticos') {
+      ['506', '006', '509', '507', '504'].forEach(tm => allTMsSet.add(tm));
+    } else if (filtroTM === '506_006') {
+      ['506', '006'].forEach(tm => allTMsSet.add(tm));
+    } else if (filtroTM === '509') {
+      allTMsSet.add('509');
+    } else if (filtroTM === '507') {
+      allTMsSet.add('507');
+    } else if (filtroTM === '504') {
+      allTMsSet.add('504');
+    }
 
     let totalDesvioLiquido = 0;
     let tmCountCriticos = 0;
@@ -548,16 +570,16 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
         question: 'Verificar justificativa e motivo do lançamento diretamente com a equipe do PCP e Almoxarifado.'
       };
 
-      const currentTMRecords = currentFiltered.filter(r => r.tm === tm);
-      const valorMes = currentTMRecords.reduce((sum, r) => sum + (r.custoTotal || 0), 0);
+      const currentTMRecords = currentFiltered.filter(r => normTM(r.tm) === tm);
+      const valorMes = Math.abs(currentTMRecords.reduce((sum, r) => sum + (r.custoTotal || 0), 0));
       const qtdSaidaMes = currentTMRecords.reduce((sum, r) => sum + (r.qtdSaida || 0), 0);
       const qtdEntradaMes = currentTMRecords.reduce((sum, r) => sum + (r.qtdEntrada || 0), 0);
       const lancamentosCount = currentTMRecords.length;
 
       let totalHistVal = 0;
       previousMonths.forEach(m => {
-        const mRecords = (historySeries[m] || []).filter(r => (!filtroApenasSemOP || !r.hasOP) && (selectedFilial === 'todas' || r.filial === selectedFilial) && r.tm === tm);
-        totalHistVal += mRecords.reduce((sum, r) => sum + (r.custoTotal || 0), 0);
+        const mRecords = (historySeries[m] || []).filter(filterRecord).filter(r => normTM(r.tm) === tm);
+        totalHistVal += Math.abs(mRecords.reduce((sum, r) => sum + (r.custoTotal || 0), 0));
       });
 
       const hasHistory = previousMonths.length > 0 && totalHistVal > 0;
@@ -618,7 +640,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
         if (r.filial) prodMap[pKey].filiais.add(r.filial);
         prodMap[pKey].qtdSaida += (r.qtdSaida || 0);
         prodMap[pKey].qtdEntrada += (r.qtdEntrada || 0);
-        prodMap[pKey].custoTotal += (r.custoTotal || 0);
+        prodMap[pKey].custoTotal += Math.abs(r.custoTotal || 0);
         prodMap[pKey].lancamentos.push(r);
       });
 
@@ -635,7 +657,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       const ccMap = {};
       currentTMRecords.forEach(r => {
         const ccName = r.cc || 'Sem CC';
-        ccMap[ccName] = (ccMap[ccName] || 0) + (r.custoTotal || 0);
+        ccMap[ccName] = (ccMap[ccName] || 0) + Math.abs(r.custoTotal || 0);
       });
       const topCCs = Object.entries(ccMap)
         .map(([cc, val]) => ({ cc, val, pct: valorMes > 0 ? (val / valorMes) * 100 : 0 }))
@@ -645,8 +667,8 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       // Série Histórica Jan..Dez deste TM
       const historicoMeses = [];
       for (let m = 1; m <= 12; m++) {
-        const mRecs = (historySeries[m] || []).filter(r => (!filtroApenasSemOP || !r.hasOP) && (selectedFilial === 'todas' || r.filial === selectedFilial) && r.tm === tm);
-        const v = mRecs.reduce((sum, r) => sum + (r.custoTotal || 0), 0);
+        const mRecs = (historySeries[m] || []).filter(filterRecord).filter(r => normTM(r.tm) === tm);
+        const v = Math.abs(mRecs.reduce((sum, r) => sum + (r.custoTotal || 0), 0));
         historicoMeses.push({
           mesNum: m,
           mesNome: MESES[m - 1].substring(0, 3),
@@ -697,13 +719,13 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
     // 5. Agrupamento por Produto (para detalhamento de itens)
     const productHistoryMap = {};
     previousMonths.forEach(m => {
-      const mRecords = (historySeries[m] || []).filter(r => (!filtroApenasSemOP || !r.hasOP) && (selectedFilial === 'todas' || r.filial === selectedFilial));
+      const mRecords = (historySeries[m] || []).filter(filterRecord);
       mRecords.forEach(r => {
         const prod = r.produto || r.descricao;
         if (!productHistoryMap[prod]) {
           productHistoryMap[prod] = { totalVal: 0, records: [] };
         }
-        productHistoryMap[prod].totalVal += (r.custoTotal || 0);
+        productHistoryMap[prod].totalVal += Math.abs(r.custoTotal || 0);
         productHistoryMap[prod].records.push(r);
       });
     });
@@ -727,10 +749,10 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
         };
       }
       if (r.filial) currentProductMap[prod].filiais.add(r.filial);
-      if (r.tm) currentProductMap[prod].tms.add(r.tm);
+      if (r.tm) currentProductMap[prod].tms.add(normTM(r.tm));
       currentProductMap[prod].qtdEntrada += (r.qtdEntrada || 0);
       currentProductMap[prod].qtdSaida += (r.qtdSaida || 0);
-      currentProductMap[prod].custoTotalMes += (r.custoTotal || 0);
+      currentProductMap[prod].custoTotalMes += Math.abs(r.custoTotal || 0);
       currentProductMap[prod].lancamentos.push(r);
     });
 
@@ -804,16 +826,17 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
     // 6. Gráfico de Evolução Histórica das Baixas por TM (Mês a Mês do Ano)
     const evolucaoData = [];
     for (let m = 1; m <= 12; m++) {
-      const mRecs = (historySeries[m] || []).filter(r => (!filtroApenasSemOP || !r.hasOP) && (selectedFilial === 'todas' || r.filial === selectedFilial));
+      const mRecs = (historySeries[m] || []).filter(filterRecord);
       if (mRecs.length > 0 || m <= selectedMes) {
         let inv = 0, gar = 0, perd = 0, cons = 0, out = 0, total = 0;
         mRecs.forEach(r => {
-          const v = r.custoTotal || 0;
+          const v = Math.abs(r.custoTotal || 0);
+          const tm = normTM(r.tm);
           total += v;
-          if (r.tm === '506' || r.tm === '006') inv += v;
-          else if (r.tm === '509') gar += v;
-          else if (r.tm === '507') perd += v;
-          else if (r.tm === '504') cons += v;
+          if (tm === '506' || tm === '006') inv += v;
+          else if (tm === '509') gar += v;
+          else if (tm === '507') perd += v;
+          else if (tm === '504') cons += v;
           else out += v;
         });
 
@@ -847,7 +870,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
     const filialMap = {};
     currentFiltered.forEach(r => {
       const f = r.filial || 'Sem Filial';
-      filialMap[f] = (filialMap[f] || 0) + (r.custoTotal || 0);
+      filialMap[f] = (filialMap[f] || 0) + Math.abs(r.custoTotal || 0);
     });
     const distFiliais = Object.entries(filialMap)
       .map(([filial, valor]) => ({ filial, valor }))
@@ -857,7 +880,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
     const ccMap = {};
     currentFiltered.forEach(r => {
       const cc = r.cc || 'Sem CC';
-      ccMap[cc] = (ccMap[cc] || 0) + (r.custoTotal || 0);
+      ccMap[cc] = (ccMap[cc] || 0) + Math.abs(r.custoTotal || 0);
     });
     const distCC = Object.entries(ccMap)
       .map(([cc, valor]) => ({ cc, valor }))
@@ -868,7 +891,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
     const userMap = {};
     currentFiltered.forEach(r => {
       const u = r.usuario || 'Outros';
-      userMap[u] = (userMap[u] || 0) + (r.custoTotal || 0);
+      userMap[u] = (userMap[u] || 0) + Math.abs(r.custoTotal || 0);
     });
     const distUsers = Object.entries(userMap)
       .map(([usuario, valor]) => ({ usuario, valor }))
@@ -879,6 +902,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       filteredRecordsCurrent: currentFiltered,
       kpis: {
         totalBaixadoMes,
+        totalLiquidoMes,
         totalDesvioLiquido,
         totalInventario506,
         totalInventario006,
@@ -1257,7 +1281,11 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
               <div style={{ fontSize: '1.6rem', fontWeight: 'bold', color: '#fff', margin: '0.5rem 0 0.2rem 0' }}>
                 {kpis.totalBaixadoMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
               </div>
-              <div style={{ fontSize: '0.75rem', color: '#aaa', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <div style={{ fontSize: '0.74rem', color: '#aaa', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Líq. c/ Sobras 006:</span>
+                  <strong style={{ color: '#fff' }}>{kpis.totalLiquidoMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
+                </div>
                 {kpis.numPrevMonths > 0 ? (
                   <span style={{ color: kpis.totalDesvioLiquido > 0 ? '#ef5350' : '#81c784', fontWeight: 'bold' }}>
                     {kpis.totalDesvioLiquido > 0 ? `+${kpis.totalDesvioLiquido.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} vs Média` : `${kpis.totalDesvioLiquido.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} vs Média`}
@@ -1276,8 +1304,9 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
               { tmKey: '504', title: '504 Baixa Consumível', color: '#42a5f5', bgGrad: 'rgba(66, 165, 245, 0.12)' }
             ].map(({ tmKey, title, color, bgGrad }) => {
               const tmObj = analysisByTM.find(t => t.tm === tmKey) || {
-                valorMes: 0, mediaHistorica: 0, desvioValor: 0, desvioPct: 0, status: 'normal', topProdutos: []
+                valorMes: 0, mediaHistorica: 0, desvioValor: 0, desvioPct: 0, status: 'normal', topProdutos: [], records: []
               };
+              const tm006Obj = tmKey === '506' ? analysisByTM.find(t => t.tm === '006') : null;
               const hasAlert = tmObj.status === 'critico' || tmObj.status === 'atencao';
               return (
                 <div 
@@ -1323,7 +1352,11 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                   </div>
 
                   <div style={{ fontSize: '0.73rem', color: '#aaa', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span>Média: {tmObj.hasHistory ? tmObj.mediaHistorica.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'Sem hist.'}</span>
+                    {tmKey === '506' && tm006Obj ? (
+                      <span>Sobras (006): <strong style={{ color: '#80cbc4' }}>{tm006Obj.valorMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong></span>
+                    ) : (
+                      <span>Média: {tmObj.hasHistory ? tmObj.mediaHistorica.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'Sem hist.'}</span>
+                    )}
                     {tmObj.records?.length > 0 && (
                       <span style={{ color: '#64B5F6', fontSize: '0.72rem', fontWeight: 'bold' }}>
                         🎯 Questionar PCP →
