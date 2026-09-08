@@ -4,7 +4,8 @@ import {
   FileSpreadsheet, Database, Filter, Search, Download, CheckCircle, CheckCircle2, 
   Layers, UserCheck, ShieldAlert, ArrowUpRight, ArrowDownRight, BarChart3, PieChart as PieIcon,
   RefreshCw, Info, Calendar, Building2, HelpCircle, GitBranch, PlusCircle,
-  Target, MessageSquare, AlertCircle, FileText, ChevronRight, Activity
+  Target, MessageSquare, AlertCircle, FileText, ChevronRight, Activity,
+  Trash2, Edit2, Save, X
 } from 'lucide-react';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, 
@@ -20,6 +21,33 @@ const CRITICAL_TMS = {
   '509': { label: '509 - Baixa Justificada Garantia', color: '#ab47bc', bg: 'rgba(171, 71, 188, 0.15)', group: 'garantia', icon: '🛡️', question: 'Quais clientes/equipamentos acionaram garantia? O PCP/Engenharia investigou se foi falha de projeto ou qualidade de componentes?' },
   '507': { label: '507 - Perda de Material / Refugo', color: '#ff7043', bg: 'rgba(255, 112, 67, 0.15)', group: 'perda', icon: '⚠️', question: 'Qual posto de trabalho, máquina ou lote gerou refugo anormal? Houve erro operacional ou lote de matéria-prima avariado?' },
   '504': { label: '504 - Baixa Consumível Fábrica', color: '#42a5f5', bg: 'rgba(66, 165, 245, 0.15)', group: 'consumivel', icon: '🔧', question: 'O volume de insumos/consumíveis retirados do almoxarifado foi proporcional ao volume de ordens de produção abertas no mês?' },
+};
+
+const DEFAULT_FILIAIS = [
+  // Empresa 01 - AGF Equipamentos
+  { code: '0101', name: '0101 - Matriz / Fábrica', empresaId: 'equipamentos' },
+  { code: '0102', name: '0102 - Filial 02', empresaId: 'equipamentos' },
+  { code: '0103', name: '0103 - Filial 03', empresaId: 'equipamentos' },
+  { code: '0104', name: '0104 - Filial 04', empresaId: 'equipamentos' },
+  { code: '0105', name: '0105 - Filial 05', empresaId: 'equipamentos' },
+  { code: '0106', name: '0106 - Filial 06', empresaId: 'equipamentos' },
+  // Empresa 02 - Casa da Escavadeira
+  { code: '0201', name: '0201 - Matriz', empresaId: 'casa' },
+  { code: '0202', name: '0202 - Filial 02', empresaId: 'casa' },
+  { code: '0203', name: '0203 - Filial 03', empresaId: 'casa' },
+  // Empresa 03 - AGF Participações
+  { code: '0301', name: '0301 - Matriz', empresaId: 'agf_participa_es' },
+  // Empresa 04 - AGF Rompedores
+  { code: '0401', name: '0401 - Matriz', empresaId: 'rompedores' },
+  { code: '0402', name: '0402 - Filial 02', empresaId: 'rompedores' },
+  { code: '0403', name: '0403 - Filial 03', empresaId: 'rompedores' },
+];
+
+const EMPRESA_CODE_MAP = {
+  '01': 'equipamentos',
+  '02': 'casa',
+  '03': 'agf_participa_es',
+  '04': 'rompedores'
 };
 
 const COLORS_CHART = ['#ef5350', '#26a69a', '#ab47bc', '#ff7043', '#42a5f5', '#ffa726', '#8d6e63', '#78909c'];
@@ -53,10 +81,18 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
   const [savedCompetencias, setSavedCompetencias] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Cadastro Dinâmico de Filiais
+  const [cadastrosFiliais, setCadastrosFiliais] = useState(DEFAULT_FILIAIS);
+  const [isFiliaisModalOpen, setIsFiliaisModalOpen] = useState(false);
+  const [filialEmpresaTab, setFilialEmpresaTab] = useState('equipamentos');
+  const [newFilialForm, setNewFilialForm] = useState({ code: '', name: '' });
+  const [editingFilialCode, setEditingFilialCode] = useState(null);
+  const [editingFilialName, setEditingFilialName] = useState('');
+
   // Import State (Suporte a múltiplos arquivos / filiais)
   const [importFilesList, setImportFilesList] = useState([]);
   const [importFileData, setImportFileData] = useState(null);
-  const [importEmpresa, setImportEmpresa] = useState(companies[0]?.id || 'AGF');
+  const [importEmpresa, setImportEmpresa] = useState(companies[0]?.id || 'equipamentos');
   const [importAno, setImportAno] = useState(new Date().getFullYear());
   const [importMes, setImportMes] = useState(new Date().getMonth() + 1);
   const [importMode, setImportMode] = useState('replace'); // 'replace' | 'append'
@@ -68,9 +104,10 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
   const [selectedTMForModal, setSelectedTMForModal] = useState(null);
   const [subTabDesvios, setSubTabDesvios] = useState('tm'); // 'tm' | 'produto'
 
-  // Carregar lista de competências salvas ao montar
+  // Carregar lista de competências e filiais salvas ao montar
   useEffect(() => {
     loadSavedCompetencias();
+    loadCadastrosFiliais();
   }, []);
 
   // Recarregar dados sempre que Empresa, Ano ou Mês mudarem
@@ -123,21 +160,145 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
     }
   };
 
-  // Extrair nome da Filial do nome do arquivo ou cabeçalho
-  const extractFilialName = (filename) => {
+  // Carregar e Gerenciar Filiais
+  const loadCadastrosFiliais = async () => {
+    try {
+      const filiaisList = await getSettings('agf_estoque_filiais_cadastro');
+      if (Array.isArray(filiaisList) && filiaisList.length > 0) {
+        setCadastrosFiliais(filiaisList);
+      } else {
+        await saveSettings('agf_estoque_filiais_cadastro', DEFAULT_FILIAIS);
+        setCadastrosFiliais(DEFAULT_FILIAIS);
+      }
+    } catch (e) {
+      console.error('Erro ao carregar cadastro de filiais:', e);
+    }
+  };
+
+  const handleSaveNewFilial = async () => {
+    const code = newFilialForm.code.trim();
+    const name = newFilialForm.name.trim();
+    if (!code || !name) {
+      window.$alert('Preencha o código (ex: 0107) e o nome/descrição da filial.');
+      return;
+    }
+
+    if (cadastrosFiliais.some(f => f.code === code && f.empresaId === filialEmpresaTab)) {
+      window.$alert(`A filial com código ${code} já está cadastrada para esta empresa.`);
+      return;
+    }
+
+    const updated = [...cadastrosFiliais, { code, name, empresaId: filialEmpresaTab }];
+    setCadastrosFiliais(updated);
+    await saveSettings('agf_estoque_filiais_cadastro', updated);
+    setNewFilialForm({ code: '', name: '' });
+    window.$toast(`Filial ${name} cadastrada com sucesso!`, { type: 'success' });
+  };
+
+  const handleSaveEditFilial = async (code) => {
+    if (!editingFilialName.trim()) return;
+    const updated = cadastrosFiliais.map(f => {
+      if (f.code === code && f.empresaId === filialEmpresaTab) {
+        return { ...f, name: editingFilialName.trim() };
+      }
+      return f;
+    });
+    setCadastrosFiliais(updated);
+    await saveSettings('agf_estoque_filiais_cadastro', updated);
+    setEditingFilialCode(null);
+    setEditingFilialName('');
+    window.$toast('Filial atualizada com sucesso!', { type: 'success' });
+  };
+
+  const handleDeleteFilial = async (filialItem) => {
+    const ok = await window.$confirm(`Tem certeza que deseja excluir a filial "${filialItem.name}"?`);
+    if (!ok) return;
+
+    const updated = cadastrosFiliais.filter(f => !(f.code === filialItem.code && f.empresaId === filialItem.empresaId));
+    setCadastrosFiliais(updated);
+    await saveSettings('agf_estoque_filiais_cadastro', updated);
+    window.$toast('Filial excluída com sucesso!', { type: 'success' });
+  };
+
+  const handleResetFiliais = async () => {
+    const ok = await window.$confirm('Deseja restaurar as filiais padrão iniciais (0101..0106, 0201..0203, 0301, 0401..0403)?');
+    if (!ok) return;
+
+    setCadastrosFiliais(DEFAULT_FILIAIS);
+    await saveSettings('agf_estoque_filiais_cadastro', DEFAULT_FILIAIS);
+    window.$toast('Lista de filiais restaurada para os padrões do Protheus!', { type: 'success' });
+  };
+
+  // Reconhecimento Inteligente da Filial e Empresa pelo Nome do Arquivo do Protheus
+  const detectFilialFromFilename = (filename, currentEmpresa) => {
     const clean = filename.replace(/\.[^/.]+$/, '').trim();
-    const lower = clean.toLowerCase();
-    
-    // Tenta encontrar padrões como "Filial 01", "Filial 1", "F01", "Matriz", "SP", "RJ", etc.
+
+    // 1. Protheus padrão: 4 dígitos no nome do arquivo (ex: "MOVIMENTAÇÕES INTERNAS 0101.xlsx", "0101", etc.)
+    const match4 = clean.match(/\b(\d{4})\b/);
+    if (match4) {
+      const code = match4[1];
+      const empPrefix = code.substring(0, 2);
+      const suggestedEmpresa = EMPRESA_CODE_MAP[empPrefix] || null;
+      const reg = cadastrosFiliais.find(f => f.code === code);
+      return {
+        code,
+        name: reg ? reg.name : `Filial ${code}`,
+        suggestedEmpresa
+      };
+    }
+
+    // 2. Padrões alternativos: "Filial 01", "F01", "Matriz"
     const matchFilial = clean.match(/filial[\s_-]?(\d+|[a-zA-Z0-9]+)/i);
-    if (matchFilial) return `Filial ${matchFilial[1]}`.toUpperCase();
+    if (matchFilial) {
+      const num = matchFilial[1];
+      const reg = cadastrosFiliais.find(f => f.code.endsWith(num) && (f.empresaId === currentEmpresa || !currentEmpresa));
+      return {
+        code: reg ? reg.code : num,
+        name: reg ? reg.name : `Filial ${num}`.toUpperCase(),
+        suggestedEmpresa: null
+      };
+    }
 
     const matchF = clean.match(/\bF(\d{1,2})\b/i);
-    if (matchF) return `Filial ${matchF[1].padStart(2, '0')}`.toUpperCase();
+    if (matchF) {
+      const num = matchF[1].padStart(2, '0');
+      const reg = cadastrosFiliais.find(f => f.code.endsWith(num) && (f.empresaId === currentEmpresa || !currentEmpresa));
+      return {
+        code: reg ? reg.code : num,
+        name: reg ? reg.name : `Filial ${num}`.toUpperCase(),
+        suggestedEmpresa: null
+      };
+    }
 
-    if (lower.includes('matriz')) return 'MATRIZ';
-    
-    return clean.toUpperCase();
+    if (clean.toLowerCase().includes('matriz')) {
+      const reg = cadastrosFiliais.find(f => f.name.toLowerCase().includes('matriz') && (f.empresaId === currentEmpresa || !currentEmpresa));
+      return {
+        code: reg ? reg.code : 'MATRIZ',
+        name: reg ? reg.name : 'MATRIZ',
+        suggestedEmpresa: null
+      };
+    }
+
+    return { code: clean.toUpperCase(), name: clean.toUpperCase(), suggestedEmpresa: null };
+  };
+
+  // Atualizar Filial Associada a um Arquivo no Preview
+  const handleUpdateFileFilial = (filename, newFilial) => {
+    if (!previewStats || !importFileData) return;
+    const updatedArquivos = previewStats.arquivos.map(af => {
+      if (af.filename === filename) return { ...af, filial: newFilial };
+      return af;
+    });
+    const updatedRecords = importFileData.map(r => {
+      if (r.arquivoOrigem === filename) return { ...r, filial: newFilial };
+      return r;
+    });
+    setImportFileData(updatedRecords);
+    setPreviewStats({
+      ...previewStats,
+      arquivos: updatedArquivos,
+      filiaisIdentificadas: Array.from(new Set(updatedRecords.map(r => r.filial).filter(Boolean)))
+    });
   };
 
   // Parsing de Múltiplos Arquivos de Filiais do Protheus
@@ -154,7 +315,8 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
 
       for (let fIdx = 0; fIdx < files.length; fIdx++) {
         const file = files[fIdx];
-        const defaultFilial = extractFilialName(file.name);
+        const detected = detectFilialFromFilename(file.name, importEmpresa);
+        const defaultFilial = detected.name;
 
         const dataBuffer = await file.arrayBuffer();
         const wb = XLSX.read(dataBuffer, { type: 'array', cellDates: true });
@@ -268,7 +430,9 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
 
           let rowFilial = defaultFilial;
           if (idxFilial !== -1 && row[idxFilial]) {
-            rowFilial = row[idxFilial].toString().trim();
+            const rawF = row[idxFilial].toString().trim();
+            const regF = cadastrosFiliais.find(cf => cf.code === rawF || cf.code.endsWith(rawF));
+            rowFilial = regF ? regF.name : rawF;
           }
 
           let dtEmissao = row[idxData];
@@ -304,19 +468,31 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
           };
 
           allParsedRecords.push(record);
-          fileVal += custoTot;
+          fileVal += Math.abs(custoTot);
           fileRecordsCount++;
         }
 
         fileSummaries.push({
+          id: `file_${fIdx}_${file.name}`,
           filename: file.name,
           filial: defaultFilial,
+          filialCode: detected.code,
+          suggestedEmpresa: detected.suggestedEmpresa,
+          suggestedEmpresaName: companies.find(c => c.id === detected.suggestedEmpresa)?.name || '',
           linhas: fileRecordsCount,
           valor: fileVal
         });
       }
 
-      const totalVal = allParsedRecords.reduce((acc, r) => acc + r.custoTotal, 0);
+      // Se todos os arquivos lidos pertencerem a uma empresa específica do Protheus (ex: 01 -> equipamentos)
+      const detectedEmpresas = Array.from(new Set(fileSummaries.map(f => f.suggestedEmpresa).filter(Boolean)));
+      if (detectedEmpresas.length === 1 && detectedEmpresas[0] !== importEmpresa) {
+        setImportEmpresa(detectedEmpresas[0]);
+        const empName = companies.find(c => c.id === detectedEmpresas[0])?.name || detectedEmpresas[0];
+        window.$toast(`Empresa identificada automaticamente: ${empName}`, { type: 'info' });
+      }
+
+      const totalVal = allParsedRecords.reduce((acc, r) => acc + Math.abs(r.custoTotal), 0);
       const countSemOP = allParsedRecords.filter(r => !r.hasOP).length;
       const countComOP = allParsedRecords.filter(r => r.hasOP).length;
 
@@ -331,7 +507,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
         tmsEncontrados: Array.from(new Set(allParsedRecords.map(r => r.tm).filter(Boolean)))
       });
 
-      window.$toast(`${files.length} arquivo(s) de filial lidos com sucesso! Total: ${allParsedRecords.length} movimentações.`, { type: 'success' });
+      window.$toast(`${files.length} arquivo(s) de filial processado(s) com sucesso! Total: ${allParsedRecords.length} lançamentos.`, { type: 'success' });
     } catch (err) {
       console.error('Erro ao ler planilhas:', err);
       window.$alert('Falha ao processar arquivos de filial: ' + err.message);
@@ -353,10 +529,10 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
     if (importMode === 'append') {
       const existingData = await getSettings(storageKey);
       if (Array.isArray(existingData) && existingData.length > 0) {
-        // Remover duplicados pelo hash (produto, documento, data, custoTotal, filial)
-        const existingKeys = new Set(existingData.map(r => `${r.filial}_${r.produto}_${r.documento}_${r.dtEmissao}_${r.custoTotal}`));
-        const newRecords = importFileData.filter(r => !existingKeys.has(`${r.filial}_${r.produto}_${r.documento}_${r.dtEmissao}_${r.custoTotal}`));
-        finalRecordsToSave = existingData.concat(newRecords);
+        // Se estiver subindo filiais em modo append, remove versões anteriores dessas mesmas filiais para não duplicar
+        const uploadedFiliais = new Set(importFileData.map(r => r.filial));
+        const filteredExisting = existingData.filter(r => !uploadedFiliais.has(r.filial));
+        finalRecordsToSave = filteredExisting.concat(importFileData);
       }
     }
 
@@ -367,7 +543,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       `Modo: ${importMode === 'append' ? '➕ Acumular com dados existentes' : '🔄 Substituir competência'}\n` +
       `Arquivos de Filial: ${previewStats?.arquivos?.length || 1}\n` +
       `Total de Movimentações: ${finalRecordsToSave.length}\n` +
-      `Valor Total: ${finalRecordsToSave.reduce((acc, r) => acc + r.custoTotal, 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`,
+      `Valor Total: ${finalRecordsToSave.reduce((acc, r) => acc + Math.abs(r.custoTotal), 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`,
       { title: 'Gravar Movimento de Estoque por Filial' }
     );
 
@@ -2156,14 +2332,38 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
           boxShadow: '0 8px 30px rgba(0,0,0,0.5)'
         }}>
           
-          <div style={{ marginBottom: '1.5rem' }}>
-            <h3 style={{ margin: 0, color: '#FFB74D', fontSize: '1.3rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Database size={22} />
-              Importação Multi-Filial & Banco de Dados
-            </h3>
-            <p style={{ margin: '4px 0 0 0', color: '#aaa', fontSize: '0.85rem' }}>
-              Você pode selecionar <strong>vários arquivos de filiais simultaneamente</strong> (ou subir um por um no modo acumular). O sistema consolida todas as filiais automaticamente.
-            </p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.5rem' }}>
+            <div>
+              <h3 style={{ margin: 0, color: '#FFB74D', fontSize: '1.3rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Database size={22} />
+                Importação Multi-Filial & Banco de Dados
+              </h3>
+              <p style={{ margin: '4px 0 0 0', color: '#aaa', fontSize: '0.85rem' }}>
+                Reconhecimento automático dos códigos de filiais do Protheus (0101..0106, 0201..0203, 0301, 0401..0403). Suba em lote ou arquivo por arquivo.
+              </p>
+            </div>
+
+            <button
+              onClick={() => setIsFiliaisModalOpen(true)}
+              style={{
+                background: 'rgba(255, 152, 0, 0.15)',
+                color: '#FFB74D',
+                border: '1px solid rgba(255, 152, 0, 0.4)',
+                padding: '0.55rem 1rem',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontWeight: 'bold',
+                fontSize: '0.86rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255, 152, 0, 0.25)'}
+              onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255, 152, 0, 0.15)'}
+            >
+              <GitBranch size={16} /> ⚙️ Cadastrar & Gerenciar Filiais
+            </button>
           </div>
 
           {/* CARD DE UPLOAD */}
@@ -2248,7 +2448,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
             {/* Input de Arquivo com suporte a MULTIPLE */}
             <div style={{ marginTop: '0.5rem' }}>
               <label style={{ display: 'block', fontSize: '0.84rem', color: '#FFD54F', marginBottom: '6px', fontWeight: 'bold' }}>
-                📁 Selecionar Planilhas das Filiais (Pode selecionar múltiplos arquivos .xlsx):
+                📁 Selecionar Planilhas das Filiais (Pode selecionar múltiplos arquivos .xlsx de uma vez):
               </label>
               <input
                 type="file"
@@ -2266,7 +2466,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                 }}
               />
               <small style={{ color: '#888', display: 'block', marginTop: '4px' }}>
-                Dica: Você pode segurar <strong>Ctrl</strong> ou <strong>Shift</strong> para selecionar todos os arquivos de filiais de uma vez só!
+                💡 Dica: Você pode segurar <strong>Ctrl</strong> ou <strong>Shift</strong> para selecionar todos os arquivos de filiais (`MOVIMENTAÇÕES INTERNAS 0101.xlsx` a `0106.xlsx`) juntos!
               </small>
             </div>
 
@@ -2311,15 +2511,60 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                   </button>
                 </div>
 
-                {/* Lista dos arquivos lidos com totalizadores individuais */}
-                <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '6px', padding: '0.6rem 0.8rem', border: '1px solid rgba(255,255,255,0.06)' }}>
-                  <span style={{ fontSize: '0.75rem', color: '#aaa', fontWeight: 'bold', textTransform: 'uppercase' }}>Filiais Carregadas:</span>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '4px' }}>
-                    {previewStats.arquivos.map((af, idx) => (
-                      <span key={idx} style={{ background: 'rgba(76, 175, 80, 0.15)', color: '#81C784', border: '1px solid rgba(76, 175, 80, 0.3)', padding: '3px 8px', borderRadius: '6px', fontSize: '0.78rem' }}>
-                        🏢 <strong>{af.filial}</strong>: {af.linhas} linhas ({af.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})
-                      </span>
-                    ))}
+                {/* Tabela Interativa de Conferência das Filiais Carregadas */}
+                <div style={{ marginTop: '0.8rem' }}>
+                  <div style={{ fontSize: '0.8rem', color: '#bbb', marginBottom: '8px', fontWeight: 'bold' }}>
+                    📋 Conferência dos Arquivos & Filiais Associadas (Você pode alterar a filial pelo seletor caso desejar):
+                  </div>
+                  <div className="table-wrapper" style={{ maxHeight: '280px', overflowY: 'auto' }}>
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Arquivo da Pasta</th>
+                          <th>Filial Associada</th>
+                          <th style={{ textAlign: 'right' }}>Lançamentos</th>
+                          <th style={{ textAlign: 'right' }}>Valor Total</th>
+                          <th>Empresa</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {previewStats.arquivos.map((af, idx) => {
+                          const filiaisDaEmpresa = cadastrosFiliais.filter(f => f.empresaId === importEmpresa);
+                          return (
+                            <tr key={idx}>
+                              <td style={{ color: '#fff', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <FileSpreadsheet size={16} style={{ color: '#81C784' }} />
+                                <strong>{af.filename}</strong>
+                              </td>
+                              <td>
+                                <select
+                                  value={af.filial}
+                                  onChange={(e) => handleUpdateFileFilial(af.filename, e.target.value)}
+                                  className="select-input"
+                                  style={{ padding: '0.35rem 0.6rem', fontSize: '0.82rem', borderColor: '#81C784', minWidth: '180px' }}
+                                >
+                                  {filiaisDaEmpresa.map(f => (
+                                    <option key={f.code} value={f.name}>{f.name}</option>
+                                  ))}
+                                  {!filiaisDaEmpresa.some(f => f.name === af.filial || f.code === af.filial) && (
+                                    <option value={af.filial}>{af.filial}</option>
+                                  )}
+                                </select>
+                              </td>
+                              <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
+                                {af.linhas.toLocaleString('pt-BR')}
+                              </td>
+                              <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#81C784' }}>
+                                {af.valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                              </td>
+                              <td style={{ color: '#aaa', fontSize: '0.8rem' }}>
+                                {af.suggestedEmpresaName || companies.find(c => c.id === importEmpresa)?.name || 'Atual'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
 
@@ -2841,6 +3086,362 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE CADASTRO E GERENCIAMENTO DINÂMICO DE FILIAIS */}
+      {isFiliaisModalOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.75)',
+          backdropFilter: 'blur(6px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '1rem'
+        }}>
+          <div style={{
+            background: '#1a1f2c',
+            border: '1px solid rgba(255, 152, 0, 0.4)',
+            borderRadius: '16px',
+            width: '100%',
+            maxWidth: '780px',
+            maxHeight: '90vh',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            boxShadow: '0 25px 60px rgba(0,0,0,0.9)'
+          }}>
+            {/* Modal Header */}
+            <div style={{
+              padding: '1.2rem 1.5rem',
+              borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: 'rgba(0,0,0,0.35)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{
+                  background: 'rgba(255, 152, 0, 0.2)',
+                  color: '#FFB74D',
+                  padding: '8px',
+                  borderRadius: '8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>
+                  <GitBranch size={22} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, color: '#fff', fontSize: '1.15rem' }}>
+                    Cadastro & Gerenciamento de Filiais (Protheus)
+                  </h3>
+                  <div style={{ color: '#888', fontSize: '0.78rem', marginTop: '2px' }}>
+                    Adicione ou edite filiais para o reconhecimento automático das planilhas de estoque
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setIsFiliaisModalOpen(false);
+                  setEditingFilialCode(null);
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#aaa',
+                  cursor: 'pointer',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '1.2rem 1.5rem', overflowY: 'auto', flex: 1 }}>
+              {/* Tabs por Empresa */}
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '1.2rem' }}>
+                {[
+                  { id: 'equipamentos', label: '01 - AGF Equipamentos', prefix: '01' },
+                  { id: 'casa', label: '02 - Casa da Escavadeira', prefix: '02' },
+                  { id: 'agf_participa_es', label: '03 - AGF Participações', prefix: '03' },
+                  { id: 'rompedores', label: '04 - AGF Rompedores', prefix: '04' }
+                ].map(emp => {
+                  const isActive = filialEmpresaTab === emp.id;
+                  const count = cadastrosFiliais.filter(f => f.empresaId === emp.id).length;
+                  return (
+                    <button
+                      key={emp.id}
+                      onClick={() => {
+                        setFilialEmpresaTab(emp.id);
+                        setEditingFilialCode(null);
+                      }}
+                      style={{
+                        padding: '0.5rem 0.9rem',
+                        borderRadius: '8px',
+                        fontSize: '0.82rem',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        background: isActive ? '#FF9800' : 'rgba(255, 255, 255, 0.05)',
+                        color: isActive ? '#000' : '#ccc',
+                        border: isActive ? '1px solid #FF9800' : '1px solid rgba(255, 255, 255, 0.1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      <Building2 size={14} />
+                      {emp.label} ({count})
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Formulário de Adicionar Nova Filial */}
+              <div style={{
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                borderRadius: '10px',
+                padding: '1rem',
+                marginBottom: '1.2rem'
+              }}>
+                <div style={{ fontSize: '0.82rem', color: '#FFB74D', fontWeight: 'bold', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <PlusCircle size={15} /> Cadastrar Nova Filial para {
+                    filialEmpresaTab === 'equipamentos' ? 'AGF Equipamentos (01)' :
+                    filialEmpresaTab === 'casa' ? 'Casa da Escavadeira (02)' :
+                    filialEmpresaTab === 'agf_participa_es' ? 'AGF Participações (03)' : 'AGF Rompedores (04)'
+                  }
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr auto', gap: '8px', alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    placeholder="Código (ex: 0107)"
+                    value={newFilialForm.code}
+                    onChange={(e) => setNewFilialForm({ ...newFilialForm, code: e.target.value })}
+                    className="select-input"
+                    style={{ padding: '0.5rem 0.7rem', fontSize: '0.82rem', fontFamily: 'monospace' }}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Nome amigável (ex: 0107 - Filial Nova)"
+                    value={newFilialForm.name}
+                    onChange={(e) => setNewFilialForm({ ...newFilialForm, name: e.target.value })}
+                    className="select-input"
+                    style={{ padding: '0.5rem 0.7rem', fontSize: '0.82rem' }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSaveNewFilial();
+                    }}
+                  />
+                  <button
+                    onClick={handleSaveNewFilial}
+                    style={{
+                      background: '#FF9800',
+                      color: '#000',
+                      border: 'none',
+                      padding: '0.5rem 1rem',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontWeight: 'bold',
+                      fontSize: '0.82rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '5px'
+                    }}
+                  >
+                    <PlusCircle size={15} /> Adicionar
+                  </button>
+                </div>
+                <small style={{ color: '#888', display: 'block', marginTop: '6px', fontSize: '0.74rem' }}>
+                  💡 O código de 4 dígitos deve corresponder ao que vem no nome do arquivo extraído do Protheus (ex: <code>MOVIMENTAÇÕES INTERNAS 0101.xlsx</code>).
+                </small>
+              </div>
+
+              {/* Tabela de Filiais Cadastradas */}
+              <div style={{ fontSize: '0.82rem', color: '#ccc', fontWeight: 'bold', marginBottom: '8px' }}>
+                Filiais Registradas ({cadastrosFiliais.filter(f => f.empresaId === filialEmpresaTab).length}):
+              </div>
+              <div className="table-wrapper" style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: '100px' }}>Código</th>
+                      <th>Nome / Descrição</th>
+                      <th style={{ width: '130px', textAlign: 'center' }}>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cadastrosFiliais.filter(f => f.empresaId === filialEmpresaTab).map((filialItem) => {
+                      const isEditing = editingFilialCode === filialItem.code;
+                      return (
+                        <tr key={filialItem.code}>
+                          <td style={{ color: '#FFB74D', fontWeight: 'bold', fontFamily: 'monospace' }}>
+                            {filialItem.code}
+                          </td>
+                          <td>
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                value={editingFilialName}
+                                onChange={(e) => setEditingFilialName(e.target.value)}
+                                className="select-input"
+                                style={{ width: '100%', padding: '0.3rem 0.5rem', fontSize: '0.82rem' }}
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleSaveEditFilial(filialItem.code);
+                                  if (e.key === 'Escape') setEditingFilialCode(null);
+                                }}
+                              />
+                            ) : (
+                              <span style={{ color: '#fff', fontWeight: '500' }}>{filialItem.name}</span>
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            {isEditing ? (
+                              <div style={{ display: 'flex', justifyContent: 'center', gap: '4px' }}>
+                                <button
+                                  onClick={() => handleSaveEditFilial(filialItem.code)}
+                                  title="Salvar alteração"
+                                  style={{
+                                    background: 'rgba(76, 175, 80, 0.2)',
+                                    color: '#81C784',
+                                    border: '1px solid rgba(76, 175, 80, 0.4)',
+                                    borderRadius: '6px',
+                                    padding: '4px 8px',
+                                    cursor: 'pointer',
+                                    fontSize: '0.75rem',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '3px'
+                                  }}
+                                >
+                                  <Save size={13} /> Salvar
+                                </button>
+                                <button
+                                  onClick={() => setEditingFilialCode(null)}
+                                  title="Cancelar"
+                                  style={{
+                                    background: 'rgba(255, 255, 255, 0.1)',
+                                    color: '#aaa',
+                                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                                    borderRadius: '6px',
+                                    padding: '4px 8px',
+                                    cursor: 'pointer',
+                                    fontSize: '0.75rem'
+                                  }}
+                                >
+                                  <X size={13} />
+                                </button>
+                              </div>
+                            ) : (
+                              <div style={{ display: 'flex', justifyContent: 'center', gap: '6px' }}>
+                                <button
+                                  onClick={() => {
+                                    setEditingFilialCode(filialItem.code);
+                                    setEditingFilialName(filialItem.name);
+                                  }}
+                                  title="Editar nome"
+                                  style={{
+                                    background: 'rgba(33, 150, 243, 0.15)',
+                                    color: '#64B5F6',
+                                    border: '1px solid rgba(33, 150, 243, 0.4)',
+                                    borderRadius: '6px',
+                                    padding: '4px 8px',
+                                    cursor: 'pointer',
+                                    fontSize: '0.75rem',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '3px'
+                                  }}
+                                >
+                                  <Edit2 size={13} /> Editar
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteFilial(filialItem)}
+                                  title="Excluir filial"
+                                  style={{
+                                    background: 'rgba(239, 83, 80, 0.15)',
+                                    color: '#E57373',
+                                    border: '1px solid rgba(239, 83, 80, 0.4)',
+                                    borderRadius: '6px',
+                                    padding: '4px 8px',
+                                    cursor: 'pointer',
+                                    fontSize: '0.75rem',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '3px'
+                                  }}
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{
+              padding: '0.8rem 1.5rem',
+              borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+              background: 'rgba(0,0,0,0.3)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <button
+                onClick={handleResetFiliais}
+                style={{
+                  background: 'none',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  color: '#888',
+                  padding: '0.4rem 0.8rem',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '0.75rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px'
+                }}
+              >
+                <RefreshCw size={13} /> Restaurar Padrões Protheus
+              </button>
+
+              <button
+                onClick={() => {
+                  setIsFiliaisModalOpen(false);
+                  setEditingFilialCode(null);
+                }}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  color: '#fff',
+                  padding: '0.45rem 1.2rem',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontWeight: 'bold',
+                  fontSize: '0.85rem'
+                }}
+              >
+                Concluir
+              </button>
+            </div>
           </div>
         </div>
       )}
