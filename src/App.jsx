@@ -134,25 +134,19 @@ function App() {
                   />
                   <div style={{
                     position: 'absolute',
-                    top: 'calc(100% + 8px)',
+                    top: 'calc(100% + 6px)',
                     left: '1rem',
-                    width: '310px',
-                    background: 'rgba(22, 22, 30, 0.97)',
-                    backdropFilter: 'blur(20px)',
-                    WebkitBackdropFilter: 'blur(20px)',
-                    border: '1px solid rgba(255, 255, 255, 0.15)',
-                    borderRadius: '12px',
-                    boxShadow: '0 16px 40px rgba(0, 0, 0, 0.8)',
+                    minWidth: '220px',
+                    background: '#181924',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    borderRadius: '8px',
+                    boxShadow: '0 12px 30px rgba(0, 0, 0, 0.65)',
                     zIndex: 9999,
                     overflow: 'hidden',
-                    padding: '0.5rem',
+                    padding: '5px',
                     animation: 'scaleUp 0.15s ease-out'
                   }}>
-                    <div style={{ padding: '0.4rem 0.8rem 0.5rem 0.8rem', borderBottom: '1px solid rgba(255,255,255,0.08)', fontSize: '0.73rem', textTransform: 'uppercase', color: '#888', fontWeight: 'bold', letterSpacing: '0.5px' }}>
-                      Alternar Módulo / Ambiente
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '6px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                       
                       {/* OPÇÃO 1: SISTEMA CONTÁBIL */}
                       <button
@@ -161,28 +155,28 @@ function App() {
                           setShowModuleMenu(false);
                         }}
                         style={{
-                          background: selectedModule === 'contabil' ? 'rgba(212, 175, 55, 0.15)' : 'transparent',
-                          border: selectedModule === 'contabil' ? '1px solid rgba(212, 175, 55, 0.35)' : '1px solid transparent',
-                          borderRadius: '8px',
-                          padding: '0.65rem 0.85rem',
+                          background: selectedModule === 'contabil' ? 'rgba(255, 213, 79, 0.12)' : 'transparent',
+                          border: 'none',
+                          borderRadius: '6px',
+                          padding: '0.5rem 0.75rem',
                           textAlign: 'left',
                           cursor: 'pointer',
                           display: 'flex',
                           alignItems: 'center',
-                          gap: '10px',
-                          transition: 'background 0.2s'
+                          justifyContent: 'space-between',
+                          gap: '8px',
+                          color: selectedModule === 'contabil' ? '#FFD54F' : '#e0e0e0',
+                          fontSize: '0.85rem',
+                          fontWeight: selectedModule === 'contabil' ? '700' : '500',
+                          transition: 'all 0.15s'
                         }}
                         onMouseEnter={(e) => { if (selectedModule !== 'contabil') e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
                         onMouseLeave={(e) => { if (selectedModule !== 'contabil') e.currentTarget.style.background = 'transparent'; }}
                       >
-                        <div style={{ fontSize: '1.4rem' }}>💼</div>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ color: selectedModule === 'contabil' ? '#FFD54F' : '#fff', fontWeight: 'bold', fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <span>Sistema Contábil</span>
-                            {selectedModule === 'contabil' && <span style={{ fontSize: '0.68rem', color: '#000', background: '#FFD54F', padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold' }}>ATIVO</span>}
-                          </div>
-                          <div style={{ color: '#aaa', fontSize: '0.74rem', marginTop: '2px' }}>DRE, Balanço, Holding, Fiscal, etc.</div>
-                        </div>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span>💼</span> Sistema Contábil
+                        </span>
+                        {selectedModule === 'contabil' && <span style={{ color: '#FFD54F', fontSize: '0.85rem', fontWeight: 'bold' }}>✓</span>}
                       </button>
 
                       {/* OPÇÃO 2: INDICADORES */}
@@ -192,33 +186,33 @@ function App() {
                           setShowModuleMenu(false);
                         }}
                         style={{
-                          background: selectedModule === 'indicadores' ? 'rgba(33, 150, 243, 0.15)' : 'transparent',
-                          border: selectedModule === 'indicadores' ? '1px solid rgba(33, 150, 243, 0.35)' : '1px solid transparent',
-                          borderRadius: '8px',
-                          padding: '0.65rem 0.85rem',
+                          background: selectedModule === 'indicadores' ? 'rgba(33, 150, 243, 0.12)' : 'transparent',
+                          border: 'none',
+                          borderRadius: '6px',
+                          padding: '0.5rem 0.75rem',
                           textAlign: 'left',
                           cursor: 'pointer',
                           display: 'flex',
                           alignItems: 'center',
-                          gap: '10px',
-                          transition: 'background 0.2s'
+                          justifyContent: 'space-between',
+                          gap: '8px',
+                          color: selectedModule === 'indicadores' ? '#64B5F6' : '#e0e0e0',
+                          fontSize: '0.85rem',
+                          fontWeight: selectedModule === 'indicadores' ? '700' : '500',
+                          transition: 'all 0.15s'
                         }}
                         onMouseEnter={(e) => { if (selectedModule !== 'indicadores') e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
                         onMouseLeave={(e) => { if (selectedModule !== 'indicadores') e.currentTarget.style.background = 'transparent'; }}
                       >
-                        <div style={{ fontSize: '1.4rem' }}>📊</div>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ color: selectedModule === 'indicadores' ? '#64B5F6' : '#fff', fontWeight: 'bold', fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <span>Indicadores Executivos</span>
-                            {selectedModule === 'indicadores' && <span style={{ fontSize: '0.68rem', color: '#fff', background: '#2196F3', padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold' }}>ATIVO</span>}
-                          </div>
-                          <div style={{ color: '#aaa', fontSize: '0.74rem', marginTop: '2px' }}>Painel Executivo, Endividamento & KPIs</div>
-                        </div>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span>📊</span> Indicadores Executivos
+                        </span>
+                        {selectedModule === 'indicadores' && <span style={{ color: '#64B5F6', fontSize: '0.85rem', fontWeight: 'bold' }}>✓</span>}
                       </button>
 
                     </div>
 
-                    <div style={{ margin: '0.5rem 0', borderTop: '1px solid rgba(255,255,255,0.08)' }} />
+                    <div style={{ margin: '4px 0', borderTop: '1px solid rgba(255,255,255,0.08)' }} />
 
                     {/* MENU PRINCIPAL */}
                     <button
@@ -228,25 +222,24 @@ function App() {
                       }}
                       style={{
                         width: '100%',
-                        background: 'rgba(255, 255, 255, 0.04)',
-                        border: '1px solid rgba(255, 255, 255, 0.1)',
-                        borderRadius: '8px',
-                        padding: '0.5rem 0.8rem',
-                        textAlign: 'center',
-                        color: '#ccc',
-                        fontSize: '0.82rem',
+                        background: 'transparent',
+                        border: 'none',
+                        borderRadius: '6px',
+                        padding: '0.45rem 0.75rem',
+                        textAlign: 'left',
+                        color: '#888',
+                        fontSize: '0.8rem',
                         fontWeight: '500',
                         cursor: 'pointer',
                         display: 'flex',
                         alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '6px',
-                        transition: 'all 0.2s'
+                        gap: '8px',
+                        transition: 'all 0.15s'
                       }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = '#fff'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.color = '#ccc'; }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.color = '#fff'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#888'; }}
                     >
-                      <span>⊞</span> Menu Geral de Módulos
+                      <span>⊞</span> Todos os Módulos
                     </button>
 
                   </div>
