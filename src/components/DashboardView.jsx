@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell, LineChart, Line, PieChart, Pie, Legend } from 'recharts';
-import { getHistorySeries } from '../utils/db';
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell, LineChart, Line, PieChart, Pie, Legend, ReferenceLine } from 'recharts';
+import { getHistorySeries, getSettings, saveSettings } from '../utils/db';
 
 export default function DashboardView({ selectedCompany, selectedAno, selectedMes, period, selectedTrimestre }) {
   const [loading, setLoading] = useState(true);
@@ -11,10 +11,27 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
   const [debtSearch, setDebtSearch] = useState('');
   const [debtSelectedMes, setDebtSelectedMes] = useState(selectedMes);
 
-  // Sincronizar debtSelectedMes quando selectedMes mudar
+  // Projeção de Endividamento, Caixa e Break-Even (3 Anos)
+  const [chartHorizon, setChartHorizon] = useState('3anos'); // Padrão: 3 anos (Break-Even)
+  const [showProjModal, setShowProjModal] = useState(false);
+  const [projModalAnoTab, setProjModalAnoTab] = useState(selectedAno);
+  const [projAssumptions, setProjAssumptions] = useState({
+    monthlyCashGen: 500000,
+    monthlyAmortCP: 400000,
+    monthlyAmortLP: 200000
+  });
+  const [projOverrides, setProjOverrides] = useState({});
+  const [saveProjStatus, setSaveProjStatus] = useState('');
+  const [futureBalancoData, setFutureBalancoData] = useState({});
+
+  // Sincronizar debtSelectedMes e projModalAnoTab quando mudar
   useEffect(() => {
     setDebtSelectedMes(selectedMes);
   }, [selectedMes]);
+
+  useEffect(() => {
+    setProjModalAnoTab(selectedAno);
+  }, [selectedAno]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -24,6 +41,31 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
         const anterior = await getHistorySeries(selectedCompany, selectedAno - 1);
         setDataAtual(atual);
         setDataAnterior(anterior);
+
+        // Buscar dados futuros se existirem (para visualização híbrida real + projetada)
+        try {
+          const [next1, next2] = await Promise.all([
+            getHistorySeries(selectedCompany, selectedAno + 1),
+            getHistorySeries(selectedCompany, selectedAno + 2)
+          ]);
+          setFutureBalancoData({
+            [selectedAno + 1]: next1?.balanco || [],
+            [selectedAno + 2]: next2?.balanco || []
+          });
+        } catch (errFut) {
+          console.warn('Dados de balanço futuros não disponíveis:', errFut);
+        }
+
+        // Carregar configurações de projeção persistidas no Supabase
+        try {
+          const savedProj = await getSettings(`agf_projecao_endividamento_${selectedCompany}`) || await getSettings('agf_projecao_endividamento');
+          if (savedProj) {
+            if (savedProj.assumptions) setProjAssumptions(savedProj.assumptions);
+            if (savedProj.overrides) setProjOverrides(savedProj.overrides);
+          }
+        } catch (errProj) {
+          console.warn('Erro ao carregar projeção salva:', errProj);
+        }
       } catch (e) {
         console.error(e);
       }
@@ -187,7 +229,181 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
     });
   }
 
-  
+  // --- MOTOR DE PROJEÇÃO DINÂMICA DE ENDIVIDAMENTO, CAIXA E BREAK-EVEN (3 ANOS / 36 MESES) ---
+  const mesesAbrev = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+  const mesesNome = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+
+  const getMonthRealBalance = (ano, mes) => {
+    let bal = [];
+    if (ano === selectedAno) bal = dataAtual.balanco || [];
+    else if (ano === selectedAno - 1) bal = dataAnterior.balanco || [];
+    else if (futureBalancoData[ano]) bal = futureBalancoData[ano];
+
+    let mCP = 0;
+    let mLP = 0;
+    let mCaixa = 0;
+    let hasData = false;
+
+    (bal || []).forEach(r => {
+      if (r.mes !== mes) return;
+      const val = Math.abs(r.saldoAcumulado || 0);
+      if (r.conta.startsWith('2.1.1.2') || r.conta.startsWith('2.1.1.3') || r.conta.startsWith('2.1.2')) {
+        mCP += val;
+        hasData = true;
+      } else if (r.conta.startsWith('2.3.1.1') || r.conta.startsWith('2.2.1')) {
+        mLP += val;
+        hasData = true;
+      } else if (r.conta.startsWith('1.1.1.1') || r.conta.startsWith('1.1.1.2')) {
+        mCaixa += (r.saldoAcumulado || 0);
+        hasData = true;
+      }
+    });
+
+    return { hasData, mCP, mLP, mCaixa, mDividaTotal: mCP + mLP, mDividaLiquida: (mCP + mLP) - mCaixa };
+  };
+
+  // Identificar o último mês realizado contábil com saldos consistentes
+  let lastRealPoint = null;
+  for (let m = 12; m >= 1; m--) {
+    const res = getMonthRealBalance(selectedAno, m);
+    if (res.hasData && (res.mDividaTotal > 0 || res.mCaixa > 0)) {
+      lastRealPoint = { ano: selectedAno, mes: m, ...res };
+      break;
+    }
+  }
+  if (!lastRealPoint) {
+    lastRealPoint = { ano: selectedAno, mes: selectedMes || 1, mCP: 0, mLP: 0, mCaixa: 0, mDividaTotal: 0, mDividaLiquida: 0 };
+  }
+
+  const years3 = [selectedAno, selectedAno + 1, selectedAno + 2];
+  const full36Months = [];
+
+  let runningCaixa = lastRealPoint.mCaixa;
+  let runningCP = lastRealPoint.mCP;
+  let runningLP = lastRealPoint.mLP;
+  let breakEvenMonth = null;
+
+  for (const yr of years3) {
+    for (let m = 1; m <= 12; m++) {
+      const isPastOrCurrentReal = (yr < lastRealPoint.ano) || (yr === lastRealPoint.ano && m <= lastRealPoint.mes);
+      const realBal = getMonthRealBalance(yr, m);
+
+      const mesAnoAbrev = `${mesesAbrev[m - 1]}/${String(yr).slice(-2)}`;
+      const fullLabel = `${mesesNome[m - 1]} / ${yr}`;
+
+      let item = {
+        ano: yr,
+        mesNum: m,
+        mesNome: mesesNome[m - 1],
+        mesAno: mesAnoAbrev,
+        fullLabel: fullLabel,
+        mesKey: chartHorizon === '3anos' ? mesAnoAbrev : mesesAbrev[m - 1]
+      };
+
+      if (isPastOrCurrentReal && realBal.hasData) {
+        // Real contábil
+        item.isProjetado = false;
+        item.DividaCP = realBal.mCP;
+        item.DividaLP = realBal.mLP;
+        item.DividaTotal = realBal.mDividaTotal;
+        item.DisponivelCaixa = realBal.mCaixa;
+        item.DividaLiquidaCaixa = realBal.mDividaLiquida;
+
+        // Se for o último mês real, sincronizar ponto de partida da projeção
+        if (yr === lastRealPoint.ano && m === lastRealPoint.mes) {
+          runningCaixa = realBal.mCaixa;
+          runningCP = realBal.mCP;
+          runningLP = realBal.mLP;
+        }
+      } else {
+        // Projetado dinamicamente
+        item.isProjetado = true;
+        const overrideKey = `${yr}-${m}`;
+        const override = projOverrides[overrideKey];
+
+        if (override) {
+          runningCaixa = override.caixa !== undefined ? Number(override.caixa) : runningCaixa + Number(projAssumptions.monthlyCashGen || 0);
+          runningCP = override.dividaCP !== undefined ? Number(override.dividaCP) : Math.max(0, runningCP - Number(projAssumptions.monthlyAmortCP || 0));
+          runningLP = override.dividaLP !== undefined ? Number(override.dividaLP) : Math.max(0, runningLP - Number(projAssumptions.monthlyAmortLP || 0));
+        } else {
+          runningCaixa = runningCaixa + Number(projAssumptions.monthlyCashGen || 0);
+          runningCP = Math.max(0, runningCP - Number(projAssumptions.monthlyAmortCP || 0));
+          runningLP = Math.max(0, runningLP - Number(projAssumptions.monthlyAmortLP || 0));
+        }
+
+        item.DividaCP = Math.round(runningCP);
+        item.DividaLP = Math.round(runningLP);
+        item.DividaTotal = Math.round(runningCP + runningLP);
+        item.DisponivelCaixa = Math.round(runningCaixa);
+        item.DividaLiquidaCaixa = Math.round(item.DividaTotal - item.DisponivelCaixa);
+      }
+
+      // Identificação do Break-Even (Disponibilidades >= Dívida Total ou Dívida Líquida <= 0)
+      item.isBreakEven = item.DisponivelCaixa >= item.DividaTotal;
+      if (item.isBreakEven && !breakEvenMonth) {
+        const diffMonths = (yr - lastRealPoint.ano) * 12 + (m - lastRealPoint.mes);
+        breakEvenMonth = {
+          mesAno: mesAnoAbrev,
+          fullLabel: fullLabel,
+          mesKey: item.mesKey,
+          ano: yr,
+          mes: m,
+          mesesRestantes: Math.max(0, diffMonths),
+          caixa: item.DisponivelCaixa,
+          divida: item.DividaTotal,
+          sobraCaixa: item.DisponivelCaixa - item.DividaTotal,
+          isProjetado: item.isProjetado
+        };
+      }
+
+      full36Months.push(item);
+    }
+  }
+
+  const displayedDebtChartData = chartHorizon === '3anos'
+    ? full36Months
+    : full36Months.filter(d => d.ano === selectedAno).map(d => ({ ...d, mesKey: mesesAbrev[d.mesNum - 1] }));
+
+  const handleSaveProjection = async () => {
+    setSaveProjStatus('saving');
+    try {
+      const payload = {
+        assumptions: projAssumptions,
+        overrides: projOverrides,
+        updatedAt: new Date().toISOString()
+      };
+      await saveSettings(`agf_projecao_endividamento_${selectedCompany}`, payload);
+      await saveSettings('agf_projecao_endividamento', payload);
+      setSaveProjStatus('success');
+      setTimeout(() => setSaveProjStatus(''), 3000);
+    } catch (err) {
+      console.error(err);
+      setSaveProjStatus('error');
+      setTimeout(() => setSaveProjStatus(''), 3000);
+    }
+  };
+
+  const handleOverrideChange = (yr, m, field, val) => {
+    const key = `${yr}-${m}`;
+    setProjOverrides(prev => {
+      const current = prev[key] || {};
+      const num = val === '' ? undefined : parseFloat(val);
+      const updated = { ...current, [field]: num };
+      if (updated.caixa === undefined && updated.dividaCP === undefined && updated.dividaLP === undefined) {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      }
+      return { ...prev, [key]: updated };
+    });
+  };
+
+  const handleResetOverrides = () => {
+    if (window.confirm('Deseja limpar todos os ajustes manuais e manter a projeção linear padrão?')) {
+      setProjOverrides({});
+    }
+  };
+
   // --- INSIGHTS & ANÁLISE EXECUTIVA AVANÇADA ---
   let prevPeriodLabel = '';
   let fatAntReal = 0;
@@ -1285,38 +1501,798 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
         </div>
       </div>
 
-      {/* GRÁFICO DE EVOLUÇÃO DO ENDIVIDAMENTO X DISPONIBILIDADES */}
+      {/* GRÁFICO DE EVOLUÇÃO DO ENDIVIDAMENTO X DISPONIBILIDADES COM PROJEÇÃO 3 ANOS & BREAK-EVEN */}
       <div className="glass-panel" style={{ padding: '2rem', marginTop: '2rem', borderLeft: '4px solid #3F51B5' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
           <div>
             <h3 style={{ margin: 0, color: '#fff', fontSize: '1.3rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span>📈</span> Evolução do Endividamento vs. Disponibilidades - {selectedAno}
+              <span>📈</span> Evolução do Endividamento vs. Disponibilidades {chartHorizon === '3anos' ? `(Horizonte 3 Anos: ${selectedAno} a ${selectedAno + 2})` : `- ${selectedAno}`}
             </h3>
             <p style={{ margin: '0.3rem 0 0 0', color: '#aaa', fontSize: '0.85rem' }}>
-              Acompanhamento mensal da Dívida Total (Curto + Longo Prazo), Caixa Disponível e Dívida Líquida.
+              {chartHorizon === '3anos'
+                ? 'Projeção plurianual dinâmica de Dívida Total (CP + LP) vs. Caixa Disponível para determinação do Break-Even.'
+                : 'Acompanhamento mensal da Dívida Total (Curto + Longo Prazo), Caixa Disponível e Dívida Líquida.'}
             </p>
+          </div>
+          
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            {/* Toggle de Horizonte */}
+            <div style={{ display: 'flex', background: 'rgba(255,255,255,0.06)', borderRadius: '8px', padding: '3px', border: '1px solid rgba(255,255,255,0.1)' }}>
+              <button
+                type="button"
+                onClick={() => setChartHorizon('ano')}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  fontSize: '0.78rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  background: chartHorizon === 'ano' ? '#3F51B5' : 'transparent',
+                  color: chartHorizon === 'ano' ? '#fff' : '#aaa',
+                  transition: 'all 0.2s'
+                }}
+              >
+                📅 {selectedAno} (12M)
+              </button>
+              <button
+                type="button"
+                onClick={() => setChartHorizon('3anos')}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  fontSize: '0.78rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  background: chartHorizon === '3anos' ? 'linear-gradient(135deg, #3F51B5 0%, #00B0FF 100%)' : 'transparent',
+                  color: chartHorizon === '3anos' ? '#fff' : '#aaa',
+                  boxShadow: chartHorizon === '3anos' ? '0 2px 8px rgba(63,81,181,0.4)' : 'none',
+                  transition: 'all 0.2s'
+                }}
+              >
+                🚀 Visão 3 Anos (Break-Even)
+              </button>
+            </div>
+
+            {/* Botão de Simulação & Premissas */}
+            <button
+              type="button"
+              onClick={() => setShowProjModal(true)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '7px 14px',
+                borderRadius: '8px',
+                border: '1px solid rgba(0,230,118,0.4)',
+                background: 'rgba(0,230,118,0.12)',
+                color: '#00E676',
+                fontSize: '0.8rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                boxShadow: '0 2px 8px rgba(0,230,118,0.15)'
+              }}
+            >
+              <span>🎯</span> Simulação & Premissas
+            </button>
           </div>
         </div>
 
-        <div style={{ width: '100%', height: '380px' }}>
+        {/* EXECUTIVE BREAK-EVEN BANNER */}
+        {breakEvenMonth ? (
+          <div style={{
+            background: 'linear-gradient(135deg, rgba(0, 230, 118, 0.12) 0%, rgba(33, 150, 243, 0.08) 100%)',
+            border: '1px solid rgba(0, 230, 118, 0.35)',
+            borderRadius: '12px',
+            padding: '1.1rem 1.4rem',
+            marginBottom: '1.5rem',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '1rem',
+            boxShadow: '0 6px 20px rgba(0, 230, 118, 0.08)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+              <div style={{ 
+                fontSize: '2rem', 
+                background: 'rgba(0, 230, 118, 0.2)', 
+                width: '50px', 
+                height: '50px', 
+                borderRadius: '12px', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                border: '1px solid rgba(0, 230, 118, 0.4)'
+              }}>
+                🎯
+              </div>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ 
+                    fontSize: '0.75rem', 
+                    fontWeight: 800, 
+                    letterSpacing: '0.8px', 
+                    textTransform: 'uppercase', 
+                    color: '#00E676', 
+                    background: 'rgba(0, 230, 118, 0.15)', 
+                    padding: '2px 8px', 
+                    borderRadius: '4px' 
+                  }}>
+                    {breakEvenMonth.isProjetado ? 'Break-Even Projetado' : 'Break-Even Realizado'}
+                  </span>
+                  <span style={{ fontSize: '0.8rem', color: '#bbb' }}>
+                    Ponto de inflexão em que as disponibilidades superam o endividamento
+                  </span>
+                </div>
+                <div style={{ color: '#fff', fontSize: '1.3rem', fontWeight: 800, marginTop: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>Previsão: {breakEvenMonth.fullLabel}</span>
+                  <span style={{ 
+                    fontSize: '0.9rem', 
+                    fontWeight: 600, 
+                    color: '#00E676', 
+                    background: 'rgba(0, 230, 118, 0.1)', 
+                    padding: '2px 10px', 
+                    borderRadius: '20px' 
+                  }}>
+                    {breakEvenMonth.mesesRestantes === 0 ? 'Alcançado no mês atual!' : `em ${breakEvenMonth.mesesRestantes} meses`}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: '0.72rem', color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Caixa Projetado</div>
+                <div style={{ color: '#4CAF50', fontWeight: 700, fontSize: '1.1rem' }}>{formatCurrency(breakEvenMonth.caixa)}</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: '0.72rem', color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Dívida Restante</div>
+                <div style={{ color: '#FF5252', fontWeight: 700, fontSize: '1.1rem' }}>{formatCurrency(breakEvenMonth.divida)}</div>
+              </div>
+              <div style={{ textAlign: 'right', borderLeft: '1px solid rgba(255,255,255,0.1)', paddingLeft: '1.2rem' }}>
+                <div style={{ fontSize: '0.72rem', color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Dívida Líquida</div>
+                <div style={{ color: '#00E676', fontWeight: 800, fontSize: '1.1rem' }}>{formatCurrency(breakEvenMonth.divida - breakEvenMonth.caixa)}</div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div style={{
+            background: 'rgba(255, 152, 0, 0.08)',
+            border: '1px solid rgba(255, 152, 0, 0.3)',
+            borderRadius: '12px',
+            padding: '1rem 1.4rem',
+            marginBottom: '1.5rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '1rem'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <span style={{ fontSize: '1.6rem' }}>⚠️</span>
+              <div>
+                <div style={{ color: '#FFA726', fontWeight: 700, fontSize: '0.95rem' }}>
+                  Break-Even não alcançado no horizonte de 3 anos ({selectedAno} a {selectedAno + 2})
+                </div>
+                <div style={{ color: '#aaa', fontSize: '0.8rem', marginTop: '2px' }}>
+                  Com as premissas atuais de geração de caixa ({formatCurrency(projAssumptions.monthlyCashGen)}/mês) e amortização ({formatCurrency(projAssumptions.monthlyAmortCP + projAssumptions.monthlyAmortLP)}/mês), a dívida ainda não converge a zero.
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowProjModal(true)}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '6px',
+                background: 'rgba(255, 152, 0, 0.2)',
+                border: '1px solid rgba(255, 152, 0, 0.4)',
+                color: '#FFA726',
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+            >
+              Ajustar Premissas
+            </button>
+          </div>
+        )}
+
+        <div style={{ width: '100%', height: '420px' }}>
           <ResponsiveContainer>
-            <LineChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 10 }}>
-              <XAxis dataKey="mes" stroke="#aaa" />
-              <YAxis stroke="#aaa" tickFormatter={(v) => `R$ ${(v/1000000).toFixed(1)}M`} />
-              <Tooltip 
-                formatter={(val) => formatCurrency(val)} 
-                contentStyle={{ backgroundColor: 'rgba(25,25,30,0.95)', borderColor: '#3F51B5', borderRadius: '8px', boxShadow: '0 8px 24px rgba(0,0,0,0.6)' }} 
+            <LineChart data={displayedDebtChartData} margin={{ top: 25, right: 30, left: 20, bottom: 10 }}>
+              <XAxis 
+                dataKey="mesKey" 
+                stroke="#aaa" 
+                interval={chartHorizon === '3anos' ? 2 : 0} 
+                tick={{ fontSize: 11 }}
               />
+              <YAxis stroke="#aaa" tickFormatter={(v) => `R$ ${(v/1000000).toFixed(1)}M`} />
+              <Tooltip content={({ active, payload, label }) => {
+                if (!active || !payload || !payload.length) return null;
+                const item = payload[0]?.payload;
+                if (!item) return null;
+
+                const isProj = item.isProjetado;
+                const isBe = item.isBreakEven;
+
+                return (
+                  <div style={{
+                    backgroundColor: 'rgba(20, 22, 30, 0.96)',
+                    border: isBe ? '2px solid #00E676' : isProj ? '1px solid #AB47BC' : '1px solid #3F51B5',
+                    borderRadius: '10px',
+                    padding: '14px 18px',
+                    boxShadow: '0 10px 30px rgba(0,0,0,0.8)',
+                    minWidth: '250px'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '6px' }}>
+                      <span style={{ fontWeight: 800, color: '#fff', fontSize: '0.95rem' }}>{item.fullLabel || label}</span>
+                      <span style={{
+                        fontSize: '0.7rem',
+                        fontWeight: 700,
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        background: isProj ? 'rgba(171, 71, 188, 0.25)' : 'rgba(33, 150, 243, 0.25)',
+                        color: isProj ? '#CE93D8' : '#64B5F6',
+                        border: isProj ? '1px solid rgba(171, 71, 188, 0.4)' : '1px solid rgba(33, 150, 243, 0.4)'
+                      }}>
+                        {isProj ? 'PROJETADO' : 'REAL CONTÁBIL'}
+                      </span>
+                    </div>
+
+                    {isBe && (
+                      <div style={{ marginBottom: '8px', background: 'rgba(0, 230, 118, 0.15)', border: '1px solid rgba(0, 230, 118, 0.4)', borderRadius: '6px', padding: '4px 8px', color: '#00E676', fontSize: '0.75rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span>🎯</span> Ponto de Equilíbrio / Break-Even!
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '0.82rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: '#FF5252' }}>
+                        <span>Dívida Total:</span>
+                        <strong>{formatCurrency(item.DividaTotal)}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: '#90CAF9', paddingLeft: '10px', fontSize: '0.76rem' }}>
+                        <span>• Curto Prazo (CP):</span>
+                        <span>{formatCurrency(item.DividaCP)}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: '#CE93D8', paddingLeft: '10px', fontSize: '0.76rem' }}>
+                        <span>• Longo Prazo (LP):</span>
+                        <span>{formatCurrency(item.DividaLP)}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: '#4CAF50', marginTop: '4px', borderTop: '1px dashed rgba(255,255,255,0.08)', paddingTop: '4px' }}>
+                        <span>Disponível / Caixa:</span>
+                        <strong>{formatCurrency(item.DisponivelCaixa)}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', color: item.DividaLiquidaCaixa <= 0 ? '#00E676' : '#FFCA28', marginTop: '2px' }}>
+                        <span>Dívida Líquida:</span>
+                        <strong>{formatCurrency(item.DividaLiquidaCaixa)}</strong>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }} />
               <Legend wrapperStyle={{ paddingTop: '15px' }} />
-              <Line type="monotone" dataKey="DividaTotal" name="Dívida Total (R$)" stroke="#FF5252" strokeWidth={3} dot={{r: 4}} activeDot={{r: 7}} />
-              <Line type="monotone" dataKey="DividaCP" name="Curto Prazo (R$)" stroke="#2196F3" strokeWidth={2} dot={{r: 3}} />
-              <Line type="monotone" dataKey="DividaLP" name="Longo Prazo (R$)" stroke="#AB47BC" strokeWidth={2} dot={{r: 3}} />
-              <Line type="monotone" dataKey="DisponivelCaixa" name="Disponível / Caixa (R$)" stroke="#4CAF50" strokeWidth={3} dot={{r: 4}} activeDot={{r: 7}} />
-              <Line type="monotone" dataKey="DividaLiquidaCaixa" name="Dívida Líq. Caixa (R$)" stroke="#FFCA28" strokeWidth={2} strokeDasharray="5 5" dot={{r: 3}} />
+
+              {breakEvenMonth && (
+                <ReferenceLine 
+                  x={breakEvenMonth.mesKey} 
+                  stroke="#00E676" 
+                  strokeWidth={2} 
+                  strokeDasharray="4 4" 
+                  label={{ value: `🎯 Break-Even (${breakEvenMonth.mesAno})`, fill: '#00E676', position: 'top', fontSize: 11, fontWeight: 'bold' }} 
+                />
+              )}
+
+              {lastRealPoint && (
+                <ReferenceLine 
+                  x={chartHorizon === '3anos' ? `${mesesAbrev[lastRealPoint.mes - 1]}/${String(lastRealPoint.ano).slice(-2)}` : mesesAbrev[lastRealPoint.mes - 1]} 
+                  stroke="rgba(255,255,255,0.25)" 
+                  strokeWidth={1} 
+                  strokeDasharray="2 2" 
+                  label={{ value: 'Real | Projeção →', fill: '#888', position: 'insideTopLeft', fontSize: 10 }} 
+                />
+              )}
+
+              <Line type="monotone" dataKey="DividaTotal" name="Dívida Total (R$)" stroke="#FF5252" strokeWidth={3} dot={{r: 3}} activeDot={{r: 7}} />
+              <Line type="monotone" dataKey="DividaCP" name="Curto Prazo (R$)" stroke="#2196F3" strokeWidth={2} dot={{r: 2}} />
+              <Line type="monotone" dataKey="DividaLP" name="Longo Prazo (R$)" stroke="#AB47BC" strokeWidth={2} dot={{r: 2}} />
+              <Line type="monotone" dataKey="DisponivelCaixa" name="Disponível / Caixa (R$)" stroke="#4CAF50" strokeWidth={3} dot={{r: 3}} activeDot={{r: 7}} />
+              <Line type="monotone" dataKey="DividaLiquidaCaixa" name="Dívida Líq. Caixa (R$)" stroke="#FFCA28" strokeWidth={2} strokeDasharray="5 5" dot={{r: 2}} />
             </LineChart>
           </ResponsiveContainer>
         </div>
       </div>
+
+      {/* MODAL DE SIMULAÇÃO DE PROJEÇÃO & BREAK-EVEN */}
+      {showProjModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0, 0, 0, 0.85)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '1.5rem'
+        }}>
+          <div style={{
+            background: '#1a1b23',
+            border: '1px solid #3F51B5',
+            borderRadius: '16px',
+            width: '100%',
+            maxWidth: '1100px',
+            maxHeight: '92vh',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.8)',
+            overflow: 'hidden'
+          }}>
+            {/* Modal Header */}
+            <div style={{
+              padding: '1.2rem 1.6rem',
+              borderBottom: '1px solid rgba(255,255,255,0.1)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: 'rgba(63, 81, 181, 0.15)'
+            }}>
+              <div>
+                <h3 style={{ margin: 0, color: '#fff', fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>🎯</span> Motor de Projeção & Break-Even de Endividamento (Horizonte 3 Anos)
+                </h3>
+                <span style={{ color: '#aaa', fontSize: '0.85rem' }}>
+                  Configure as premissas financeiras de geração de caixa e amortizações para determinar com precisão a data do Break-Even.
+                </span>
+              </div>
+              <button
+                onClick={() => setShowProjModal(false)}
+                style={{
+                  background: 'rgba(255,255,255,0.08)',
+                  border: 'none',
+                  color: '#aaa',
+                  fontSize: '1.2rem',
+                  cursor: 'pointer',
+                  borderRadius: '50%',
+                  width: '34px',
+                  height: '34px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1 }}>
+              {/* 1. Saldo Real de Partida */}
+              <div style={{ marginBottom: '1.5rem', background: 'rgba(255,255,255,0.03)', padding: '1.2rem', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#90CAF9', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    📌 Ponto de Partida Real Contábil ({mesesNome[lastRealPoint.mes - 1]} / {lastRealPoint.ano})
+                  </span>
+                  <span style={{ fontSize: '0.75rem', color: '#888' }}>
+                    Último mês fechado com lançamentos contábeis no sistema
+                  </span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
+                  <div style={{ background: 'rgba(0,0,0,0.3)', padding: '0.8rem 1rem', borderRadius: '8px', borderLeft: '3px solid #4CAF50' }}>
+                    <div style={{ fontSize: '0.72rem', color: '#aaa' }}>Disponível / Caixa Base</div>
+                    <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#4CAF50', marginTop: '2px' }}>{formatCurrency(lastRealPoint.mCaixa)}</div>
+                  </div>
+                  <div style={{ background: 'rgba(0,0,0,0.3)', padding: '0.8rem 1rem', borderRadius: '8px', borderLeft: '3px solid #2196F3' }}>
+                    <div style={{ fontSize: '0.72rem', color: '#aaa' }}>Dívida Curto Prazo Base</div>
+                    <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#2196F3', marginTop: '2px' }}>{formatCurrency(lastRealPoint.mCP)}</div>
+                  </div>
+                  <div style={{ background: 'rgba(0,0,0,0.3)', padding: '0.8rem 1rem', borderRadius: '8px', borderLeft: '3px solid #AB47BC' }}>
+                    <div style={{ fontSize: '0.72rem', color: '#aaa' }}>Dívida Longo Prazo Base</div>
+                    <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#AB47BC', marginTop: '2px' }}>{formatCurrency(lastRealPoint.mLP)}</div>
+                  </div>
+                  <div style={{ background: 'rgba(0,0,0,0.3)', padding: '0.8rem 1rem', borderRadius: '8px', borderLeft: '3px solid #FF5252' }}>
+                    <div style={{ fontSize: '0.72rem', color: '#aaa' }}>Dívida Total Base</div>
+                    <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#FF5252', marginTop: '2px' }}>{formatCurrency(lastRealPoint.mDividaTotal)}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. Premissas Dinâmicas de Projeção */}
+              <div style={{ marginBottom: '1.5rem', background: 'rgba(63, 81, 181, 0.08)', padding: '1.2rem', borderRadius: '12px', border: '1px solid rgba(63, 81, 181, 0.25)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#00B0FF', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    ⚡ Premissas Mensais Dinâmicas (R$ / Mês)
+                  </span>
+                  <span style={{ fontSize: '0.75rem', color: '#aaa' }}>
+                    Aplicadas mês a mês a partir do término do realizado
+                  </span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.78rem', color: '#ccc', marginBottom: '4px', fontWeight: 600 }}>
+                      Geração Mensal de Caixa (+R$/mês):
+                    </label>
+                    <input
+                      type="number"
+                      step="10000"
+                      value={projAssumptions.monthlyCashGen}
+                      onChange={(e) => setProjAssumptions(prev => ({ ...prev, monthlyCashGen: parseFloat(e.target.value) || 0 }))}
+                      style={{
+                        width: '100%',
+                        padding: '0.6rem 0.8rem',
+                        borderRadius: '8px',
+                        background: 'rgba(0,0,0,0.4)',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        color: '#4CAF50',
+                        fontSize: '1rem',
+                        fontWeight: 700,
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                    <span style={{ fontSize: '0.72rem', color: '#888', marginTop: '2px', display: 'block' }}>
+                      Aporte/crescimento líquido médio do caixa mensal
+                    </span>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.78rem', color: '#ccc', marginBottom: '4px', fontWeight: 600 }}>
+                      Amortização Dívida Curto Prazo (-R$/mês):
+                    </label>
+                    <input
+                      type="number"
+                      step="10000"
+                      value={projAssumptions.monthlyAmortCP}
+                      onChange={(e) => setProjAssumptions(prev => ({ ...prev, monthlyAmortCP: parseFloat(e.target.value) || 0 }))}
+                      style={{
+                        width: '100%',
+                        padding: '0.6rem 0.8rem',
+                        borderRadius: '8px',
+                        background: 'rgba(0,0,0,0.4)',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        color: '#2196F3',
+                        fontSize: '1rem',
+                        fontWeight: 700,
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                    <span style={{ fontSize: '0.72rem', color: '#888', marginTop: '2px', display: 'block' }}>
+                      Pagamento mensal de principal CP (até zerar)
+                    </span>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.78rem', color: '#ccc', marginBottom: '4px', fontWeight: 600 }}>
+                      Amortização Dívida Longo Prazo (-R$/mês):
+                    </label>
+                    <input
+                      type="number"
+                      step="10000"
+                      value={projAssumptions.monthlyAmortLP}
+                      onChange={(e) => setProjAssumptions(prev => ({ ...prev, monthlyAmortLP: parseFloat(e.target.value) || 0 }))}
+                      style={{
+                        width: '100%',
+                        padding: '0.6rem 0.8rem',
+                        borderRadius: '8px',
+                        background: 'rgba(0,0,0,0.4)',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        color: '#AB47BC',
+                        fontSize: '1rem',
+                        fontWeight: 700,
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                    <span style={{ fontSize: '0.72rem', color: '#888', marginTop: '2px', display: 'block' }}>
+                      Pagamento mensal de principal LP (até zerar)
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. Resumo Executivo do Break-Even Calculado */}
+              <div style={{
+                background: breakEvenMonth ? 'rgba(0, 230, 118, 0.1)' : 'rgba(255, 152, 0, 0.1)',
+                border: breakEvenMonth ? '1px solid rgba(0, 230, 118, 0.4)' : '1px solid rgba(255, 152, 0, 0.4)',
+                borderRadius: '12px',
+                padding: '1rem 1.4rem',
+                marginBottom: '1.5rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '1rem'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <span style={{ fontSize: '1.8rem' }}>{breakEvenMonth ? '🎯' : '⚠️'}</span>
+                  <div>
+                    <div style={{ color: breakEvenMonth ? '#00E676' : '#FFA726', fontWeight: 800, fontSize: '1.05rem' }}>
+                      {breakEvenMonth
+                        ? `Break-Even Previsto para ${breakEvenMonth.fullLabel} (${breakEvenMonth.mesesRestantes} meses após a base)`
+                        : `Break-Even não alcançado no horizonte de 3 anos com o ritmo atual`}
+                    </div>
+                    <div style={{ color: '#ccc', fontSize: '0.8rem', marginTop: '3px' }}>
+                      {breakEvenMonth
+                        ? `Neste mês, o Caixa atingirá ${formatCurrency(breakEvenMonth.caixa)}, cobrindo integralmente a dívida remanescente de ${formatCurrency(breakEvenMonth.divida)}.`
+                        : `Aumente a geração de caixa ou as amortizações acima para que as curvas se cruzem nos próximos 36 meses.`}
+                    </div>
+                  </div>
+                </div>
+                {breakEvenMonth && (
+                  <div style={{ background: 'rgba(0, 230, 118, 0.15)', padding: '6px 14px', borderRadius: '20px', color: '#00E676', fontWeight: 700, fontSize: '0.85rem' }}>
+                    Superávit: +{formatCurrency(breakEvenMonth.sobraCaixa)}
+                  </div>
+                )}
+              </div>
+
+              {/* 4. Tabela de Detalhamento & Ajustes Finos (3 Anos) */}
+              <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                <div style={{ padding: '0.8rem 1.2rem', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', background: 'rgba(255,255,255,0.03)' }}>
+                  <div>
+                    <span style={{ fontWeight: 700, color: '#fff', fontSize: '0.9rem' }}>
+                      Detalhamento Mês a Mês ({projModalAnoTab})
+                    </span>
+                    <span style={{ color: '#888', fontSize: '0.78rem', marginLeft: '8px' }}>
+                      (Edite pontualmente os valores nos meses projetados para ajustes sob medida)
+                    </span>
+                  </div>
+
+                  {/* Abas dos 3 Anos */}
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    {years3.map(yr => (
+                      <button
+                        key={yr}
+                        type="button"
+                        onClick={() => setProjModalAnoTab(yr)}
+                        style={{
+                          padding: '5px 12px',
+                          borderRadius: '6px',
+                          border: 'none',
+                          cursor: 'pointer',
+                          fontSize: '0.8rem',
+                          fontWeight: 700,
+                          background: projModalAnoTab === yr ? '#3F51B5' : 'rgba(255,255,255,0.06)',
+                          color: projModalAnoTab === yr ? '#fff' : '#aaa'
+                        }}
+                      >
+                        {yr} {yr === selectedAno ? '(Ano 1)' : yr === selectedAno + 1 ? '(Ano 2)' : '(Ano 3)'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', textAlign: 'left' }}>
+                    <thead>
+                      <tr style={{ background: 'rgba(255,255,255,0.04)', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                        <th style={{ padding: '8px 12px', color: '#aaa' }}>Mês</th>
+                        <th style={{ padding: '8px 12px', color: '#aaa' }}>Status</th>
+                        <th style={{ padding: '8px 12px', color: '#4CAF50', textAlign: 'right' }}>Caixa (R$)</th>
+                        <th style={{ padding: '8px 12px', color: '#2196F3', textAlign: 'right' }}>Dívida CP (R$)</th>
+                        <th style={{ padding: '8px 12px', color: '#AB47BC', textAlign: 'right' }}>Dívida LP (R$)</th>
+                        <th style={{ padding: '8px 12px', color: '#FF5252', textAlign: 'right' }}>Dívida Total (R$)</th>
+                        <th style={{ padding: '8px 12px', color: '#FFCA28', textAlign: 'right' }}>Dívida Líquida (R$)</th>
+                        <th style={{ padding: '8px 12px', color: '#aaa', textAlign: 'center' }}>Break-Even?</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map(m => {
+                        const row = full36Months.find(d => d.ano === projModalAnoTab && d.mesNum === m);
+                        if (!row) return null;
+                        const ovKey = `${projModalAnoTab}-${m}`;
+                        const ov = projOverrides[ovKey] || {};
+                        const isOv = ov.caixa !== undefined || ov.dividaCP !== undefined || ov.dividaLP !== undefined;
+
+                        return (
+                          <tr
+                            key={m}
+                            style={{
+                              borderBottom: '1px solid rgba(255,255,255,0.04)',
+                              background: row.isBreakEven ? 'rgba(0, 230, 118, 0.05)' : m % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)'
+                            }}
+                          >
+                            <td style={{ padding: '8px 12px', fontWeight: 600, color: '#fff' }}>
+                              {mesesNome[m - 1]} / {projModalAnoTab}
+                            </td>
+                            <td style={{ padding: '8px 12px' }}>
+                              <span style={{
+                                padding: '2px 6px',
+                                borderRadius: '4px',
+                                fontSize: '0.7rem',
+                                fontWeight: 700,
+                                background: row.isProjetado ? (isOv ? 'rgba(255, 193, 7, 0.2)' : 'rgba(171, 71, 188, 0.2)') : 'rgba(33, 150, 243, 0.2)',
+                                color: row.isProjetado ? (isOv ? '#FFD54F' : '#CE93D8') : '#64B5F6',
+                                border: row.isProjetado ? (isOv ? '1px solid rgba(255, 193, 7, 0.4)' : '1px solid rgba(171, 71, 188, 0.4)') : '1px solid rgba(33, 150, 243, 0.4)'
+                              }}>
+                                {row.isProjetado ? (isOv ? 'PROJ. (EDITADO)' : 'PROJETADO') : 'REAL CONTÁBIL'}
+                              </span>
+                            </td>
+                            
+                            {/* Caixa */}
+                            <td style={{ padding: '6px 12px', textAlign: 'right' }}>
+                              {row.isProjetado ? (
+                                <input
+                                  type="number"
+                                  placeholder={String(row.DisponivelCaixa)}
+                                  value={ov.caixa !== undefined ? ov.caixa : ''}
+                                  onChange={(e) => handleOverrideChange(projModalAnoTab, m, 'caixa', e.target.value)}
+                                  style={{
+                                    width: '120px',
+                                    padding: '4px 6px',
+                                    borderRadius: '4px',
+                                    background: ov.caixa !== undefined ? 'rgba(76, 175, 80, 0.2)' : 'rgba(0,0,0,0.3)',
+                                    border: ov.caixa !== undefined ? '1px solid #4CAF50' : '1px solid rgba(255,255,255,0.15)',
+                                    color: '#4CAF50',
+                                    fontSize: '0.8rem',
+                                    fontWeight: 700,
+                                    textAlign: 'right'
+                                  }}
+                                />
+                              ) : (
+                                <span style={{ color: '#4CAF50', fontWeight: 600 }}>{formatCurrency(row.DisponivelCaixa)}</span>
+                              )}
+                            </td>
+
+                            {/* Dívida CP */}
+                            <td style={{ padding: '6px 12px', textAlign: 'right' }}>
+                              {row.isProjetado ? (
+                                <input
+                                  type="number"
+                                  placeholder={String(row.DividaCP)}
+                                  value={ov.dividaCP !== undefined ? ov.dividaCP : ''}
+                                  onChange={(e) => handleOverrideChange(projModalAnoTab, m, 'dividaCP', e.target.value)}
+                                  style={{
+                                    width: '120px',
+                                    padding: '4px 6px',
+                                    borderRadius: '4px',
+                                    background: ov.dividaCP !== undefined ? 'rgba(33, 150, 243, 0.2)' : 'rgba(0,0,0,0.3)',
+                                    border: ov.dividaCP !== undefined ? '1px solid #2196F3' : '1px solid rgba(255,255,255,0.15)',
+                                    color: '#2196F3',
+                                    fontSize: '0.8rem',
+                                    fontWeight: 700,
+                                    textAlign: 'right'
+                                  }}
+                                />
+                              ) : (
+                                <span style={{ color: '#2196F3', fontWeight: 600 }}>{formatCurrency(row.DividaCP)}</span>
+                              )}
+                            </td>
+
+                            {/* Dívida LP */}
+                            <td style={{ padding: '6px 12px', textAlign: 'right' }}>
+                              {row.isProjetado ? (
+                                <input
+                                  type="number"
+                                  placeholder={String(row.DividaLP)}
+                                  value={ov.dividaLP !== undefined ? ov.dividaLP : ''}
+                                  onChange={(e) => handleOverrideChange(projModalAnoTab, m, 'dividaLP', e.target.value)}
+                                  style={{
+                                    width: '120px',
+                                    padding: '4px 6px',
+                                    borderRadius: '4px',
+                                    background: ov.dividaLP !== undefined ? 'rgba(171, 71, 188, 0.2)' : 'rgba(0,0,0,0.3)',
+                                    border: ov.dividaLP !== undefined ? '1px solid #AB47BC' : '1px solid rgba(255,255,255,0.15)',
+                                    color: '#AB47BC',
+                                    fontSize: '0.8rem',
+                                    fontWeight: 700,
+                                    textAlign: 'right'
+                                  }}
+                                />
+                              ) : (
+                                <span style={{ color: '#AB47BC', fontWeight: 600 }}>{formatCurrency(row.DividaLP)}</span>
+                              )}
+                            </td>
+
+                            {/* Dívida Total */}
+                            <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, color: '#FF5252' }}>
+                              {formatCurrency(row.DividaTotal)}
+                            </td>
+
+                            {/* Dívida Líquida */}
+                            <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 800, color: row.DividaLiquidaCaixa <= 0 ? '#00E676' : '#FFCA28' }}>
+                              {formatCurrency(row.DividaLiquidaCaixa)}
+                            </td>
+
+                            {/* Break-Even Status */}
+                            <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                              {row.isBreakEven ? (
+                                <span style={{ color: '#00E676', fontWeight: 800, fontSize: '0.78rem' }}>🎯 Sim</span>
+                              ) : (
+                                <span style={{ color: '#666', fontSize: '0.78rem' }}>-</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{
+              padding: '1rem 1.6rem',
+              borderTop: '1px solid rgba(255,255,255,0.1)',
+              background: 'rgba(0,0,0,0.3)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '1rem'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                {saveProjStatus === 'saving' && (
+                  <span style={{ color: '#64B5F6', fontSize: '0.85rem' }}>⏳ Gravando configurações no Supabase...</span>
+                )}
+                {saveProjStatus === 'success' && (
+                  <span style={{ color: '#00E676', fontSize: '0.85rem', fontWeight: 700 }}>✓ Projeção corporativa salva com sucesso!</span>
+                )}
+                {saveProjStatus === 'error' && (
+                  <span style={{ color: '#FF5252', fontSize: '0.85rem' }}>❌ Erro ao salvar projeção.</span>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={handleResetOverrides}
+                  style={{
+                    background: 'rgba(255,255,255,0.06)',
+                    color: '#aaa',
+                    border: '1px solid rgba(255,255,255,0.15)',
+                    padding: '0.55rem 1.1rem',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontSize: '0.82rem',
+                    fontWeight: 600
+                  }}
+                >
+                  ↺ Limpar Ajustes Manuais
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveProjection}
+                  disabled={saveProjStatus === 'saving'}
+                  style={{
+                    background: 'linear-gradient(135deg, #2E7D32 0%, #4CAF50 100%)',
+                    color: '#fff',
+                    border: 'none',
+                    padding: '0.55rem 1.3rem',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontSize: '0.85rem',
+                    fontWeight: 700,
+                    boxShadow: '0 2px 10px rgba(46,125,50,0.4)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <span>💾</span> Salvar Projeção Corporativa
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowProjModal(false)}
+                  style={{
+                    background: '#444',
+                    color: '#fff',
+                    border: 'none',
+                    padding: '0.55rem 1.1rem',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontSize: '0.85rem',
+                    fontWeight: 600
+                  }}
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Evolução EBIT */}
       <div className="glass-panel" style={{ padding: '2rem', marginTop: '2rem' }}>

@@ -1432,187 +1432,197 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
           </div>
         </div>
 
-        {/* BARRA DE FILTROS SUPERIORES */}
+        {/* BARRA DE FILTROS EXECUTIVA */}
         <div style={{
           display: 'flex',
           alignItems: 'center',
+          justifyContent: 'space-between',
           gap: '12px',
           flexWrap: 'wrap',
-          paddingTop: '0.8rem',
+          paddingTop: '0.9rem',
           borderTop: '1px solid rgba(255,255,255,0.08)'
         }}>
-          {/* Empresa */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Building2 size={16} style={{ color: '#64B5F6' }} />
-            <select
-              value={selectedEmpresa}
-              onChange={(e) => { 
-                const val = e.target.value;
-                setSelectedEmpresa(val); 
-                setSelectedFilial('todas');
-                loadEstoqueData(val, selectedAno, selectedMes);
-              }}
-              className="select-input"
-              style={{ minWidth: '170px', padding: '0.45rem 0.7rem', fontSize: '0.85rem' }}
-            >
-              <option value="todas">TODAS AS EMPRESAS</option>
-              {companies.map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Filtro de Filial (se houver filiais registradas) */}
-          {availableFiliais.length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <GitBranch size={16} style={{ color: '#81C784' }} />
+          {/* GRUPO ESQUERDA: ESCOPO & PERÍODO */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            {/* Empresa */}
+            <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', padding: '0 8px' }}>
+              <Building2 size={15} style={{ color: '#64B5F6', marginRight: '6px' }} />
               <select
-                value={selectedFilial}
-                onChange={(e) => setSelectedFilial(e.target.value)}
+                value={selectedEmpresa}
+                onChange={(e) => { 
+                  const val = e.target.value;
+                  setSelectedEmpresa(val); 
+                  setSelectedFilial('todas');
+                  loadEstoqueData(val, selectedAno, selectedMes);
+                }}
                 className="select-input"
-                style={{ minWidth: '150px', padding: '0.45rem 0.7rem', fontSize: '0.85rem', borderColor: '#81C784' }}
+                style={{ background: 'transparent', border: 'none', minWidth: '150px', padding: '0.45rem 0.4rem', fontSize: '0.84rem', color: '#fff' }}
               >
-                <option value="todas">TODAS AS FILIAIS ({availableFiliais.length})</option>
-                {availableFiliais.map(f => (
-                  <option key={f} value={f}>{f}</option>
+                <option value="todas" style={{ background: '#1e1e24' }}>Todas as Empresas</option>
+                {companies.map(c => (
+                  <option key={c.id} value={c.id} style={{ background: '#1e1e24' }}>{c.name}</option>
                 ))}
               </select>
             </div>
-          )}
 
-          {/* Mês & Ano */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Calendar size={16} style={{ color: '#64B5F6' }} />
-            <select
-              value={selectedMes}
-              onChange={(e) => {
-                const val = parseInt(e.target.value);
-                setSelectedMes(val);
-                loadEstoqueData(selectedEmpresa, selectedAno, val);
-              }}
-              className="select-input"
-              style={{ width: '145px', padding: '0.45rem 0.7rem', fontSize: '0.85rem' }}
-            >
-              {MESES.map((m, idx) => {
-                const mesNum = idx + 1;
-                const hasData = savedCompetencias.some(c => c.ano === selectedAno && c.mes === mesNum);
-                return (
-                  <option key={mesNum} value={mesNum}>
-                    {m} {hasData ? '●' : ''}
-                  </option>
-                );
-              })}
-            </select>
+            {/* Filial (se houver filiais registradas) */}
+            {availableFiliais.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', padding: '0 8px' }}>
+                <GitBranch size={15} style={{ color: '#81C784', marginRight: '6px' }} />
+                <select
+                  value={selectedFilial}
+                  onChange={(e) => setSelectedFilial(e.target.value)}
+                  className="select-input"
+                  style={{ background: 'transparent', border: 'none', minWidth: '140px', padding: '0.45rem 0.4rem', fontSize: '0.84rem', color: '#fff' }}
+                >
+                  <option value="todas" style={{ background: '#1e1e24' }}>Todas as Filiais ({availableFiliais.length})</option>
+                  {availableFiliais.map(f => (
+                    <option key={f} value={f} style={{ background: '#1e1e24' }}>{f}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
-            <select
-              value={selectedAno}
-              onChange={(e) => {
-                const val = parseInt(e.target.value);
-                setSelectedAno(val);
-                loadEstoqueData(selectedEmpresa, val, selectedMes);
-              }}
-              className="select-input"
-              style={{ width: '90px', padding: '0.45rem 0.7rem', fontSize: '0.85rem' }}
-            >
-              {[2024, 2025, 2026, 2027].map(y => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
+            {/* Período (Mês e Ano juntos) */}
+            <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', padding: '0 8px' }}>
+              <Calendar size={15} style={{ color: '#64B5F6', marginRight: '6px' }} />
+              <select
+                value={selectedMes}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value);
+                  setSelectedMes(val);
+                  loadEstoqueData(selectedEmpresa, selectedAno, val);
+                }}
+                className="select-input"
+                style={{ background: 'transparent', border: 'none', width: '120px', padding: '0.45rem 0.4rem', fontSize: '0.84rem', color: '#fff' }}
+              >
+                {MESES.map((m, idx) => {
+                  const mesNum = idx + 1;
+                  const hasData = savedCompetencias.some(c => c.ano === selectedAno && c.mes === mesNum);
+                  return (
+                    <option key={mesNum} value={mesNum} style={{ background: '#1e1e24' }}>
+                      {m} {hasData ? '●' : ''}
+                    </option>
+                  );
+                })}
+              </select>
+
+              <span style={{ color: '#666', margin: '0 4px' }}>/</span>
+
+              <select
+                value={selectedAno}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value);
+                  setSelectedAno(val);
+                  loadEstoqueData(selectedEmpresa, val, selectedMes);
+                }}
+                className="select-input"
+                style={{ background: 'transparent', border: 'none', width: '75px', padding: '0.45rem 0.4rem', fontSize: '0.84rem', color: '#fff' }}
+              >
+                {[2024, 2025, 2026, 2027].map(y => (
+                  <option key={y} value={y} style={{ background: '#1e1e24' }}>{y}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          {/* Filtro TM Rápido */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Filter size={16} style={{ color: '#FFD54F' }} />
-            <select
-              value={filtroTM}
-              onChange={(e) => setFiltroTM(e.target.value)}
-              className="select-input"
-              style={{ width: '210px', padding: '0.45rem 0.7rem', fontSize: '0.85rem' }}
-            >
-              <option value="criticos">🎯 TMs Foco (506/006, 509, 507, 504)</option>
-              <option value="506_006">506 / 006 - Inventário Líquido</option>
-              <option value="509">509 - Baixa Garantia</option>
-              <option value="507">507 - Perda de Material</option>
-              <option value="504">504 - Baixa Consumível</option>
-              <option value="todos">Todos os TMs da Planilha</option>
-            </select>
+          {/* GRUPO DIREITA: FILTROS DE ANÁLISE, AUDITORIA & STATUS */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            {/* Filtro TM Rápido */}
+            <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', padding: '0 8px' }}>
+              <Filter size={15} style={{ color: '#FFD54F', marginRight: '6px' }} />
+              <select
+                value={filtroTM}
+                onChange={(e) => setFiltroTM(e.target.value)}
+                className="select-input"
+                style={{ background: 'transparent', border: 'none', minWidth: '180px', maxWidth: '230px', padding: '0.45rem 0.4rem', fontSize: '0.84rem', color: '#fff' }}
+              >
+                <option value="criticos" style={{ background: '#1e1e24' }}>🎯 TMs Foco (506/006, 509...)</option>
+                <option value="506_006" style={{ background: '#1e1e24' }}>506/006 - Inventário Líquido</option>
+                <option value="509" style={{ background: '#1e1e24' }}>509 - Baixa Garantia</option>
+                <option value="507" style={{ background: '#1e1e24' }}>507 - Perda de Material</option>
+                <option value="504" style={{ background: '#1e1e24' }}>504 - Baixa Consumível</option>
+                <option value="todos" style={{ background: '#1e1e24' }}>Todos os TMs</option>
+              </select>
+            </div>
+
+            {/* Toggle OP (Sem OP = Default) */}
+            <label style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              background: filtroApenasSemOP ? 'rgba(76, 175, 80, 0.12)' : 'rgba(255,255,255,0.04)',
+              border: filtroApenasSemOP ? '1px solid rgba(76, 175, 80, 0.35)' : '1px solid rgba(255,255,255,0.1)',
+              padding: '0.45rem 0.8rem',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontSize: '0.82rem',
+              color: filtroApenasSemOP ? '#81C784' : '#aaa',
+              userSelect: 'none',
+              transition: 'all 0.2s',
+              whiteSpace: 'nowrap'
+            }}>
+              <input
+                type="checkbox"
+                checked={filtroApenasSemOP}
+                onChange={(e) => setFiltroApenasSemOP(e.target.checked)}
+                style={{ cursor: 'pointer', accentColor: '#4CAF50' }}
+              />
+              <span>Apenas Sem OP</span>
+            </label>
+
+            {/* Tolerância de Desvio */}
+            <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', padding: '0 8px' }}>
+              <span style={{ fontSize: '0.78rem', color: '#888', marginRight: '4px' }}>Alerta:</span>
+              <select
+                value={toleranciaDesvioPct}
+                onChange={(e) => setToleranciaDesvioPct(parseInt(e.target.value))}
+                className="select-input"
+                style={{ background: 'transparent', border: 'none', width: '75px', padding: '0.45rem 0.2rem', fontSize: '0.82rem', color: '#FFB74D' }}
+              >
+                <option value={20} style={{ background: '#1e1e24' }}>+20%</option>
+                <option value={30} style={{ background: '#1e1e24' }}>+30%</option>
+                <option value={50} style={{ background: '#1e1e24' }}>+50%</option>
+                <option value={100} style={{ background: '#1e1e24' }}>+100%</option>
+              </select>
+            </div>
+
+            {/* Badge / Atalho para o Último Mês Importado */}
+            {latestCompetencia && (
+              <button
+                onClick={() => {
+                  setSelectedAno(latestCompetencia.ano);
+                  setSelectedMes(latestCompetencia.mes);
+                  loadEstoqueData(selectedEmpresa, latestCompetencia.ano, latestCompetencia.mes);
+                }}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: (selectedAno === latestCompetencia.ano && selectedMes === latestCompetencia.mes) 
+                    ? 'rgba(76, 175, 80, 0.12)' 
+                    : 'rgba(255, 152, 0, 0.12)',
+                  border: `1px solid ${(selectedAno === latestCompetencia.ano && selectedMes === latestCompetencia.mes) ? 'rgba(76, 175, 80, 0.35)' : 'rgba(255, 152, 0, 0.35)'}`,
+                  color: (selectedAno === latestCompetencia.ano && selectedMes === latestCompetencia.mes) ? '#81C784' : '#FFB74D',
+                  padding: '0.45rem 0.8rem',
+                  borderRadius: '8px',
+                  fontSize: '0.8rem',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  whiteSpace: 'nowrap'
+                }}
+                title="Clique para carregar o último mês importado"
+              >
+                <CheckCircle size={14} />
+                <span>Último: <strong>{MESES[latestCompetencia.mes - 1]}/{latestCompetencia.ano}</strong></span>
+                {(selectedAno !== latestCompetencia.ano || selectedMes !== latestCompetencia.mes) && (
+                  <span style={{ textDecoration: 'underline', fontSize: '0.74rem', marginLeft: '2px', opacity: 0.85 }}>
+                    (Ver)
+                  </span>
+                )}
+              </button>
+            )}
           </div>
-
-          {/* Toggle OP (Sem OP = Default) */}
-          <label style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '8px',
-            background: filtroApenasSemOP ? 'rgba(76, 175, 80, 0.15)' : 'rgba(255,255,255,0.05)',
-            border: filtroApenasSemOP ? '1px solid rgba(76, 175, 80, 0.4)' : '1px solid rgba(255,255,255,0.1)',
-            padding: '0.4rem 0.8rem',
-            borderRadius: '8px',
-            cursor: 'pointer',
-            fontSize: '0.82rem',
-            color: filtroApenasSemOP ? '#81C784' : '#aaa',
-            userSelect: 'none'
-          }}>
-            <input
-              type="checkbox"
-              checked={filtroApenasSemOP}
-              onChange={(e) => setFiltroApenasSemOP(e.target.checked)}
-              style={{ cursor: 'pointer' }}
-            />
-            <span>Apenas Sem OP (Baixas Avulsas)</span>
-          </label>
-
-          {/* Badge / Atalho para o Último Mês Importado */}
-          {latestCompetencia && (
-            <button
-              onClick={() => {
-                setSelectedAno(latestCompetencia.ano);
-                setSelectedMes(latestCompetencia.mes);
-                loadEstoqueData(selectedEmpresa, latestCompetencia.ano, latestCompetencia.mes);
-              }}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                background: (selectedAno === latestCompetencia.ano && selectedMes === latestCompetencia.mes) 
-                  ? 'rgba(76, 175, 80, 0.15)' 
-                  : 'rgba(255, 152, 0, 0.15)',
-                border: `1px solid ${(selectedAno === latestCompetencia.ano && selectedMes === latestCompetencia.mes) ? 'rgba(76, 175, 80, 0.4)' : 'rgba(255, 152, 0, 0.4)'}`,
-                color: (selectedAno === latestCompetencia.ano && selectedMes === latestCompetencia.mes) ? '#81C784' : '#FFB74D',
-                padding: '0.35rem 0.75rem',
-                borderRadius: '8px',
-                fontSize: '0.8rem',
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                whiteSpace: 'nowrap'
-              }}
-              title="Clique para carregar o último mês importado"
-            >
-              <CheckCircle size={14} />
-              <span>Último Importado: <strong>{MESES[latestCompetencia.mes - 1]} / {latestCompetencia.ano}</strong></span>
-              {(selectedAno !== latestCompetencia.ano || selectedMes !== latestCompetencia.mes) && (
-                <span style={{ textDecoration: 'underline', fontSize: '0.75rem', marginLeft: '4px' }}>
-                  (Ver)
-                </span>
-              )}
-            </button>
-          )}
-
-          {/* Tolerância de Desvio */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: latestCompetencia ? '0' : 'auto' }}>
-            <span style={{ fontSize: '0.8rem', color: '#888' }}>Alerta Desvio:</span>
-            <select
-              value={toleranciaDesvioPct}
-              onChange={(e) => setToleranciaDesvioPct(parseInt(e.target.value))}
-              className="select-input"
-              style={{ width: '95px', padding: '0.35rem 0.5rem', fontSize: '0.8rem' }}
-            >
-              <option value={20}>+20%</option>
-              <option value={30}>+30% (Padrão)</option>
-              <option value={50}>+50%</option>
-              <option value={100}>+100%</option>
-            </select>
-          </div>
-
         </div>
 
       </div>
