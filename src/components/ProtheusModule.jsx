@@ -1648,13 +1648,13 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
           }}>
             <span style={{ color: 'var(--color-primary)', fontWeight: 'bold', fontSize: '1rem' }}>🗄️ Banco de Dados</span>
             <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
-              <select value={dbMes} onChange={(e) => setDbMes(parseInt(e.target.value))} className="select-input" style={{ width: '130px' }}>
+              <select value={dbMes} onChange={(e) => setDbMes(parseInt(e.target.value))} className="select-input" style={{ width: '160px' }}>
                 <option value={1}>Janeiro</option><option value={2}>Fevereiro</option><option value={3}>Março</option>
                 <option value={4}>Abril</option><option value={5}>Maio</option><option value={6}>Junho</option>
                 <option value={7}>Julho</option><option value={8}>Agosto</option><option value={9}>Setembro</option>
                 <option value={10}>Outubro</option><option value={11}>Novembro</option><option value={12}>Dezembro</option>
               </select>
-              <select value={dbAno} onChange={(e) => setDbAno(parseInt(e.target.value))} className="select-input" style={{ width: '90px' }}>
+              <select value={dbAno} onChange={(e) => setDbAno(parseInt(e.target.value))} className="select-input" style={{ width: '115px' }}>
                 {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
               </select>
               <button
@@ -1918,7 +1918,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
 
               <select value={selectedAno} onChange={(e) => {
                 handleDashboardAnoChange(e.target.value);
-              }} className="select-input" style={{ width: '100px' }}>
+              }} className="select-input" style={{ width: '115px' }}>
                 {availableYears.map(y => {
                   const hasData = (availableRecords || []).some(r => r.ano === y);
                   return (

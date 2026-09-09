@@ -1277,18 +1277,18 @@ const renderReal = () => {
 
       {activeTab === 'apuracao' && (
         <div>
-          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '2rem' }}>
-             <select value={selectedComp} onChange={e => handleCompanyChange(e.target.value)} className="select-input">
+          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '2rem' }}>
+             <select value={selectedComp} onChange={e => handleCompanyChange(e.target.value)} className="select-input" style={{ width: '280px' }}>
                 <option value="">Selecione a Empresa...</option>
                 {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
              </select>
-             <select value={selectedMes} onChange={(e) => handleMonthChange(parseInt(e.target.value))} className="select-input" style={{ width: '130px' }}>
+             <select value={selectedMes} onChange={(e) => handleMonthChange(parseInt(e.target.value))} className="select-input" style={{ width: '160px' }}>
                 <option value={1}>Janeiro</option><option value={2}>Fevereiro</option><option value={3}>Março</option>
                 <option value={4}>Abril</option><option value={5}>Maio</option><option value={6}>Junho</option>
                 <option value={7}>Julho</option><option value={8}>Agosto</option><option value={9}>Setembro</option>
                 <option value={10}>Outubro</option><option value={11}>Novembro</option><option value={12}>Dezembro</option>
               </select>
-              <select value={selectedAno} onChange={(e) => handleYearChange(parseInt(e.target.value))} className="select-input" style={{ width: '90px' }}>
+              <select value={selectedAno} onChange={(e) => handleYearChange(parseInt(e.target.value))} className="select-input" style={{ width: '110px' }}>
                 {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
               </select>
               {isProcessing && <span style={{ padding: '0.5rem', color: 'var(--color-primary)' }}>Processando...</span>}

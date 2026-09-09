@@ -485,10 +485,10 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                 </div>
 
                 <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                    <select value={selectedMes} onChange={e => setSelectedMes(parseInt(e.target.value))} className="select-input">
+                    <select value={selectedMes} onChange={e => setSelectedMes(parseInt(e.target.value))} className="select-input" style={{ width: '160px' }}>
                         {Array.from({length: 12}, (_, i) => <option key={i+1} value={i+1}>{['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][i]}</option>)}
                     </select>
-                    <select value={selectedAno} onChange={e => setSelectedAno(parseInt(e.target.value))} className="select-input">
+                    <select value={selectedAno} onChange={e => setSelectedAno(parseInt(e.target.value))} className="select-input" style={{ width: '115px' }}>
                         {[2023, 2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
                     </select>
                 </div>
