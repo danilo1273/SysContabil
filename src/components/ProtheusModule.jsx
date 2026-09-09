@@ -109,16 +109,12 @@ function PendencyWidget({ companies, ano }) {
 
 function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBackToModules }) {
   const [activeTab, setActiveTab] = useState(moduleMode === 'contabil' ? 'apuracao' : 'resultados');
+  const prevModeRef = useRef(moduleMode);
 
   useEffect(() => {
-    if (moduleMode === 'indicadores') {
-      if (activeTab !== 'resultados' && activeTab !== 'cc' && activeTab !== 'estoque') {
-        setActiveTab('resultados');
-      }
-    } else if (moduleMode === 'contabil') {
-      if (activeTab !== 'apuracao' && activeTab !== 'rateio' && activeTab !== 'gestao' && activeTab !== 'db') {
-        setActiveTab('apuracao');
-      }
+    if (prevModeRef.current !== moduleMode) {
+      prevModeRef.current = moduleMode;
+      setActiveTab(moduleMode === 'contabil' ? 'apuracao' : 'resultados');
     }
   }, [moduleMode]);
   const [secondaryTab, setSecondaryTab] = useState('dash');
@@ -1256,7 +1252,6 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
 
       setResults(finalResults);
       setExpandedRows({}); // reset drilldowns
-      setActiveTab('resultados');
     } catch (error) {
       console.error('Erro ao processar', error);
       window.$alert('Erro ao processar balancete: ' + error.message);
