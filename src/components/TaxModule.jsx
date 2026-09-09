@@ -135,6 +135,16 @@ export default function TaxModule({ companies }) {
     setSelectedComp(newComp);
   };
 
+  const handleYearChange = (newAno) => {
+    if (selectedComp) {
+      persistTaxData(selectedComp, selectedAno, selectedMes, {
+        lalurAdicoes, lalurExclusoes, lalurCompensacaoPrejuizo, lalurRetencoesIR, lalurRetencoesIR_AppFin, lalurRetencoesCS, lalurCambioRealizado, lalurAjusteIrpj, lalurAjusteCsll,
+        presumidoRetencoesIR, presumidoRetencoesIR_AppFin, presumidoAjusteIrpj, presumidoAjusteCsll, presumidoRetencoesCS, presumidoOutrasReceitas, presumidoCambioRealizado, presumidoIpi, presumidoIcmsSt, presumidoMajoracao, presumidoImpostosDevolucao, darfIrpjReduzido, darfCsllReduzida
+      });
+    }
+    setSelectedAno(newAno);
+  };
+
   const loadFinancialData = async () => {
     if (!selectedComp) return;
     setIsProcessing(true);
