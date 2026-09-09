@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Package, AlertTriangle, TrendingUp, TrendingDown, DollarSign, 
   FileSpreadsheet, Database, Filter, Search, Download, CheckCircle, CheckCircle2, 
@@ -105,28 +105,58 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
   const [selectedTMForModal, setSelectedTMForModal] = useState(null);
   const [subTabDesvios, setSubTabDesvios] = useState('tm'); // 'tm' | 'produto'
 
+  const isInitialMount = useRef(true);
+
+  // Competência mais recente importada no sistema
+  const latestCompetencia = useMemo(() => {
+    if (!savedCompetencias || savedCompetencias.length === 0) return null;
+    const sorted = [...savedCompetencias].sort((a, b) => {
+      if (b.ano !== a.ano) return b.ano - a.ano;
+      return b.mes - a.mes;
+    });
+    return sorted[0];
+  }, [savedCompetencias]);
+
   // Carregar lista de competências e filiais salvas ao montar
   useEffect(() => {
     loadSavedCompetencias();
     loadCadastrosFiliais();
   }, []);
 
-  // Recarregar dados sempre que Empresa, Ano ou Mês mudarem
+  // Recarregar dados sempre que Empresa, Ano ou Mês mudarem pelo usuário
   useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
     loadEstoqueData(selectedEmpresa, selectedAno, selectedMes);
   }, [selectedEmpresa, selectedAno, selectedMes]);
 
   const loadSavedCompetencias = async () => {
     try {
       const compList = await getSettings('agf_estoque_competencias');
-      if (Array.isArray(compList)) {
+      if (Array.isArray(compList) && compList.length > 0) {
         setSavedCompetencias(compList);
+        // Pre-selecionar o mês mais recente com dados importados
+        const sorted = [...compList].sort((a, b) => {
+          if (b.ano !== a.ano) return b.ano - a.ano;
+          return b.mes - a.mes;
+        });
+        const latest = sorted[0];
+        if (latest) {
+          setSelectedAno(latest.ano);
+          setSelectedMes(latest.mes);
+          loadEstoqueData(selectedEmpresa, latest.ano, latest.mes);
+          return;
+        }
       } else {
         setSavedCompetencias([]);
       }
     } catch (e) {
       console.error('Erro ao carregar competências de estoque:', e);
     }
+    // Fallback: se não houver dados, carrega valores atuais
+    loadEstoqueData(selectedEmpresa, selectedAno, selectedMes);
   };
 
   const loadEstoqueData = async (empOverride, anoOverride, mesOverride) => {
@@ -1461,11 +1491,17 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                 loadEstoqueData(selectedEmpresa, selectedAno, val);
               }}
               className="select-input"
-              style={{ width: '135px', padding: '0.45rem 0.7rem', fontSize: '0.85rem' }}
+              style={{ width: '145px', padding: '0.45rem 0.7rem', fontSize: '0.85rem' }}
             >
-              {MESES.map((m, idx) => (
-                <option key={idx + 1} value={idx + 1}>{m}</option>
-              ))}
+              {MESES.map((m, idx) => {
+                const mesNum = idx + 1;
+                const hasData = savedCompetencias.some(c => c.ano === selectedAno && c.mes === mesNum);
+                return (
+                  <option key={mesNum} value={mesNum}>
+                    {m} {hasData ? '●' : ''}
+                  </option>
+                );
+              })}
             </select>
 
             <select
@@ -1525,8 +1561,44 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
             <span>Apenas Sem OP (Baixas Avulsas)</span>
           </label>
 
+          {/* Badge / Atalho para o Último Mês Importado */}
+          {latestCompetencia && (
+            <button
+              onClick={() => {
+                setSelectedAno(latestCompetencia.ano);
+                setSelectedMes(latestCompetencia.mes);
+                loadEstoqueData(selectedEmpresa, latestCompetencia.ano, latestCompetencia.mes);
+              }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                background: (selectedAno === latestCompetencia.ano && selectedMes === latestCompetencia.mes) 
+                  ? 'rgba(76, 175, 80, 0.15)' 
+                  : 'rgba(255, 152, 0, 0.15)',
+                border: `1px solid ${(selectedAno === latestCompetencia.ano && selectedMes === latestCompetencia.mes) ? 'rgba(76, 175, 80, 0.4)' : 'rgba(255, 152, 0, 0.4)'}`,
+                color: (selectedAno === latestCompetencia.ano && selectedMes === latestCompetencia.mes) ? '#81C784' : '#FFB74D',
+                padding: '0.35rem 0.75rem',
+                borderRadius: '8px',
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                whiteSpace: 'nowrap'
+              }}
+              title="Clique para carregar o último mês importado"
+            >
+              <CheckCircle size={14} />
+              <span>Último Importado: <strong>{MESES[latestCompetencia.mes - 1]} / {latestCompetencia.ano}</strong></span>
+              {(selectedAno !== latestCompetencia.ano || selectedMes !== latestCompetencia.mes) && (
+                <span style={{ textDecoration: 'underline', fontSize: '0.75rem', marginLeft: '4px' }}>
+                  (Ver)
+                </span>
+              )}
+            </button>
+          )}
+
           {/* Tolerância de Desvio */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: 'auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: latestCompetencia ? '0' : 'auto' }}>
             <span style={{ fontSize: '0.8rem', color: '#888' }}>Alerta Desvio:</span>
             <select
               value={toleranciaDesvioPct}
@@ -1577,17 +1649,36 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
             Nenhuma movimentação de estoque encontrada para {MESES[selectedMes - 1]} / {selectedAno}
           </h3>
           <p style={{ color: '#888', maxWidth: '540px', margin: '0 auto 1.5rem auto', fontSize: '0.9rem' }}>
-            Importe as planilhas de filiais do Protheus na aba "Banco de Dados / Importar Filiais" (você pode selecionar todos os arquivos de uma vez só!).
+            {latestCompetencia ? (
+              <>O último mês com movimentações importadas no sistema é <strong>{MESES[latestCompetencia.mes - 1]} / {latestCompetencia.ano}</strong>.</>
+            ) : (
+              <>Importe as planilhas de filiais do Protheus na aba "Banco de Dados / Importar Filiais" (você pode selecionar todos os arquivos de uma vez só!).</>
+            )}
           </p>
-          {canAccessDB && (
-            <button
-              onClick={() => setActiveTab('import')}
-              className="action-btn"
-              style={{ padding: '0.6rem 1.2rem', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
-            >
-              <FileSpreadsheet size={16} /> Ir para Importação de Filiais
-            </button>
-          )}
+          <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
+            {latestCompetencia && (selectedAno !== latestCompetencia.ano || selectedMes !== latestCompetencia.mes) && (
+              <button
+                onClick={() => {
+                  setSelectedAno(latestCompetencia.ano);
+                  setSelectedMes(latestCompetencia.mes);
+                  loadEstoqueData(selectedEmpresa, latestCompetencia.ano, latestCompetencia.mes);
+                }}
+                className="btn-primary"
+                style={{ padding: '0.6rem 1.2rem', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+              >
+                <Calendar size={16} /> Ver Último Mês Importado ({MESES[latestCompetencia.mes - 1]} / {latestCompetencia.ano})
+              </button>
+            )}
+            {canAccessDB && (
+              <button
+                onClick={() => setActiveTab('import')}
+                className="action-btn"
+                style={{ padding: '0.6rem 1.2rem', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+              >
+                <FileSpreadsheet size={16} /> Ir para Importação de Filiais
+              </button>
+            )}
+          </div>
         </div>
       )}
 
