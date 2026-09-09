@@ -170,14 +170,21 @@ export async function addManualEntryToDB(empresaId, ano, mes, conta, descricao, 
 }
 
 export async function checkAvailableMonths() {
-  const { data } = await supabase.from("dre_history").select("ano, mes");
+  const data = await fetchAll(
+    supabase
+      .from("dre_history")
+      .select("ano, mes, empresaId, id")
+      .not("id", "like", "tax-%")
+      .order("ano", { ascending: false })
+      .order("mes", { ascending: false })
+  );
   const unique = [];
   const map = {};
   for (const d of data || []) {
-    const key = `${d.ano}-${d.mes}`;
+    const key = `${d.empresaId || ''}-${d.ano}-${d.mes}`;
     if (!map[key]) {
       map[key] = true;
-      unique.push(d);
+      unique.push({ ano: d.ano, mes: d.mes, empresaId: d.empresaId });
     }
   }
   return unique;

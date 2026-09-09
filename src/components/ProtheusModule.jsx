@@ -18,7 +18,7 @@ import EstoqueModule from './EstoqueModule';
 const COLORS = ['#4CAF50', '#2196F3', '#f7c324', '#9C27B0', '#FF9800'];
 
 
-function PendencyWidget({ companies, ano }) {
+function PendencyWidget({ companies, ano, onSelectAno, availableYears = [] }) {
   const [statusMap, setStatusMap] = React.useState({});
   const [loading, setLoading] = React.useState(true);
 
@@ -77,9 +77,34 @@ function PendencyWidget({ companies, ano }) {
 
   return (
     <div className="print-hide widget-pendencia" style={{ marginBottom: "2rem", background: "linear-gradient(135deg, #1e1e1e 0%, #1a233a 100%)", padding: "1.5rem", borderRadius: "12px", border: "1px solid #333" }}>
-      <h3 style={{ margin: "0 0 1rem 0", color: "#64B5F6", display: "flex", alignItems: "center", gap: "8px" }}>
-        <span>📊 Status de Apuração - {ano}</span>
-      </h3>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem", flexWrap: "wrap", gap: "8px" }}>
+        <h3 style={{ margin: 0, color: "#64B5F6", display: "flex", alignItems: "center", gap: "8px" }}>
+          <span>📊 Status de Apuração - {ano}</span>
+        </h3>
+        {availableYears && availableYears.length > 1 && (
+          <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+            <span style={{ fontSize: "0.8rem", color: "#888" }}>Ano:</span>
+            {availableYears.map(y => (
+              <button
+                key={y}
+                onClick={() => onSelectAno && onSelectAno(y)}
+                style={{
+                  background: y === ano ? '#1976D2' : 'rgba(255,255,255,0.08)',
+                  color: y === ano ? '#fff' : '#aaa',
+                  border: y === ano ? '1px solid #64B5F6' : '1px solid #444',
+                  padding: '2px 8px',
+                  borderRadius: '4px',
+                  fontSize: '0.8rem',
+                  cursor: 'pointer',
+                  fontWeight: y === ano ? 'bold' : 'normal'
+                }}
+              >
+                {y}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem" }}>
         {companies.map(c => {
           const st = statusMap[c.id];
@@ -150,6 +175,16 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
   const [selectedMes, setSelectedMes] = useState(new Date().getMonth() + 1);
   const [selectedTrimestre, setSelectedTrimestre] = useState(Math.floor(new Date().getMonth() / 3) + 1);
   const [selectedAno, setSelectedAno] = useState(new Date().getFullYear());
+  const [availableRecords, setAvailableRecords] = useState([]);
+  const [dbMes, setDbMes] = useState(new Date().getMonth() + 1);
+  const [dbAno, setDbAno] = useState(new Date().getFullYear());
+
+  const availableYears = useMemo(() => {
+    const current = new Date().getFullYear();
+    const dbYears = (availableRecords || []).map(r => r.ano);
+    const set = new Set([...dbYears, current, current - 1, current + 1]);
+    return Array.from(set).sort((a, b) => b - a);
+  }, [availableRecords]);
 
   const mergedMapping = useMemo(() => {
     const merged = JSON.parse(JSON.stringify(protheusMapping));
@@ -174,24 +209,28 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
       try {
         const dbMod = await import('../utils/db');
         const records = await dbMod.checkAvailableMonths();
+        setAvailableRecords(records || []);
         if (records && records.length > 0) {
           // Achar o registro com o maior ano
           const maxAno = Math.max(...records.map(r => r.ano));
           const recordsMaxAno = records.filter(r => r.ano === maxAno);
-          const maxMes = Math.max(...recordsMaxAno.map(r => r.mes));
+          const eqRecs = recordsMaxAno.filter(r => r.empresaId === 'equipamentos');
+          const maxMes = eqRecs.length > 0 ? Math.max(...eqRecs.map(r => r.mes)) : Math.max(...recordsMaxAno.map(r => r.mes));
           const maxTrimestre = Math.floor((maxMes - 1) / 3) + 1;
           
           setSelectedAno(maxAno);
           setSelectedMes(maxMes);
           setSelectedTrimestre(maxTrimestre);
+          setDbAno(maxAno);
+          setDbMes(maxMes);
           setLatestAvailable(`${maxMes.toString().padStart(2, '0')}/${maxAno}`);
           
           try {
             const { data: _cmData } = await supabase.from("settings").select("value").eq("key", "customMapping").single();
-          if (_cmData && _cmData.value) {
+            if (_cmData && _cmData.value) {
               try { setCustomMappings(JSON.parse(_cmData.value)); } catch(e){}
-          }
-        } catch (e) {
+            }
+          } catch (e) {
             console.error('Erro ao carregar customMappings', e);
           }
           
@@ -250,25 +289,25 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
     try {
       let count = 0;
       if (igReceita && parseFloat(igReceita) !== 0) {
-        await addManualEntryToDB('exclusoes', selectedAno, selectedMes, '3.1.1.1.01.00001.EXC', 'Exclusão Intra-Grupo (Receita)', -Math.abs(parseFloat(igReceita)));
+        await addManualEntryToDB('exclusoes', dbAno, dbMes, '3.1.1.1.01.00001.EXC', 'Exclusão Intra-Grupo (Receita)', -Math.abs(parseFloat(igReceita)));
         count++;
       }
       if (igCusto && parseFloat(igCusto) !== 0) {
-        await addManualEntryToDB('exclusoes', selectedAno, selectedMes, '4.1.1.1.13.EXC', 'Exclusão Intra-Grupo (Custo)', Math.abs(parseFloat(igCusto)));
+        await addManualEntryToDB('exclusoes', dbAno, dbMes, '4.1.1.1.13.EXC', 'Exclusão Intra-Grupo (Custo)', Math.abs(parseFloat(igCusto)));
         count++;
       }
       if (igClientes && parseFloat(igClientes) !== 0) {
-        await addManualEntryToDB('exclusoes', selectedAno, selectedMes, '1.1.1.3.01.EXC', 'Exclusão Intra-Grupo (Clientes)', -Math.abs(parseFloat(igClientes)));
+        await addManualEntryToDB('exclusoes', dbAno, dbMes, '1.1.1.3.01.EXC', 'Exclusão Intra-Grupo (Clientes)', -Math.abs(parseFloat(igClientes)));
         count++;
       }
       if (igFornecedores && parseFloat(igFornecedores) !== 0) {
-        await addManualEntryToDB('exclusoes', selectedAno, selectedMes, '2.1.1.1.01.EXC', 'Exclusão Intra-Grupo (Fornecedores)', -Math.abs(parseFloat(igFornecedores)));
+        await addManualEntryToDB('exclusoes', dbAno, dbMes, '2.1.1.1.01.EXC', 'Exclusão Intra-Grupo (Fornecedores)', -Math.abs(parseFloat(igFornecedores)));
         count++;
       }
       if (count > 0) {
         window.$alert(count + ' operações de exclusão intra-grupo inseridas com sucesso!');
         setIgReceita(''); setIgCusto(''); setIgClientes(''); setIgFornecedores('');
-        loadDbRecords();
+        loadDbRecords(dbAno, dbMes);
       } else {
         window.$alert('Preencha ao menos um valor de exclusão.');
       }
@@ -280,10 +319,10 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
   const handleAddManualEntry = async () => {
     if (!manualEmpresa || !manualConta || !manualValor) return window.$alert('Preencha os campos obrigatórios');
     try {
-      await addManualEntryToDB(manualEmpresa, selectedAno, selectedMes, manualConta, manualDescricao || manualConta, parseFloat(manualValor));
+      await addManualEntryToDB(manualEmpresa, dbAno, dbMes, manualConta, manualDescricao || manualConta, parseFloat(manualValor));
       window.$toast('Lançamento inserido com sucesso!', { type: 'success' });
       setManualConta(''); setManualDescricao(''); setManualValor('');
-      loadDbRecords();
+      loadDbRecords(dbAno, dbMes);
     } catch (err) {
       window.$alert('Erro: ' + err.message);
     }
@@ -459,11 +498,13 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
     }
   };
 
-  const loadDbRecords = async () => {
+  const loadDbRecords = async (anoToLoad, mesToLoad) => {
+    const a = anoToLoad !== undefined ? anoToLoad : dbAno;
+    const m = mesToLoad !== undefined ? mesToLoad : dbMes;
     setLoadingDb(true);
     try {
       const dbMod = await import('../utils/db');
-      const data = await dbMod.getRawRecords(selectedAno, selectedMes);
+      const data = await dbMod.getRawRecords(a, m);
       
       const dreRecs = data.dre || [];
       const balancoRecs = data.balanco || [];
@@ -478,9 +519,9 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
   
   useEffect(() => {
     if (activeTab === 'db') {
-      loadDbRecords();
+      loadDbRecords(dbAno, dbMes);
     }
-  }, [activeTab, selectedAno, selectedMes]);
+  }, [activeTab, dbAno, dbMes]);
 
   useEffect(() => {
     if (results) {
@@ -489,18 +530,28 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
   }, [isDREDetalhada]);
 
   const handleDeleteMonth = async () => {
-    const mesNome = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][selectedMes-1];
+    const mesNome = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][dbMes-1];
     const empresa = dbFilterCompany ? companies.find(c => c.id === dbFilterCompany)?.name : 'TODAS AS EMPRESAS';
-    if (!await window.$confirm(`⚠️ Confirma exclusão de todos os registros de ${mesNome}/${selectedAno} para ${empresa}?`)) return;
+    if (!await window.$confirm(`⚠️ Confirma exclusão de todos os registros de ${mesNome}/${dbAno} para ${empresa}?`)) return;
     try {
       const dbMod = await import('../utils/db');
       if (dbFilterCompany !== 'todas') {
-        await dbMod.deleteRecords(dbFilterCompany, selectedAno, selectedMes);
+        await dbMod.deleteRecords(dbFilterCompany, dbAno, dbMes);
       } else {
-        await dbMod.deleteRecords(null, selectedAno, selectedMes);
+        await dbMod.deleteRecords(null, dbAno, dbMes);
       }
       window.$toast('Registros excluídos com sucesso!', { type: 'success' });
-      loadDbRecords();
+      loadDbRecords(dbAno, dbMes);
+
+      const latestRecs = await dbMod.checkAvailableMonths();
+      setAvailableRecords(latestRecs || []);
+      if (latestRecs && latestRecs.length > 0) {
+        const maxAno = Math.max(...latestRecs.map(r => r.ano));
+        const recsMaxAno = latestRecs.filter(r => r.ano === maxAno);
+        const eqRecs = recsMaxAno.filter(r => r.empresaId === 'equipamentos');
+        const maxMes = eqRecs.length > 0 ? Math.max(...eqRecs.map(r => r.mes)) : Math.max(...recsMaxAno.map(r => r.mes));
+        setLatestAvailable(`${maxMes.toString().padStart(2, '0')}/${maxAno}`);
+      }
     } catch (e) {
       window.$alert('Erro ao excluir: ' + e.message);
     }
@@ -517,20 +568,51 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
           console.log(`[SAVE] Parsed ${keys.length} accounts for ${comp.id}. First 5:`, keys.slice(0, 5));
           const analiticas = keys.filter(k => rawAccounts[k].isAnalitica);
           console.log(`[SAVE] Analíticas: ${analiticas.length}. Sample:`, analiticas.slice(0, 3).map(k => ({ conta: k, mensal: rawAccounts[k].mensal })));
-          await saveBalanceteToDB(rawAccounts, comp.id, selectedAno, selectedMes);
-          console.log(`[SAVE] Saved to DB for ${comp.id} - ano:${selectedAno} mes:${selectedMes}`);
+          await saveBalanceteToDB(rawAccounts, comp.id, dbAno, dbMes);
+          console.log(`[SAVE] Saved to DB for ${comp.id} - ano:${dbAno} mes:${dbMes}`);
         }
       }
       window.$toast('Arquivos salvos no banco de dados com sucesso!', { type: 'success' });
       setFiles({});
-      loadDbRecords();
-      setLatestAvailable(`${selectedMes.toString().padStart(2, '0')}/${selectedAno}`);
+      loadDbRecords(dbAno, dbMes);
+
+      // Recalcular com precisão o último balancete integrado e meses disponíveis
+      const dbMod = await import('../utils/db');
+      const latestRecs = await dbMod.checkAvailableMonths();
+      setAvailableRecords(latestRecs || []);
+      if (latestRecs && latestRecs.length > 0) {
+        const maxAno = Math.max(...latestRecs.map(r => r.ano));
+        const recsMaxAno = latestRecs.filter(r => r.ano === maxAno);
+        const eqRecs = recsMaxAno.filter(r => r.empresaId === 'equipamentos');
+        const maxMes = eqRecs.length > 0 ? Math.max(...eqRecs.map(r => r.mes)) : Math.max(...recsMaxAno.map(r => r.mes));
+        setLatestAvailable(`${maxMes.toString().padStart(2, '0')}/${maxAno}`);
+      }
     } catch (err) {
       console.error(err);
       window.$alert('Erro ao gravar balancetes: ' + err.message);
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const handleDashboardAnoChange = (newAno) => {
+    const a = parseInt(newAno);
+    setSelectedAno(a);
+    
+    // Identificar os meses disponíveis para o novo ano escolhido
+    const yearRecs = (availableRecords || []).filter(r => r.ano === a);
+    let targetMes = selectedMes;
+    
+    if (yearRecs.length > 0) {
+      const yearMonths = yearRecs.map(r => r.mes);
+      if (!yearMonths.includes(selectedMes)) {
+        const eqRecs = yearRecs.filter(r => r.empresaId === 'equipamentos');
+        targetMes = eqRecs.length > 0 ? Math.max(...eqRecs.map(r => r.mes)) : Math.max(...yearMonths);
+        setSelectedMes(targetMes);
+        setSelectedTrimestre(Math.floor((targetMes - 1) / 3) + 1);
+      }
+    }
+    loadPanelData(a, targetMes, period);
   };
 
   const loadPanelData = async (anoParam, mesParam, periodParam) => {
@@ -1566,22 +1648,22 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
           }}>
             <span style={{ color: 'var(--color-primary)', fontWeight: 'bold', fontSize: '1rem' }}>🗄️ Banco de Dados</span>
             <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
-              <select value={selectedMes} onChange={(e) => setSelectedMes(parseInt(e.target.value))} className="select-input" style={{ width: '130px' }}>
+              <select value={dbMes} onChange={(e) => setDbMes(parseInt(e.target.value))} className="select-input" style={{ width: '130px' }}>
                 <option value={1}>Janeiro</option><option value={2}>Fevereiro</option><option value={3}>Março</option>
                 <option value={4}>Abril</option><option value={5}>Maio</option><option value={6}>Junho</option>
                 <option value={7}>Julho</option><option value={8}>Agosto</option><option value={9}>Setembro</option>
                 <option value={10}>Outubro</option><option value={11}>Novembro</option><option value={12}>Dezembro</option>
               </select>
-              <select value={selectedAno} onChange={(e) => setSelectedAno(parseInt(e.target.value))} className="select-input" style={{ width: '90px' }}>
-                {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+              <select value={dbAno} onChange={(e) => setDbAno(parseInt(e.target.value))} className="select-input" style={{ width: '90px' }}>
+                {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
               </select>
               <button
                 onClick={async () => {
-                  const mesNome = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][selectedMes-1];
+                  const mesNome = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][dbMes-1];
                   const hasFiles = Object.keys(files).length > 0;
                   if (!hasFiles) { window.$alert('Selecione ao menos um arquivo balancete antes de gravar.', { type: 'warning' }); return; }
                   const fileList = Object.entries(files).map(([id, f]) => `  • ${companies.find(c=>c.id===id)?.name || id}: ${f.name}`).join('\n');
-                  const ok = await window.$confirm(`Confirma a gravação dos dados no banco?\n\nPeríodo: ${mesNome}/${selectedAno}\n\nArquivos:\n${fileList}`, { title: 'Gravar Balancetes no Banco' });
+                  const ok = await window.$confirm(`Confirma a gravação dos dados no banco?\n\nPeríodo: ${mesNome}/${dbAno}\n\nArquivos:\n${fileList}`, { title: 'Gravar Balancetes no Banco' });
                   if (!ok) return;
                   handleSaveToDB();
                 }}
@@ -1664,7 +1746,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
           </div>
           {/* INSERÇÃO MANUAL */}
           <div className="glass-panel" style={{ padding: '1rem', marginBottom: '2rem', display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            <h4 style={{ margin: 0, color: 'var(--color-primary)', width: '100%' }}>➕ Inserir Lançamento Avulso (Exclusões, Provisões) no mês {selectedMes}/{selectedAno}</h4>
+            <h4 style={{ margin: 0, color: 'var(--color-primary)', width: '100%' }}>➕ Inserir Lançamento Avulso (Exclusões, Provisões) no mês {dbMes}/{dbAno}</h4>
             
             <select value={manualEmpresa} onChange={(e) => setManualEmpresa(e.target.value)} className="select-input" style={{ width: '150px' }}>
                <option value="">Empresa...</option>
@@ -1760,7 +1842,12 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
 
       {activeTab === "resultados" && results && (
         <div className="results-section">
-          <PendencyWidget companies={companies} ano={selectedAno} />
+          <PendencyWidget 
+            companies={companies} 
+            ano={selectedAno} 
+            onSelectAno={handleDashboardAnoChange} 
+            availableYears={availableYears} 
+          />
 
           
           <div className="print-hide" style={{ 
@@ -1800,11 +1887,16 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                   const m = parseInt(e.target.value);
                   setSelectedMes(m);
                   loadPanelData(selectedAno, m, period);
-                }} className="select-input" style={{ width: '150px' }}>
-                  <option value={1}>Janeiro</option><option value={2}>Fevereiro</option><option value={3}>Março</option>
-                  <option value={4}>Abril</option><option value={5}>Maio</option><option value={6}>Junho</option>
-                  <option value={7}>Julho</option><option value={8}>Agosto</option><option value={9}>Setembro</option>
-                  <option value={10}>Outubro</option><option value={11}>Novembro</option><option value={12}>Dezembro</option>
+                }} className="select-input" style={{ width: '160px' }}>
+                  {['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'].map((mNome, idx) => {
+                    const mNum = idx + 1;
+                    const hasData = (availableRecords || []).some(r => r.ano === selectedAno && r.mes === mNum);
+                    return (
+                      <option key={mNum} value={mNum}>
+                        {mNome} {hasData ? '•' : ''}
+                      </option>
+                    );
+                  })}
                 </select>
               )}
 
@@ -1825,11 +1917,16 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
               )}
 
               <select value={selectedAno} onChange={(e) => {
-                const a = parseInt(e.target.value);
-                setSelectedAno(a);
-                loadPanelData(a, selectedMes);
+                handleDashboardAnoChange(e.target.value);
               }} className="select-input" style={{ width: '100px' }}>
-                {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+                {availableYears.map(y => {
+                  const hasData = (availableRecords || []).some(r => r.ano === y);
+                  return (
+                    <option key={y} value={y}>
+                      {y} {hasData ? '•' : ''}
+                    </option>
+                  );
+                })}
               </select>
               <select value={period} onChange={(e) => { 
                 const newPeriod = e.target.value;
