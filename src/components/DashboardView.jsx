@@ -1794,9 +1794,6 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
                   }}>
                     {breakEvenMonth.isProjetado ? 'Break-Even Projetado' : 'Break-Even Realizado'}
                   </span>
-                  <span style={{ fontSize: '0.8rem', color: '#bbb' }}>
-                    Ponto de inflexão em que as disponibilidades superam o endividamento
-                  </span>
                 </div>
                 <div style={{ color: '#fff', fontSize: '1.3rem', fontWeight: 800, marginTop: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span>Previsão: {breakEvenMonth.fullLabel}</span>
@@ -1849,7 +1846,7 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
                   Break-Even não alcançado no horizonte de {projHorizonYears} anos ({selectedAno} a {selectedAno + projHorizonYears - 1})
                 </div>
                 <div style={{ color: '#aaa', fontSize: '0.8rem', marginTop: '2px' }}>
-                  Com as premissas atuais de geração de caixa ({formatCurrency(projAssumptions.monthlyCashGen)}/mês) e amortização ({formatCurrency(projAssumptions.monthlyAmortCP + projAssumptions.monthlyAmortLP)}/mês), a dívida ainda não converge a zero em {projHorizonYears * 12} meses.
+                  Aumente amortizações/geração de caixa ou amplie o horizonte de projeção.
                 </div>
               </div>
             </div>
@@ -2029,12 +2026,9 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
               background: 'rgba(63, 81, 181, 0.15)'
             }}>
               <div>
-                <h3 style={{ margin: 0, color: '#fff', fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span>🎯</span> Motor de Projeção & Break-Even de Endividamento (Horizonte 3 Anos)
+                <h3 style={{ margin: 0, color: '#fff', fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>🎯</span> Projeção & Break-Even de Endividamento ({projHorizonYears} {projHorizonYears === 1 ? 'Ano' : 'Anos'})
                 </h3>
-                <span style={{ color: '#aaa', fontSize: '0.85rem' }}>
-                  Configure as premissas financeiras de geração de caixa e amortizações para determinar com precisão a data do Break-Even.
-                </span>
               </div>
               <button
                 onClick={() => setShowProjModal(false)}
@@ -2057,113 +2051,93 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
             </div>
 
             {/* Modal Body */}
-            <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1 }}>
+            <div style={{ padding: '1.4rem', overflowY: 'auto', flex: 1 }}>
               {/* 1. Saldo Real de Partida */}
-              <div style={{ marginBottom: '1.5rem', background: 'rgba(255,255,255,0.03)', padding: '1.2rem', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-                  <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#90CAF9', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    📌 Ponto de Partida Real Contábil ({mesesNome[lastRealPoint.mes - 1]} / {lastRealPoint.ano})
-                  </span>
-                  <span style={{ fontSize: '0.75rem', color: '#888' }}>
-                    Último mês fechado com lançamentos contábeis no sistema
+              <div style={{ marginBottom: '1.2rem', background: 'rgba(255,255,255,0.03)', padding: '1rem 1.2rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                <div style={{ marginBottom: '0.6rem' }}>
+                  <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#90CAF9', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    📌 Base Real Contábil ({mesesNome[lastRealPoint.mes - 1]} / {lastRealPoint.ano})
                   </span>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
-                  <div style={{ background: 'rgba(0,0,0,0.3)', padding: '0.8rem 1rem', borderRadius: '8px', borderLeft: '3px solid #4CAF50' }}>
-                    <div style={{ fontSize: '0.72rem', color: '#aaa' }}>Disponível / Caixa Base</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.8rem' }}>
+                  <div style={{ background: 'rgba(0,0,0,0.3)', padding: '0.7rem 0.9rem', borderRadius: '8px', borderLeft: '3px solid #4CAF50' }}>
+                    <div style={{ fontSize: '0.72rem', color: '#aaa' }}>Caixa Atual</div>
                     <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#4CAF50', marginTop: '2px' }}>{formatCurrency(lastRealPoint.mCaixa)}</div>
                   </div>
-                  <div style={{ background: 'rgba(0,0,0,0.3)', padding: '0.8rem 1rem', borderRadius: '8px', borderLeft: '3px solid #2196F3' }}>
-                    <div style={{ fontSize: '0.72rem', color: '#aaa' }}>Dívida Curto Prazo Base</div>
+                  <div style={{ background: 'rgba(0,0,0,0.3)', padding: '0.7rem 0.9rem', borderRadius: '8px', borderLeft: '3px solid #2196F3' }}>
+                    <div style={{ fontSize: '0.72rem', color: '#aaa' }}>Dívida Curto Prazo</div>
                     <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#2196F3', marginTop: '2px' }}>{formatCurrency(lastRealPoint.mCP)}</div>
                   </div>
-                  <div style={{ background: 'rgba(0,0,0,0.3)', padding: '0.8rem 1rem', borderRadius: '8px', borderLeft: '3px solid #AB47BC' }}>
-                    <div style={{ fontSize: '0.72rem', color: '#aaa' }}>Dívida Longo Prazo Base</div>
+                  <div style={{ background: 'rgba(0,0,0,0.3)', padding: '0.7rem 0.9rem', borderRadius: '8px', borderLeft: '3px solid #AB47BC' }}>
+                    <div style={{ fontSize: '0.72rem', color: '#aaa' }}>Dívida Longo Prazo</div>
                     <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#AB47BC', marginTop: '2px' }}>{formatCurrency(lastRealPoint.mLP)}</div>
                   </div>
-                  <div style={{ background: 'rgba(0,0,0,0.3)', padding: '0.8rem 1rem', borderRadius: '8px', borderLeft: '3px solid #FF5252' }}>
-                    <div style={{ fontSize: '0.72rem', color: '#aaa' }}>Dívida Total Base</div>
+                  <div style={{ background: 'rgba(0,0,0,0.3)', padding: '0.7rem 0.9rem', borderRadius: '8px', borderLeft: '3px solid #FF5252' }}>
+                    <div style={{ fontSize: '0.72rem', color: '#aaa' }}>Dívida Total</div>
                     <div style={{ fontSize: '1.05rem', fontWeight: 800, color: '#FF5252', marginTop: '2px' }}>{formatCurrency(lastRealPoint.mDividaTotal)}</div>
                   </div>
                 </div>
               </div>
 
               {/* 2. Premissas Dinâmicas de Projeção */}
-              <div style={{ marginBottom: '1.5rem', background: 'rgba(63, 81, 181, 0.08)', padding: '1.2rem', borderRadius: '12px', border: '1px solid rgba(63, 81, 181, 0.25)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-                  <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#00B0FF', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    ⚡ Premissas Mensais Dinâmicas (R$ / Mês)
-                  </span>
-                  <span style={{ fontSize: '0.75rem', color: '#aaa' }}>
-                    Aplicadas mês a mês a partir do término do realizado
+              <div style={{ marginBottom: '1.2rem', background: 'rgba(63, 81, 181, 0.08)', padding: '1rem 1.2rem', borderRadius: '10px', border: '1px solid rgba(63, 81, 181, 0.25)' }}>
+                <div style={{ marginBottom: '0.6rem' }}>
+                  <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#00B0FF', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    ⚡ Premissas Mensais (R$ / Mês)
                   </span>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.8rem' }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.78rem', color: '#ccc', marginBottom: '6px', fontWeight: 600 }}>
-                      Geração Mensal de Caixa (+R$/mês):
+                    <label style={{ display: 'block', fontSize: '0.78rem', color: '#ccc', marginBottom: '5px', fontWeight: 600 }}>
+                      Geração Mensal de Caixa (+):
                     </label>
                     <MoneyInput
                       value={projAssumptions.monthlyCashGen}
                       onChange={(val) => setProjAssumptions(prev => ({ ...prev, monthlyCashGen: val }))}
                       color="#4CAF50"
                     />
-                    <span style={{ fontSize: '0.72rem', color: '#888', marginTop: '4px', display: 'block' }}>
-                      Aporte/crescimento líquido médio do caixa mensal
-                    </span>
                   </div>
 
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.78rem', color: '#ccc', marginBottom: '6px', fontWeight: 600 }}>
-                      Amortização Dívida Curto Prazo (-R$/mês):
+                    <label style={{ display: 'block', fontSize: '0.78rem', color: '#ccc', marginBottom: '5px', fontWeight: 600 }}>
+                      Amortização Curto Prazo (-):
                     </label>
                     <MoneyInput
                       value={projAssumptions.monthlyAmortCP}
                       onChange={(val) => setProjAssumptions(prev => ({ ...prev, monthlyAmortCP: val }))}
                       color="#2196F3"
                     />
-                    <span style={{ fontSize: '0.72rem', color: '#888', marginTop: '4px', display: 'block' }}>
-                      Pagamento mensal de principal CP (até zerar)
-                    </span>
                   </div>
 
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.78rem', color: '#ccc', marginBottom: '6px', fontWeight: 600 }}>
-                      Amortização Dívida Longo Prazo (-R$/mês):
+                    <label style={{ display: 'block', fontSize: '0.78rem', color: '#ccc', marginBottom: '5px', fontWeight: 600 }}>
+                      Amortização Longo Prazo (-):
                     </label>
                     <MoneyInput
                       value={projAssumptions.monthlyAmortLP}
                       onChange={(val) => setProjAssumptions(prev => ({ ...prev, monthlyAmortLP: val }))}
                       color="#AB47BC"
                     />
-                    <span style={{ fontSize: '0.72rem', color: '#888', marginTop: '4px', display: 'block' }}>
-                      Pagamento mensal de principal LP (até zerar)
-                    </span>
                   </div>
                 </div>
               </div>
 
               {/* 3. Seletor de Horizonte de Projeção Personalizável */}
               <div style={{
-                marginBottom: '1.5rem',
+                marginBottom: '1.2rem',
                 background: 'rgba(0, 176, 255, 0.08)',
-                padding: '1.1rem 1.3rem',
-                borderRadius: '12px',
+                padding: '0.9rem 1.2rem',
+                borderRadius: '10px',
                 border: '1px solid rgba(0, 176, 255, 0.25)',
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
                 flexWrap: 'wrap',
-                gap: '1rem'
+                gap: '0.8rem'
               }}>
-                <div>
-                  <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#00B0FF', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    ⏱️ Horizonte Temporal da Projeção Personalizado
-                  </div>
-                  <p style={{ margin: '3px 0 0 0', fontSize: '0.76rem', color: '#bbb' }}>
-                    Escolha por quantos anos simular (1 a 10 anos) para encontrar o ponto de equilíbrio mesmo com amortizações de longo prazo:
-                  </p>
+                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#00B0FF', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  ⏱️ Horizonte da Projeção
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
@@ -2173,11 +2147,11 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
                       type="button"
                       onClick={() => setProjHorizonYears(yrCount)}
                       style={{
-                        padding: '6px 13px',
+                        padding: '5px 11px',
                         borderRadius: '6px',
                         border: projHorizonYears === yrCount ? '1px solid #00B0FF' : '1px solid rgba(255,255,255,0.1)',
                         cursor: 'pointer',
-                        fontSize: '0.8rem',
+                        fontSize: '0.78rem',
                         fontWeight: 700,
                         background: projHorizonYears === yrCount ? 'linear-gradient(135deg, #0288D1 0%, #00B0FF 100%)' : 'rgba(255,255,255,0.06)',
                         color: projHorizonYears === yrCount ? '#fff' : '#aaa',
@@ -2185,7 +2159,7 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
                         transition: 'all 0.2s'
                       }}
                     >
-                      {yrCount} {yrCount === 1 ? 'Ano' : 'Anos'} ({yrCount * 12}M)
+                      {yrCount} {yrCount === 1 ? 'Ano' : 'Anos'}
                     </button>
                   ))}
 
@@ -2201,14 +2175,14 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
                         if (val >= 1 && val <= 15) setProjHorizonYears(val);
                       }}
                       style={{
-                        width: '52px',
-                        padding: '4px 6px',
+                        width: '46px',
+                        padding: '3px 6px',
                         borderRadius: '6px',
                         background: 'rgba(0,0,0,0.4)',
                         border: '1px solid rgba(0,176,255,0.4)',
                         color: '#00B0FF',
                         fontWeight: 700,
-                        fontSize: '0.85rem',
+                        fontSize: '0.8rem',
                         textAlign: 'center'
                       }}
                     />
@@ -2221,33 +2195,33 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
               <div style={{
                 background: breakEvenMonth ? 'rgba(0, 230, 118, 0.1)' : 'rgba(255, 152, 0, 0.1)',
                 border: breakEvenMonth ? '1px solid rgba(0, 230, 118, 0.4)' : '1px solid rgba(255, 152, 0, 0.4)',
-                borderRadius: '12px',
-                padding: '1rem 1.4rem',
-                marginBottom: '1.5rem',
+                borderRadius: '10px',
+                padding: '0.9rem 1.2rem',
+                marginBottom: '1.2rem',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 flexWrap: 'wrap',
-                gap: '1rem'
+                gap: '0.8rem'
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <span style={{ fontSize: '1.8rem' }}>{breakEvenMonth ? '🎯' : '⚠️'}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '1.5rem' }}>{breakEvenMonth ? '🎯' : '⚠️'}</span>
                   <div>
-                    <div style={{ color: breakEvenMonth ? '#00E676' : '#FFA726', fontWeight: 800, fontSize: '1.05rem' }}>
+                    <div style={{ color: breakEvenMonth ? '#00E676' : '#FFA726', fontWeight: 800, fontSize: '0.98rem' }}>
                       {breakEvenMonth
-                        ? `Break-Even Previsto para ${breakEvenMonth.fullLabel} (${breakEvenMonth.mesesRestantes} meses após a base)`
-                        : `Break-Even não alcançado no horizonte de ${projHorizonYears} anos (${projHorizonYears * 12} meses) com o ritmo atual`}
+                        ? `Break-Even Previsto: ${breakEvenMonth.fullLabel} (em ${breakEvenMonth.mesesRestantes} meses)`
+                        : `Break-Even não alcançado no horizonte de ${projHorizonYears} anos`}
                     </div>
-                    <div style={{ color: '#ccc', fontSize: '0.8rem', marginTop: '3px' }}>
+                    <div style={{ color: '#ccc', fontSize: '0.78rem', marginTop: '2px' }}>
                       {breakEvenMonth
-                        ? `Neste mês, o Caixa atingirá ${formatCurrency(breakEvenMonth.caixa)}, cobrindo integralmente a dívida remanescente de ${formatCurrency(breakEvenMonth.divida)}.`
-                        : `Aumente as amortizações/geração de caixa, ou amplie o horizonte de projeção acima para encontrar a data de convergência.`}
+                        ? `Caixa: ${formatCurrency(breakEvenMonth.caixa)}  |  Dívida Remanescente: ${formatCurrency(breakEvenMonth.divida)}`
+                        : `Aumente amortizações/geração de caixa ou amplie o horizonte de projeção.`}
                     </div>
                   </div>
                 </div>
 
                 {breakEvenMonth ? (
-                  <div style={{ background: 'rgba(0, 230, 118, 0.15)', padding: '6px 14px', borderRadius: '20px', color: '#00E676', fontWeight: 700, fontSize: '0.85rem' }}>
+                  <div style={{ background: 'rgba(0, 230, 118, 0.15)', padding: '5px 12px', borderRadius: '16px', color: '#00E676', fontWeight: 700, fontSize: '0.82rem' }}>
                     Superávit: +{formatCurrency(breakEvenMonth.sobraCaixa)}
                   </div>
                 ) : (
@@ -2256,69 +2230,66 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
                       type="button"
                       onClick={() => setProjHorizonYears(prev => Math.min(15, prev + 1))}
                       style={{
-                        padding: '6px 12px',
+                        padding: '5px 10px',
                         borderRadius: '6px',
                         background: 'rgba(255, 152, 0, 0.2)',
                         border: '1px solid rgba(255, 152, 0, 0.5)',
                         color: '#FFA726',
-                        fontSize: '0.8rem',
+                        fontSize: '0.78rem',
                         fontWeight: 700,
                         cursor: 'pointer'
                       }}
                     >
-                      + Expandir para {projHorizonYears + 1} Anos
+                      +1 Ano
                     </button>
                     <button
                       type="button"
                       onClick={() => setProjHorizonYears(5)}
                       style={{
-                        padding: '6px 12px',
+                        padding: '5px 10px',
                         borderRadius: '6px',
                         background: 'rgba(0, 176, 255, 0.2)',
                         border: '1px solid rgba(0, 176, 255, 0.5)',
                         color: '#00B0FF',
-                        fontSize: '0.8rem',
+                        fontSize: '0.78rem',
                         fontWeight: 700,
                         cursor: 'pointer'
                       }}
                     >
-                      🚀 Ver em 5 Anos
+                      Ver em 5 Anos
                     </button>
                   </div>
                 )}
               </div>
 
               {/* 5. Tabela de Detalhamento & Ajustes Finos */}
-              <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden' }}>
-                <div style={{ padding: '0.8rem 1.2rem', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', background: 'rgba(255,255,255,0.03)' }}>
+              <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                <div style={{ padding: '0.7rem 1rem', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', background: 'rgba(255,255,255,0.03)' }}>
                   <div>
-                    <span style={{ fontWeight: 700, color: '#fff', fontSize: '0.9rem' }}>
-                      Detalhamento Mês a Mês ({projModalAnoTab})
-                    </span>
-                    <span style={{ color: '#888', fontSize: '0.78rem', marginLeft: '8px' }}>
-                      (Edite pontualmente os valores nos meses projetados para ajustes sob medida)
+                    <span style={{ fontWeight: 700, color: '#fff', fontSize: '0.85rem' }}>
+                      Detalhamento Mês a Mês ({projectionYears.includes(projModalAnoTab) ? projModalAnoTab : selectedAno})
                     </span>
                   </div>
 
                   {/* Abas dos Anos Personalizados */}
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
                     {projectionYears.map(yr => (
                       <button
                         key={yr}
                         type="button"
                         onClick={() => setProjModalAnoTab(yr)}
                         style={{
-                          padding: '5px 12px',
+                          padding: '4px 10px',
                           borderRadius: '6px',
                           border: 'none',
                           cursor: 'pointer',
-                          fontSize: '0.8rem',
+                          fontSize: '0.78rem',
                           fontWeight: 700,
                           background: (projectionYears.includes(projModalAnoTab) ? projModalAnoTab : selectedAno) === yr ? '#3F51B5' : 'rgba(255,255,255,0.06)',
                           color: (projectionYears.includes(projModalAnoTab) ? projModalAnoTab : selectedAno) === yr ? '#fff' : '#aaa'
                         }}
                       >
-                        {yr} (Ano {yr - selectedAno + 1})
+                        {yr}
                       </button>
                     ))}
                   </div>
