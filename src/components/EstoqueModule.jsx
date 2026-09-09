@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, 
-  Legend, Cell, PieChart, Pie, AreaChart, Area, CartesianGrid 
+  Legend, Cell, PieChart, Pie, AreaChart, Area, CartesianGrid, ReferenceLine 
 } from 'recharts';
 import * as XLSX from 'xlsx';
 import { supabase } from '../supabaseClient';
@@ -2086,12 +2086,21 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
               </h4>
               <div style={{ width: '100%', height: '260px' }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartEvolucaoTM} margin={{ top: 10, right: 10, left: 10, bottom: 5 }}>
+                  <BarChart data={chartEvolucaoTM} stackOffset="sign" margin={{ top: 10, right: 10, left: 10, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
                     <XAxis dataKey="mesNome" stroke="#888" fontSize={12} />
                     <YAxis stroke="#888" fontSize={12} tickFormatter={(v) => `R$ ${(v / 1000).toFixed(0)}k`} />
+                    <ReferenceLine y={0} stroke="rgba(255,255,255,0.3)" />
                     <Tooltip 
-                      formatter={(val) => val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                      cursor={{ fill: 'rgba(255, 255, 255, 0.05)' }}
+                      formatter={(val, name) => {
+                        const formatted = Number(val || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+                        if (name === 'Inventário (506/006)') {
+                          if (val < 0) return [`${formatted} (Sobra Líq. / Entrada)`, name];
+                          if (val > 0) return [`${formatted} (Falta Líq. / Saída)`, name];
+                        }
+                        return [formatted, name];
+                      }}
                       contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: '8px' }}
                     />
                     <Legend wrapperStyle={{ fontSize: '0.75rem', paddingTop: '10px' }} />
