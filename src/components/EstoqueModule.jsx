@@ -16,6 +16,7 @@ import { supabase } from '../supabaseClient';
 import { getSettings, saveSettings } from '../utils/db';
 
 const CRITICAL_TMS = {
+  '506_006': { label: '506/006 - Inventário (Ajuste Líquido)', color: '#26a69a', bg: 'rgba(38, 166, 154, 0.15)', group: 'inventario', icon: '⚖️', question: 'Houve contagem física no mês? Conciliar as faltas (506 - saída) com as sobras (006 - entrada) para apurar o impacto líquido no estoque.' },
   '506': { label: '506 - Inventário (Saída / Falta)', color: '#ef5350', bg: 'rgba(239, 83, 80, 0.15)', group: 'inventario', icon: '📦', question: 'Houve contagem física no mês? Por que o saldo físico apurou faltas expressivas acima da média?' },
   '006': { label: '006 - Inventário (Entrada / Sobra)', color: '#26a69a', bg: 'rgba(38, 166, 154, 0.15)', group: 'inventario', icon: '📥', question: 'Entradas por sobras físicas no inventário foram conciliadas e justificadas?' },
   '509': { label: '509 - Baixa Justificada Garantia', color: '#ab47bc', bg: 'rgba(171, 71, 188, 0.15)', group: 'garantia', icon: '🛡️', question: 'Quais clientes/equipamentos acionaram garantia? O PCP/Engenharia investigou se foi falha de projeto ou qualidade de componentes?' },
@@ -112,7 +113,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
 
   // Recarregar dados sempre que Empresa, Ano ou Mês mudarem
   useEffect(() => {
-    loadEstoqueData();
+    loadEstoqueData(selectedEmpresa, selectedAno, selectedMes);
   }, [selectedEmpresa, selectedAno, selectedMes]);
 
   const loadSavedCompetencias = async () => {
@@ -128,30 +129,52 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
     }
   };
 
-  const loadEstoqueData = async () => {
+  const loadEstoqueData = async (empOverride, anoOverride, mesOverride) => {
+    const targetEmp = empOverride !== undefined ? empOverride : selectedEmpresa;
+    const targetAno = anoOverride !== undefined ? anoOverride : selectedAno;
+    const targetMes = mesOverride !== undefined ? mesOverride : selectedMes;
+
     setIsLoading(true);
     try {
       const seriesMap = {};
-      const empList = (selectedEmpresa === 'todas' || selectedEmpresa === 'consolidado') 
-        ? companies.map(c => c.id) 
-        : [selectedEmpresa];
+      const empFilter = (targetEmp === 'todas' || targetEmp === 'consolidado') ? '%' : targetEmp;
+      const keyPattern = `agf_estoque_${empFilter}_${targetAno}_%`;
 
-      for (let m = 1; m <= 12; m++) {
-        let monthRecords = [];
-        for (const emp of empList) {
-          const key = `agf_estoque_${emp}_${selectedAno}_${m}`;
-          const data = await getSettings(key);
-          if (Array.isArray(data) && data.length > 0) {
-            monthRecords = monthRecords.concat(data.map(d => ({ ...d, empresaId: emp })));
+      const { data: rawRows, error } = await supabase
+        .from('settings')
+        .select('key, value')
+        .like('key', keyPattern);
+
+      if (error) throw error;
+
+      if (Array.isArray(rawRows)) {
+        for (const row of rawRows) {
+          const parts = row.key.split('_');
+          if (parts.length >= 5) {
+            const mesNum = parseInt(parts[parts.length - 1]);
+            const anoNum = parseInt(parts[parts.length - 2]);
+            const rowEmp = parts.slice(2, parts.length - 2).join('_');
+
+            if (anoNum === targetAno && mesNum >= 1 && mesNum <= 12) {
+              if (targetEmp !== 'todas' && targetEmp !== 'consolidado' && rowEmp !== targetEmp) {
+                continue;
+              }
+              try {
+                const parsed = typeof row.value === 'string' ? JSON.parse(row.value) : row.value;
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                  const recordsWithEmp = parsed.map(d => ({ ...d, empresaId: rowEmp }));
+                  seriesMap[mesNum] = (seriesMap[mesNum] || []).concat(recordsWithEmp);
+                }
+              } catch (parseErr) {
+                console.warn('Erro ao parsear dados da chave', row.key, parseErr);
+              }
+            }
           }
-        }
-        if (monthRecords.length > 0) {
-          seriesMap[m] = monthRecords;
         }
       }
 
       setHistorySeries(seriesMap);
-      setCurrentRecords(seriesMap[selectedMes] || []);
+      setCurrentRecords(seriesMap[targetMes] || []);
     } catch (e) {
       console.error('Erro ao carregar dados de estoque:', e);
       setCurrentRecords([]);
@@ -351,15 +374,15 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
 
         headers.forEach((h, idx) => {
           const n = norm(h);
-          if (idxFilial === -1 && (n === 'filial' || n === 'fil.' || n === 'cod. filial' || n === 'unidade')) idxFilial = idx;
-          else if (idxProd === -1 && (n === 'produto' || n === 'cod. produto' || n === 'codigo' || n === 'cod produto')) idxProd = idx;
+          if (idxFilial === -1 && (n === 'filial' || n === 'fil.' || n === 'cod. filial' || n === 'codigo filial' || n === 'cod filial' || n === 'filial origem')) idxFilial = idx;
+          else if (idxProd === -1 && (n === 'produto' || n === 'cod. produto' || n === 'codigo' || n === 'cod produto' || n === 'cod. prod.' || n === 'item')) idxProd = idx;
           else if (idxDesc === -1 && (n.includes('desc') || n.includes('produto desc') || n === 'descricao')) idxDesc = idx;
-          else if (idxTipo === -1 && n === 'tipo') idxTipo = idx;
+          else if (idxTipo === -1 && (n === 'tipo' || n === 'tipo prod.' || n === 'tipo prod')) idxTipo = idx;
           else if (idxGrupo === -1 && n === 'grupo') idxGrupo = idx;
-          else if (idxUm === -1 && (n === 'unidade' || n === 'um' || n === 'u.m.')) idxUm = idx;
-          else if (idxArm === -1 && (n.includes('armaz') || n === 'local' || n === 'almox')) idxArm = idx;
-          else if (idxEntrada === -1 && (n.includes('entrada') || n === 'qtd entrada')) idxEntrada = idx;
-          else if (idxSaida === -1 && (n.includes('saida') || n === 'qtd saida')) idxSaida = idx;
+          else if (idxUm === -1 && (n === 'unidade' || n === 'um' || n === 'u.m.' || n === 'unid.' || n === 'unid' || n === 'unidade de medida' || n === 'un')) idxUm = idx;
+          else if (idxArm === -1 && (n.includes('armaz') || n === 'local' || n === 'almox' || n === 'almoxarifado')) idxArm = idx;
+          else if (idxEntrada === -1 && (n.includes('entrada') || n === 'qtd entrada' || n === 'qtde entrada')) idxEntrada = idx;
+          else if (idxSaida === -1 && (n.includes('saida') || n === 'qtd saida' || n === 'qtde saida')) idxSaida = idx;
           else if (idxCustoUnit === -1 && (n.includes('unit') || n === 'custo unitario' || n === 'custo unit')) idxCustoUnit = idx;
           else if (idxCustoTot === -1 && (n.includes('custo total') || n === 'total' || n === 'vl total' || n === 'custo tot' || n === 'valor total')) idxCustoTot = idx;
           else if (idxTM === -1 && (n.includes('tp movimento') || n.includes('tipo mov') || n === 'tm' || n === 'tp. mov' || n === 'tp.mov.')) idxTM = idx;
@@ -431,8 +454,13 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
           let rowFilial = defaultFilial;
           if (idxFilial !== -1 && row[idxFilial]) {
             const rawF = row[idxFilial].toString().trim();
-            const regF = cadastrosFiliais.find(cf => cf.code === rawF || cf.code.endsWith(rawF));
-            rowFilial = regF ? regF.name : rawF;
+            if (rawF && rawF.length <= 6 && /^\d+$/.test(rawF)) {
+              const regF = cadastrosFiliais.find(cf => cf.code === rawF || cf.code.endsWith(rawF) || rawF.endsWith(cf.code));
+              rowFilial = regF ? regF.name : `Filial ${rawF}`;
+            } else if (rawF && rawF.length > 2) {
+              const regF = cadastrosFiliais.find(cf => cf.name.toLowerCase().includes(rawF.toLowerCase()));
+              if (regF) rowFilial = regF.name;
+            }
           }
 
           let dtEmissao = row[idxData];
@@ -584,7 +612,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       setSelectedMes(importMes);
       setSelectedFilial('todas');
       setActiveTab('dash');
-      loadEstoqueData();
+      loadEstoqueData(importEmpresa, importAno, importMes);
     } catch (e) {
       console.error('Erro ao salvar no banco:', e);
       window.$alert('Erro ao gravar no banco: ' + e.message);
@@ -611,7 +639,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       setSavedCompetencias(updated);
 
       window.$toast('Competência excluída com sucesso!', { type: 'success' });
-      loadEstoqueData();
+      loadEstoqueData(selectedEmpresa, selectedAno, selectedMes);
     } catch (e) {
       console.error('Erro ao excluir:', e);
       window.$alert('Erro ao excluir: ' + e.message);
@@ -711,17 +739,23 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
     const numPrevMonths = Math.max(1, previousMonths.length);
 
     // 4. ANÁLISE DE DESVIO POR TIPO DE MOVIMENTO (TM) - Foco Estratégico PCP & DRE
+    const mapTMGroup = (rawTm) => {
+      const t = normTM(rawTm);
+      if (t === '506' || t === '006') return '506_006';
+      return t;
+    };
+
     const allTMsSet = new Set();
-    currentFiltered.forEach(r => { if (r.tm) allTMsSet.add(normTM(r.tm)); });
+    currentFiltered.forEach(r => { if (r.tm) allTMsSet.add(mapTMGroup(r.tm)); });
     previousMonths.forEach(m => {
       (historySeries[m] || []).filter(filterRecord).forEach(r => {
-        if (r.tm) allTMsSet.add(normTM(r.tm));
+        if (r.tm) allTMsSet.add(mapTMGroup(r.tm));
       });
     });
     if (filtroTM === 'criticos') {
-      ['506', '006', '509', '507', '504'].forEach(tm => allTMsSet.add(tm));
+      ['506_006', '509', '507', '504'].forEach(tm => allTMsSet.add(tm));
     } else if (filtroTM === '506_006') {
-      ['506', '006'].forEach(tm => allTMsSet.add(tm));
+      allTMsSet.add('506_006');
     } else if (filtroTM === '509') {
       allTMsSet.add('509');
     } else if (filtroTM === '507') {
@@ -737,6 +771,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
     let tmCountNovos = 0;
 
     const analysisByTM = Array.from(allTMsSet).map(tm => {
+      const isNetInv = tm === '506_006';
       const tmInfo = CRITICAL_TMS[tm] || {
         label: `TM ${tm} - Movimento Interno`,
         color: '#ffa726',
@@ -746,23 +781,55 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
         question: 'Verificar justificativa e motivo do lançamento diretamente com a equipe do PCP e Almoxarifado.'
       };
 
-      const currentTMRecords = currentFiltered.filter(r => normTM(r.tm) === tm);
-      const valorMes = Math.abs(currentTMRecords.reduce((sum, r) => sum + (r.custoTotal || 0), 0));
-      const qtdSaidaMes = currentTMRecords.reduce((sum, r) => sum + (r.qtdSaida || 0), 0);
-      const qtdEntradaMes = currentTMRecords.reduce((sum, r) => sum + (r.qtdEntrada || 0), 0);
+      const currentTMRecords = currentFiltered.filter(r => mapTMGroup(r.tm) === tm);
+      let valorMes = 0;
+      let totalSaida506 = 0;
+      let totalEntrada006 = 0;
+      let qtdSaidaMes = 0;
+      let qtdEntradaMes = 0;
+
+      if (isNetInv) {
+        currentTMRecords.forEach(r => {
+          const rawTM = normTM(r.tm);
+          const v = Math.abs(r.custoTotal || 0);
+          if (rawTM === '006') {
+            totalEntrada006 += v;
+            qtdEntradaMes += (r.qtdEntrada || 0);
+          } else {
+            totalSaida506 += v;
+            qtdSaidaMes += (r.qtdSaida || 0);
+          }
+        });
+        // Movimento negativo (saída 506) e positivo (entrada 006):
+        // Líquido do inventário: Saídas (506) - Entradas (006)
+        valorMes = totalSaida506 - totalEntrada006;
+      } else {
+        valorMes = Math.abs(currentTMRecords.reduce((sum, r) => sum + (r.custoTotal || 0), 0));
+        qtdSaidaMes = currentTMRecords.reduce((sum, r) => sum + (r.qtdSaida || 0), 0);
+        qtdEntradaMes = currentTMRecords.reduce((sum, r) => sum + (r.qtdEntrada || 0), 0);
+      }
       const lancamentosCount = currentTMRecords.length;
 
       let totalHistVal = 0;
       previousMonths.forEach(m => {
-        const mRecords = (historySeries[m] || []).filter(filterRecord).filter(r => normTM(r.tm) === tm);
-        totalHistVal += Math.abs(mRecords.reduce((sum, r) => sum + (r.custoTotal || 0), 0));
+        const mRecords = (historySeries[m] || []).filter(filterRecord).filter(r => mapTMGroup(r.tm) === tm);
+        if (isNetInv) {
+          let m506 = 0, m006 = 0;
+          mRecords.forEach(r => {
+            if (normTM(r.tm) === '006') m006 += Math.abs(r.custoTotal || 0);
+            else m506 += Math.abs(r.custoTotal || 0);
+          });
+          totalHistVal += (m506 - m006);
+        } else {
+          totalHistVal += Math.abs(mRecords.reduce((sum, r) => sum + (r.custoTotal || 0), 0));
+        }
       });
 
-      const hasHistory = previousMonths.length > 0 && totalHistVal > 0;
+      const hasHistory = previousMonths.length > 0 && totalHistVal !== 0;
       const mediaHistorica = hasHistory ? (totalHistVal / numPrevMonths) : 0;
       const desvioValor = hasHistory ? (valorMes - mediaHistorica) : 0;
-      const desvioPct = (hasHistory && mediaHistorica > 0) 
-        ? ((valorMes - mediaHistorica) / mediaHistorica) * 100 
+      const desvioPct = (hasHistory && mediaHistorica !== 0) 
+        ? ((valorMes - mediaHistorica) / Math.abs(mediaHistorica)) * 100 
         : 0;
 
       if (hasHistory) {
@@ -773,7 +840,29 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
       let statusLabel = 'Estável (Na Média)';
       let statusColor = '#4caf50';
 
-      if (!hasHistory) {
+      if (isNetInv) {
+        if (valorMes < 0) {
+          status = 'sobra';
+          statusLabel = '🟢 Sobra Líquida';
+          statusColor = '#26a69a';
+        } else if (valorMes > 0) {
+          if (desvioPct > 25 || (hasHistory && desvioValor > 5000)) {
+            status = 'critico';
+            statusLabel = '🚨 Falta Líquida Crítica';
+            statusColor = '#ef5350';
+            tmCountCriticos++;
+          } else {
+            status = 'atencao';
+            statusLabel = '⚠️ Falta Líquida';
+            statusColor = '#ffa726';
+            tmCountAtencao++;
+          }
+        } else {
+          status = 'normal';
+          statusLabel = 'Inventário Zerado';
+          statusColor = '#4caf50';
+        }
+      } else if (!hasHistory) {
         status = valorMes > 0 ? 'novo' : 'sem_mov';
         statusLabel = valorMes > 0 ? '🆕 TM Novo' : 'Sem Movimento';
         statusColor = valorMes > 0 ? '#29b6f6' : '#666';
@@ -816,35 +905,55 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
         if (r.filial) prodMap[pKey].filiais.add(r.filial);
         prodMap[pKey].qtdSaida += (r.qtdSaida || 0);
         prodMap[pKey].qtdEntrada += (r.qtdEntrada || 0);
-        prodMap[pKey].custoTotal += Math.abs(r.custoTotal || 0);
+        const v = Math.abs(r.custoTotal || 0);
+        if (isNetInv && normTM(r.tm) === '006') {
+          prodMap[pKey].custoTotal -= v;
+        } else {
+          prodMap[pKey].custoTotal += v;
+        }
         prodMap[pKey].lancamentos.push(r);
       });
 
       const topProdutos = Object.values(prodMap)
-        .sort((a, b) => b.custoTotal - a.custoTotal)
+        .sort((a, b) => Math.abs(b.custoTotal) - Math.abs(a.custoTotal))
         .slice(0, 5)
         .map(p => ({
           ...p,
           filiaisArr: Array.from(p.filiais),
-          pctDoTM: valorMes > 0 ? (p.custoTotal / valorMes) * 100 : 0
+          pctDoTM: Math.abs(valorMes) > 0 ? (Math.abs(p.custoTotal) / Math.abs(valorMes)) * 100 : 0
         }));
 
       // Centros de custo deste TM
       const ccMap = {};
       currentTMRecords.forEach(r => {
         const ccName = r.cc || 'Sem CC';
-        ccMap[ccName] = (ccMap[ccName] || 0) + Math.abs(r.custoTotal || 0);
+        const v = Math.abs(r.custoTotal || 0);
+        if (isNetInv && normTM(r.tm) === '006') {
+          ccMap[ccName] = (ccMap[ccName] || 0) - v;
+        } else {
+          ccMap[ccName] = (ccMap[ccName] || 0) + v;
+        }
       });
       const topCCs = Object.entries(ccMap)
-        .map(([cc, val]) => ({ cc, val, pct: valorMes > 0 ? (val / valorMes) * 100 : 0 }))
-        .sort((a, b) => b.val - a.val)
+        .map(([cc, val]) => ({ cc, val, pct: Math.abs(valorMes) > 0 ? (Math.abs(val) / Math.abs(valorMes)) * 100 : 0 }))
+        .sort((a, b) => Math.abs(b.val) - Math.abs(a.val))
         .slice(0, 4);
 
       // Série Histórica Jan..Dez deste TM
       const historicoMeses = [];
       for (let m = 1; m <= 12; m++) {
-        const mRecs = (historySeries[m] || []).filter(filterRecord).filter(r => normTM(r.tm) === tm);
-        const v = Math.abs(mRecs.reduce((sum, r) => sum + (r.custoTotal || 0), 0));
+        const mRecs = (historySeries[m] || []).filter(filterRecord).filter(r => mapTMGroup(r.tm) === tm);
+        let v = 0;
+        if (isNetInv) {
+          let s506 = 0, e006 = 0;
+          mRecs.forEach(r => {
+            if (normTM(r.tm) === '006') e006 += Math.abs(r.custoTotal || 0);
+            else s506 += Math.abs(r.custoTotal || 0);
+          });
+          v = s506 - e006;
+        } else {
+          v = Math.abs(mRecs.reduce((sum, r) => sum + (r.custoTotal || 0), 0));
+        }
         historicoMeses.push({
           mesNum: m,
           mesNome: MESES[m - 1].substring(0, 3),
@@ -856,6 +965,9 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
         tm,
         ...tmInfo,
         valorMes,
+        isNetInv,
+        totalSaida506,
+        totalEntrada006,
         qtdSaidaMes,
         qtdEntradaMes,
         lancamentosCount,
@@ -872,7 +984,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
         records: currentTMRecords
       };
     })
-    .filter(t => t.valorMes > 0 || t.hasHistory)
+    .filter(t => t.valorMes !== 0 || t.hasHistory || (t.isNetInv && (t.totalSaida506 > 0 || t.totalEntrada006 > 0)))
     .sort((a, b) => {
       if (a.status === 'critico' && b.status !== 'critico') return -1;
       if (b.status === 'critico' && a.status !== 'critico') return 1;
@@ -881,15 +993,18 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
 
     // Gráfico Comparativo Mês Atual vs Média Histórica por TM
     const chartComparativoTM = analysisByTM
-      .filter(t => t.valorMes > 0 || t.mediaHistorica > 0)
+      .filter(t => t.valorMes !== 0 || t.mediaHistorica !== 0 || (t.isNetInv && (t.totalSaida506 > 0 || t.totalEntrada006 > 0)))
       .map(t => ({
         tm: t.tm,
-        nome: `${t.tm} - ${t.label.split(' - ')[1]?.split('/')[0] || t.label}`.substring(0, 18),
+        nome: t.isNetInv ? '506/006 Inv. Líq.' : `${t.tm} - ${t.label.split(' - ')[1]?.split('/')[0] || t.label}`.substring(0, 18),
         'Mês Atual': t.valorMes,
         'Média Histórica': t.mediaHistorica,
         desvioValor: t.desvioValor,
         desvioPct: t.desvioPct,
-        color: t.color
+        color: t.isNetInv && t.valorMes < 0 ? '#26a69a' : t.color,
+        isNetInv: t.isNetInv,
+        totalSaida506: t.totalSaida506,
+        totalEntrada006: t.totalEntrada006
       }));
 
     // 5. Agrupamento por Produto (para detalhamento de itens)
@@ -1004,22 +1119,31 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
     for (let m = 1; m <= 12; m++) {
       const mRecs = (historySeries[m] || []).filter(filterRecord);
       if (mRecs.length > 0 || m <= selectedMes) {
-        let inv = 0, gar = 0, perd = 0, cons = 0, out = 0, total = 0;
+        let inv506 = 0, inv006 = 0, gar = 0, perd = 0, cons = 0, out = 0, total = 0;
         mRecs.forEach(r => {
           const v = Math.abs(r.custoTotal || 0);
           const tm = normTM(r.tm);
-          total += v;
-          if (tm === '506' || tm === '006') inv += v;
-          else if (tm === '509') gar += v;
-          else if (tm === '507') perd += v;
-          else if (tm === '504') cons += v;
-          else out += v;
+          if (tm === '506') {
+            inv506 += v;
+            total += v;
+          } else if (tm === '006') {
+            inv006 += v;
+            total -= v;
+          } else {
+            total += v;
+            if (tm === '509') gar += v;
+            else if (tm === '507') perd += v;
+            else if (tm === '504') cons += v;
+            else out += v;
+          }
         });
+
+        const invLiquido = inv506 - inv006;
 
         evolucaoData.push({
           mesNum: m,
           mesNome: MESES[m - 1].substring(0, 3),
-          'Inventário (506/006)': inv,
+          'Inventário (506/006)': invLiquido,
           'Garantia (509)': gar,
           'Perda Mat. (507)': perd,
           'Consumível (504)': cons,
@@ -1030,9 +1154,13 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
     }
 
     // 7. Gráfico de Distribuição por TM no mês atual
+    const totalInventarioLiquido = totalInventario506 - totalInventario006;
     const distTM = [
-      { name: '506 Inventário', valor: totalInventario506, fill: CRITICAL_TMS['506'].color },
-      { name: '006 Entrada Inv.', valor: totalInventario006, fill: CRITICAL_TMS['006'].color },
+      { 
+        name: totalInventarioLiquido < 0 ? '506/006 Sobra Líq.' : '506/006 Falta Líq.', 
+        valor: Math.abs(totalInventarioLiquido), 
+        fill: totalInventarioLiquido < 0 ? '#26a69a' : '#ef5350' 
+      },
       { name: '509 Garantia', valor: totalGarantia509, fill: CRITICAL_TMS['509'].color },
       { name: '507 Perda Material', valor: totalPerda507, fill: CRITICAL_TMS['507'].color },
       { name: '504 Consumível', valor: totalConsumivel504, fill: CRITICAL_TMS['504'].color },
@@ -1288,7 +1416,12 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
             <Building2 size={16} style={{ color: '#64B5F6' }} />
             <select
               value={selectedEmpresa}
-              onChange={(e) => { setSelectedEmpresa(e.target.value); setSelectedFilial('todas'); }}
+              onChange={(e) => { 
+                const val = e.target.value;
+                setSelectedEmpresa(val); 
+                setSelectedFilial('todas');
+                loadEstoqueData(val, selectedAno, selectedMes);
+              }}
               className="select-input"
               style={{ minWidth: '170px', padding: '0.45rem 0.7rem', fontSize: '0.85rem' }}
             >
@@ -1322,7 +1455,11 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
             <Calendar size={16} style={{ color: '#64B5F6' }} />
             <select
               value={selectedMes}
-              onChange={(e) => setSelectedMes(parseInt(e.target.value))}
+              onChange={(e) => {
+                const val = parseInt(e.target.value);
+                setSelectedMes(val);
+                loadEstoqueData(selectedEmpresa, selectedAno, val);
+              }}
               className="select-input"
               style={{ width: '135px', padding: '0.45rem 0.7rem', fontSize: '0.85rem' }}
             >
@@ -1333,7 +1470,11 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
 
             <select
               value={selectedAno}
-              onChange={(e) => setSelectedAno(parseInt(e.target.value))}
+              onChange={(e) => {
+                const val = parseInt(e.target.value);
+                setSelectedAno(val);
+                loadEstoqueData(selectedEmpresa, val, selectedMes);
+              }}
               className="select-input"
               style={{ width: '90px', padding: '0.45rem 0.7rem', fontSize: '0.85rem' }}
             >
@@ -1353,7 +1494,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
               style={{ width: '210px', padding: '0.45rem 0.7rem', fontSize: '0.85rem' }}
             >
               <option value="criticos">🎯 TMs Foco (506/006, 509, 507, 504)</option>
-              <option value="506_006">506 / 006 - Ajustes Inventário</option>
+              <option value="506_006">506 / 006 - Inventário Líquido</option>
               <option value="509">509 - Baixa Garantia</option>
               <option value="507">507 - Perda de Material</option>
               <option value="504">504 - Baixa Consumível</option>
@@ -1403,6 +1544,23 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
         </div>
 
       </div>
+
+      {/* LOADING STATE */}
+      {isLoading && activeTab !== 'import' && (
+        <div style={{
+          background: 'rgba(255, 255, 255, 0.02)',
+          border: '1px solid rgba(100, 181, 246, 0.2)',
+          borderRadius: '12px',
+          padding: '3rem 2rem',
+          textAlign: 'center',
+          marginBottom: '2rem',
+          color: '#64B5F6'
+        }}>
+          <RefreshCw size={36} style={{ animation: 'spin 1s linear infinite', marginBottom: '1rem' }} />
+          <h4 style={{ margin: 0, color: '#fff', fontSize: '1.1rem' }}>Carregando dados de estoque do banco de dados...</h4>
+          <p style={{ margin: '6px 0 0 0', color: '#aaa', fontSize: '0.85rem' }}>Buscando movimentações e calculando desvios por TM e Filiais...</p>
+        </div>
+      )}
 
       {/* ESTADO VAZIO / SEM DADOS */}
       {currentRecords.length === 0 && !isLoading && activeTab !== 'import' && (
@@ -1474,15 +1632,22 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
 
             {/* Cards para os 4 TMs Críticos */}
             {[
-              { tmKey: '506', title: '506 / 006 Inventário', color: '#ef5350', bgGrad: 'rgba(239, 83, 80, 0.12)' },
+              { tmKey: '506_006', title: '506 / 006 Inv. Líquido', color: '#26a69a', bgGrad: 'rgba(38, 166, 154, 0.12)' },
               { tmKey: '509', title: '509 Baixa Garantia', color: '#ab47bc', bgGrad: 'rgba(171, 71, 188, 0.12)' },
               { tmKey: '507', title: '507 Perda de Material', color: '#ff7043', bgGrad: 'rgba(255, 112, 67, 0.12)' },
               { tmKey: '504', title: '504 Baixa Consumível', color: '#42a5f5', bgGrad: 'rgba(66, 165, 245, 0.12)' }
-            ].map(({ tmKey, title, color, bgGrad }) => {
+            ].map(({ tmKey, title, color: baseColor, bgGrad: baseBgGrad }) => {
               const tmObj = analysisByTM.find(t => t.tm === tmKey) || {
                 valorMes: 0, mediaHistorica: 0, desvioValor: 0, desvioPct: 0, status: 'normal', topProdutos: [], records: []
               };
-              const tm006Obj = tmKey === '506' ? analysisByTM.find(t => t.tm === '006') : null;
+              const isNetInv = tmKey === '506_006';
+              // Para inventário líquido: se faltas líquidas > 0, alerta vermelho; se sobras (< 0), verde positivo
+              const color = isNetInv 
+                ? (tmObj.valorMes > 0 ? '#ef5350' : tmObj.valorMes < 0 ? '#26a69a' : '#81c784')
+                : baseColor;
+              const bgGrad = isNetInv
+                ? (tmObj.valorMes > 0 ? 'rgba(239, 83, 80, 0.12)' : 'rgba(38, 166, 154, 0.12)')
+                : baseBgGrad;
               const hasAlert = tmObj.status === 'critico' || tmObj.status === 'atencao';
               return (
                 <div 
@@ -1504,7 +1669,22 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                     <div style={{ fontSize: '0.8rem', color: color, fontWeight: 'bold', textTransform: 'uppercase' }}>
                       {title}
                     </div>
-                    {tmObj.hasHistory && tmObj.desvioPct !== 0 && (
+                    {isNetInv ? (
+                      <span style={{
+                        background: tmObj.valorMes > 0 ? 'rgba(239, 83, 80, 0.2)' : 'rgba(38, 166, 154, 0.2)',
+                        color: tmObj.valorMes > 0 ? '#ff8a80' : '#80cbc4',
+                        border: `1px solid ${tmObj.valorMes > 0 ? '#ef5350' : '#26a69a'}66`,
+                        padding: '1px 6px',
+                        borderRadius: '10px',
+                        fontSize: '0.72rem',
+                        fontWeight: 'bold',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '2px'
+                      }}>
+                        {tmObj.valorMes > 0 ? '🔴 Falta Líquida' : tmObj.valorMes < 0 ? '🟢 Sobra Líquida' : '⚖️ Equilibrado'}
+                      </span>
+                    ) : tmObj.hasHistory && tmObj.desvioPct !== 0 && (
                       <span style={{
                         background: tmObj.desvioPct > 0 ? 'rgba(239, 83, 80, 0.2)' : 'rgba(76, 175, 80, 0.2)',
                         color: tmObj.desvioPct > 0 ? '#ff8a80' : '#81c784',
@@ -1524,12 +1704,16 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                   </div>
 
                   <div style={{ fontSize: '1.4rem', fontWeight: 'bold', color: '#fff', margin: '0.4rem 0 0.1rem 0' }}>
-                    {tmObj.valorMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    {isNetInv 
+                      ? (tmObj.valorMes < 0 ? `- ${Math.abs(tmObj.valorMes).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}` : tmObj.valorMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }))
+                      : tmObj.valorMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                   </div>
 
                   <div style={{ fontSize: '0.73rem', color: '#aaa', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    {tmKey === '506' && tm006Obj ? (
-                      <span>Sobras (006): <strong style={{ color: '#80cbc4' }}>{tm006Obj.valorMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong></span>
+                    {isNetInv ? (
+                      <span title={`Faltas 506: R$ ${(tmObj.totalSaida506 || 0).toLocaleString('pt-BR')} | Sobras 006: R$ ${(tmObj.totalEntrada006 || 0).toLocaleString('pt-BR')}`}>
+                        506: <strong style={{ color: '#ff8a80' }}>R$ {((tmObj.totalSaida506 || 0) / 1000).toFixed(1)}k</strong> | 006: <strong style={{ color: '#80cbc4' }}>R$ {((tmObj.totalEntrada006 || 0) / 1000).toFixed(1)}k</strong>
+                      </span>
                     ) : (
                       <span>Média: {tmObj.hasHistory ? tmObj.mediaHistorica.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : 'Sem hist.'}</span>
                     )}
@@ -1672,8 +1856,19 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                               </div>
                             </div>
                           </td>
-                          <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#fff', fontSize: '0.95rem' }}>
-                            {t.valorMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          <td style={{ textAlign: 'right', fontWeight: 'bold', fontSize: '0.95rem' }}>
+                            {t.isNetInv ? (
+                              <div>
+                                <div style={{ color: t.valorMes < 0 ? '#80cbc4' : t.valorMes > 0 ? '#ff8a80' : '#fff' }}>
+                                  {t.valorMes < 0 ? `- ${Math.abs(t.valorMes).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}` : t.valorMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                </div>
+                                <div style={{ fontSize: '0.7rem', color: '#888', fontWeight: 'normal' }}>
+                                  506: {(t.totalSaida506 || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} | 006: {(t.totalEntrada006 || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                </div>
+                              </div>
+                            ) : (
+                              <span style={{ color: '#fff' }}>{t.valorMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                            )}
                           </td>
                           <td style={{ textAlign: 'right', color: '#aaa' }}>
                             {t.hasHistory 
@@ -1691,7 +1886,20 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                               : `${t.desvioPct > 0 ? '+' : ''}${t.desvioPct.toFixed(1)}%`}
                           </td>
                           <td>
-                            {!t.hasHistory ? (
+                            {t.isNetInv ? (
+                              t.valorMes < 0 ? (
+                                <span style={{ color: '#81c784', fontSize: '0.78rem', fontWeight: 'bold' }}>
+                                  🟢 Sobra de {Math.abs(t.valorMes).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} (Crédito Líq.)
+                                </span>
+                              ) : t.valorMes > 0 ? (
+                                <span style={{ color: '#ff8a80', fontSize: '0.78rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  <AlertTriangle size={13} />
+                                  Falta de {t.valorMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} (Custo Líq.)
+                                </span>
+                              ) : (
+                                <span style={{ color: '#aaa', fontSize: '0.78rem' }}>Inventário Equilibrado (R$ 0)</span>
+                              )
+                            ) : !t.hasHistory ? (
                               <span style={{ color: '#aaa', fontSize: '0.75rem' }}>Lançamento novo</span>
                             ) : t.desvioValor > 0 ? (
                               <span style={{ color: '#ff8a80', fontSize: '0.78rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -1786,7 +1994,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                       contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: '8px' }}
                     />
                     <Legend wrapperStyle={{ fontSize: '0.75rem', paddingTop: '10px' }} />
-                    <Bar dataKey="Inventário (506/006)" fill={CRITICAL_TMS['506'].color} stackId="a" />
+                    <Bar dataKey="Inventário (506/006)" fill={CRITICAL_TMS['506_006']?.color || '#26a69a'} stackId="a" />
                     <Bar dataKey="Garantia (509)" fill={CRITICAL_TMS['509'].color} stackId="a" />
                     <Bar dataKey="Perda Mat. (507)" fill={CRITICAL_TMS['507'].color} stackId="a" />
                     <Bar dataKey="Consumível (504)" fill={CRITICAL_TMS['504'].color} stackId="a" />
@@ -1968,7 +2176,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                       {/* Métricas Financeiras */}
                       <div style={{
                         display: 'grid',
-                        gridTemplateColumns: 'repeat(3, 1fr)',
+                        gridTemplateColumns: t.isNetInv ? 'repeat(4, 1fr)' : 'repeat(3, 1fr)',
                         gap: '8px',
                         background: 'rgba(0,0,0,0.25)',
                         padding: '0.7rem',
@@ -1976,11 +2184,19 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                         marginBottom: '0.8rem'
                       }}>
                         <div>
-                          <div style={{ fontSize: '0.7rem', color: '#888' }}>Mês Atual</div>
-                          <div style={{ fontSize: '0.95rem', fontWeight: 'bold', color: '#fff' }}>
-                            {t.valorMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          <div style={{ fontSize: '0.7rem', color: '#888' }}>{t.isNetInv ? 'Líquido' : 'Mês Atual'}</div>
+                          <div style={{ fontSize: '0.95rem', fontWeight: 'bold', color: t.isNetInv ? (t.valorMes < 0 ? '#80cbc4' : '#ff8a80') : '#fff' }}>
+                            {t.isNetInv && t.valorMes < 0 ? `- ${Math.abs(t.valorMes).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}` : t.valorMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                           </div>
                         </div>
+                        {t.isNetInv && (
+                          <div>
+                            <div style={{ fontSize: '0.7rem', color: '#888' }}>506 / 006</div>
+                            <div style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#ccc' }}>
+                              <span style={{ color: '#ff8a80' }}>{((t.totalSaida506 || 0) / 1000).toFixed(0)}k</span> / <span style={{ color: '#80cbc4' }}>{((t.totalEntrada006 || 0) / 1000).toFixed(0)}k</span>
+                            </div>
+                          </div>
+                        )}
                         <div>
                           <div style={{ fontSize: '0.7rem', color: '#888' }}>Média Hist.</div>
                           <div style={{ fontSize: '0.95rem', fontWeight: 'bold', color: '#aaa' }}>
@@ -2630,6 +2846,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                               setSelectedMes(comp.mes);
                               setSelectedFilial('todas');
                               setActiveTab('dash');
+                              loadEstoqueData(comp.empresaId, comp.ano, comp.mes);
                             }}
                             style={{
                               background: 'rgba(33, 150, 243, 0.15)',
@@ -2846,7 +3063,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
             background: '#161824',
             border: `1px solid ${selectedTMForModal.color || 'rgba(255, 255, 255, 0.2)'}`,
             borderRadius: '14px',
-            width: '980px',
+            width: '1150px',
             maxWidth: '96vw',
             maxHeight: '92vh',
             display: 'flex',
@@ -2914,13 +3131,33 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
             <div style={{ padding: '1.2rem', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
               
               {/* KPIS STRIP */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: selectedTMForModal.isNetInv ? 'repeat(auto-fit, minmax(160px, 1fr))' : 'repeat(auto-fit, minmax(140px, 1fr))', gap: '10px' }}>
                 <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '0.7rem', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                  <div style={{ fontSize: '0.72rem', color: '#888' }}>Total no Mês</div>
-                  <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: '#fff' }}>
-                    {selectedTMForModal.valorMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                  <div style={{ fontSize: '0.72rem', color: '#888' }}>{selectedTMForModal.isNetInv ? 'Resultado Líquido' : 'Total no Mês'}</div>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: selectedTMForModal.isNetInv ? (selectedTMForModal.valorMes < 0 ? '#80cbc4' : '#ff8a80') : '#fff' }}>
+                    {selectedTMForModal.isNetInv && selectedTMForModal.valorMes < 0 
+                      ? `- ${Math.abs(selectedTMForModal.valorMes).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`
+                      : selectedTMForModal.valorMes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                   </div>
                 </div>
+
+                {selectedTMForModal.isNetInv && (
+                  <>
+                    <div style={{ background: 'rgba(239, 83, 80, 0.06)', padding: '0.7rem', borderRadius: '8px', border: '1px solid rgba(239, 83, 80, 0.25)' }}>
+                      <div style={{ fontSize: '0.72rem', color: '#ff8a80' }}>506 - Faltas (Saídas)</div>
+                      <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: '#ef5350' }}>
+                        {(selectedTMForModal.totalSaida506 || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                      </div>
+                    </div>
+                    <div style={{ background: 'rgba(38, 166, 154, 0.06)', padding: '0.7rem', borderRadius: '8px', border: '1px solid rgba(38, 166, 154, 0.25)' }}>
+                      <div style={{ fontSize: '0.72rem', color: '#80cbc4' }}>006 - Sobras (Entradas)</div>
+                      <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: '#26a69a' }}>
+                        {(selectedTMForModal.totalEntrada006 || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                      </div>
+                    </div>
+                  </>
+                )}
+
                 <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '0.7rem', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.06)' }}>
                   <div style={{ fontSize: '0.72rem', color: '#888' }}>Média Histórica Mensal</div>
                   <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: '#aaa' }}>
@@ -2966,34 +3203,38 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                   <Package size={16} style={{ color: 'var(--color-primary)' }} />
                   Principais Produtos com Maior Custo neste TM (Vilões do Mês):
                 </h4>
-                <div className="table-wrapper">
-                  <table className="data-table">
+                <div className="table-wrapper" style={{ overflowX: 'hidden' }}>
+                  <table className="data-table" style={{ width: '100%', tableLayout: 'fixed' }}>
                     <thead>
                       <tr>
-                        <th>Código</th>
-                        <th>Descrição do Produto</th>
-                        <th>Filial(is)</th>
-                        <th style={{ textAlign: 'right' }}>Qtd Movimentada</th>
-                        <th style={{ textAlign: 'right' }}>Custo Total no TM</th>
-                        <th style={{ textAlign: 'center' }}>% do TM</th>
-                        <th style={{ textAlign: 'center' }}>Lançamentos</th>
+                        <th style={{ width: '110px' }}>Código</th>
+                        <th style={{ width: 'auto' }}>Descrição do Produto</th>
+                        <th style={{ width: '140px' }}>Filial(is)</th>
+                        <th style={{ width: '85px', textAlign: 'right' }}>Qtd</th>
+                        <th style={{ width: '125px', textAlign: 'right' }}>Custo Total</th>
+                        <th style={{ width: '75px', textAlign: 'center' }}>% TM</th>
+                        <th style={{ width: '90px', textAlign: 'center' }}>Ação</th>
                       </tr>
                     </thead>
                     <tbody>
                       {selectedTMForModal.topProdutos.map((p, idx) => (
                         <tr key={idx}>
-                          <td style={{ color: 'var(--color-primary)', fontWeight: 'bold' }}>{p.produto}</td>
-                          <td style={{ color: '#fff', fontWeight: '500' }}>{p.descricao}</td>
-                          <td>
+                          <td style={{ color: 'var(--color-primary)', fontWeight: 'bold', fontFamily: 'monospace', fontSize: '0.82rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.produto}>
+                            {p.produto}
+                          </td>
+                          <td style={{ color: '#fff', fontWeight: '500', fontSize: '0.82rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.descricao}>
+                            {p.descricao?.length > 38 ? p.descricao.substring(0, 38) + '...' : p.descricao}
+                          </td>
+                          <td style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.filiaisArr?.join(', ') || 'MATRIZ'}>
                             <span style={{ background: 'rgba(255,255,255,0.06)', color: '#81C784', padding: '1px 5px', borderRadius: '4px', fontSize: '0.72rem' }}>
                               {p.filiaisArr?.join(', ') || 'MATRIZ'}
                             </span>
                           </td>
-                          <td style={{ textAlign: 'right' }}>{p.qtdSaida.toLocaleString('pt-BR')}</td>
-                          <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#ef5350' }}>
+                          <td style={{ textAlign: 'right', fontSize: '0.82rem' }}>{p.qtdSaida.toLocaleString('pt-BR')}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#ef5350', fontSize: '0.85rem' }}>
                             {p.custoTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                           </td>
-                          <td style={{ textAlign: 'center', fontWeight: 'bold', color: '#ffb74d' }}>
+                          <td style={{ textAlign: 'center', fontWeight: 'bold', color: '#ffb74d', fontSize: '0.82rem' }}>
                             {p.pctDoTM.toFixed(1)}%
                           </td>
                           <td style={{ textAlign: 'center' }}>
@@ -3009,7 +3250,7 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                                 cursor: 'pointer'
                               }}
                             >
-                              🔍 Ver {p.lancamentos.length} item(ns)
+                              🔍 Ver {p.lancamentos.length}
                             </button>
                           </td>
                         </tr>
@@ -3024,35 +3265,47 @@ export default function EstoqueModule({ companies = [], userRole, userPermission
                 <h4 style={{ color: '#fff', margin: '0 0 0.6rem 0', fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <Layers size={16} /> Todos os Lançamentos deste Tipo de Movimento ({selectedTMForModal.records.length})
                 </h4>
-                <div className="table-wrapper" style={{ maxHeight: '250px', overflowY: 'auto' }}>
-                  <table className="data-table">
+                <div className="table-wrapper" style={{ maxHeight: '250px', overflowY: 'auto', overflowX: 'hidden' }}>
+                  <table className="data-table" style={{ width: '100%', tableLayout: 'fixed' }}>
                     <thead>
                       <tr>
-                        <th>Filial</th>
-                        <th>Data</th>
-                        <th>Documento</th>
-                        <th>Código</th>
-                        <th>Descrição</th>
-                        <th style={{ textAlign: 'right' }}>Qtd Saída</th>
-                        <th style={{ textAlign: 'right' }}>Custo Total</th>
-                        <th>Centro de Custo</th>
-                        <th>Usuário</th>
+                        <th style={{ width: '110px' }}>Filial</th>
+                        <th style={{ width: '80px' }}>Data</th>
+                        <th style={{ width: '90px' }}>Documento</th>
+                        <th style={{ width: '100px' }}>Código</th>
+                        <th style={{ width: 'auto' }}>Descrição</th>
+                        <th style={{ width: '75px', textAlign: 'right' }}>Qtd</th>
+                        <th style={{ width: '110px', textAlign: 'right' }}>Custo Total</th>
+                        <th style={{ width: '100px' }}>Centro Custo</th>
+                        <th style={{ width: '85px' }}>Usuário</th>
                       </tr>
                     </thead>
                     <tbody>
                       {selectedTMForModal.records.map((r, idx) => (
                         <tr key={idx}>
-                          <td style={{ color: '#81C784', fontWeight: 'bold' }}>{r.filial || '-'}</td>
-                          <td>{r.dtEmissao || '-'}</td>
-                          <td>{r.documento || '-'}</td>
-                          <td style={{ color: 'var(--color-primary)', fontWeight: 'bold' }}>{r.produto}</td>
-                          <td style={{ color: '#fff' }}>{r.descricao}</td>
-                          <td style={{ textAlign: 'right' }}>{r.qtdSaida?.toLocaleString('pt-BR') || '-'}</td>
-                          <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#fff' }}>
+                          <td style={{ color: '#81C784', fontWeight: 'bold', fontSize: '0.76rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.filial || '-'}>
+                            {r.filial || '-'}
+                          </td>
+                          <td style={{ fontSize: '0.76rem', color: '#ccc' }}>{r.dtEmissao || '-'}</td>
+                          <td style={{ fontSize: '0.76rem', color: '#aaa', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.documento || '-'}>
+                            {r.documento || '-'}
+                          </td>
+                          <td style={{ color: 'var(--color-primary)', fontWeight: 'bold', fontFamily: 'monospace', fontSize: '0.78rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.produto}>
+                            {r.produto}
+                          </td>
+                          <td style={{ color: '#fff', fontSize: '0.78rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.descricao}>
+                            {r.descricao?.length > 32 ? r.descricao.substring(0, 32) + '...' : r.descricao}
+                          </td>
+                          <td style={{ textAlign: 'right', fontSize: '0.78rem' }}>{r.qtdSaida?.toLocaleString('pt-BR') || '-'}</td>
+                          <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#fff', fontSize: '0.78rem' }}>
                             {r.custoTotal?.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                           </td>
-                          <td>{r.cc || '-'}</td>
-                          <td style={{ color: '#aaa', fontSize: '0.8rem' }}>{r.usuario || '-'}</td>
+                          <td style={{ fontSize: '0.74rem', color: '#aaa', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.cc || '-'}>
+                            {r.cc || '-'}
+                          </td>
+                          <td style={{ color: '#aaa', fontSize: '0.74rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.usuario || '-'}>
+                            {r.usuario || '-'}
+                          </td>
                         </tr>
                       ))}
                     </tbody>

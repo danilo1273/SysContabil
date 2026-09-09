@@ -1484,12 +1484,14 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                 <Database size={20} /> Dashboard Centro de Custo
               </button>
 
-              <button
-                className={`tab-btn ${activeTab === 'estoque' ? 'active' : ''}`}
-                onClick={() => setActiveTab('estoque')}
-              >
-                <Package size={20} /> Movimento de Estoque
-              </button>
+              {(userPermissions?.includes('estoque') || (['danilo', 'ryan.santos'].includes(username)) || userRole === 'superadmin' || userRole === 'admin') && (
+                <button
+                  className={`tab-btn ${activeTab === 'estoque' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('estoque')}
+                >
+                  <Package size={20} /> Movimento de Estoque
+                </button>
+              )}
             </>
           )}
 
@@ -2070,7 +2072,14 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
       )}
 
       {activeTab === 'estoque' && (
-        <EstoqueModule companies={companies} userRole={userRole} userPermissions={userPermissions} username={username} />
+        (userPermissions?.includes('estoque') || ['danilo', 'ryan.santos'].includes(username) || userRole === 'superadmin' || userRole === 'admin') ? (
+          <EstoqueModule companies={companies} userRole={userRole} userPermissions={userPermissions} username={username} />
+        ) : (
+          <div style={{ padding: '3rem', textAlign: 'center', color: '#ef5350' }}>
+            <h3>Acesso Restrito</h3>
+            <p style={{ color: '#aaa' }}>Você não possui permissão para visualizar o Módulo de Movimento de Estoque. Solicite acesso ao administrador.</p>
+          </div>
+        )
       )}
 
       {activeTab === 'gestao' && (

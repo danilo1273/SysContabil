@@ -1,6 +1,6 @@
 import { supabase } from "../supabaseClient";
 
-async function fetchAll(queryBuilder) {
+export async function fetchAll(queryBuilder) {
   let allData = [];
   let from = 0;
   const step = 1000;

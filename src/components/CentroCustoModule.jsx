@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { getRawRecords, saveCCToDB, getSettings, saveSettings } from '../utils/db';
+import { getRawRecords, saveCCToDB, getSettings, saveSettings, fetchAll } from '../utils/db';
 import { applyMapping, protheusMapping } from '../utils/mappingConfig';
 import { supabase } from '../supabaseClient';
 
@@ -262,7 +262,7 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
       const newEntry = {
           id: 'rateio-' + Date.now(),
           source: sourceProj,
-          rule: 'proporcional', // 'proporcional' | 'fixa'
+          rule: 'faturamento_global', // 'faturamento_global' | 'proporcional' | 'fixa'
           fixedPct: initialFixed,
           targetProjects: Object.keys(projects).filter(p => p !== sourceProj)
       };
@@ -573,52 +573,98 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
       setIsProcessing(true);
       try {
           const targetCCs = projects[selectedProject];
-  const getTargetPeriods = (ano, mes, tri, type) => {
-      const targetAno = parseInt(ano);
-      const targetMes = parseInt(mes);
-      const targets = [];
-      if (type === 'mensal') targets.push({ ano: targetAno, mes: targetMes });
-      if (type === 'trimestral') {
-          const t = parseInt(tri);
-          targets.push({ ano: targetAno, mes: t*3 - 2 });
-          targets.push({ ano: targetAno, mes: t*3 - 1 });
-          targets.push({ ano: targetAno, mes: t*3 });
-      }
-      if (type === 'anual') {
-          for (let i = 1; i <= targetMes; i++) targets.push({ ano: targetAno, mes: i });
-      }
-      if (type === 'ttm') {
-          for (let i = 0; i < 12; i++) {
-              let m = targetMes - i;
-              let a = targetAno;
-              if (m <= 0) { m += 12; a -= 1; }
-              targets.push({ ano: a, mes: m });
-          }
-      }
-      return targets;
-  };
+          const getTargetPeriods = (ano, mes, tri, type) => {
+              const targetAno = parseInt(ano);
+              const targetMes = parseInt(mes);
+              const targets = [];
+              if (type === 'mensal') targets.push({ ano: targetAno, mes: targetMes });
+              if (type === 'trimestral') {
+                  const t = parseInt(tri);
+                  targets.push({ ano: targetAno, mes: t*3 - 2 });
+                  targets.push({ ano: targetAno, mes: t*3 - 1 });
+                  targets.push({ ano: targetAno, mes: t*3 });
+              }
+              if (type === 'anual') {
+                  for (let i = 1; i <= 12; i++) targets.push({ ano: targetAno, mes: i });
+              }
+              if (type === 'ytd') {
+                  for (let i = 1; i <= targetMes; i++) targets.push({ ano: targetAno, mes: i });
+              }
+              if (type === 'ttm') {
+                  for (let i = 0; i < 12; i++) {
+                      let m = targetMes - i;
+                      let a = targetAno;
+                      if (m <= 0) { m += 12; a -= 1; }
+                      targets.push({ ano: a, mes: m });
+                  }
+              }
+              return targets;
+          };
 
-  const fetchAndFilter = async (ano, mes, tri, type, ccsArray) => {
-      const targets = getTargetPeriods(ano, mes, tri, type);
-      let allRecords = [];
-      for (const t of targets) {
-          const res = await getRawRecords(t.ano, t.mes);
-          const filtered = (res.cc || []).filter(r => ccsArray.includes(r.cc_codigo));
-          allRecords = allRecords.concat(filtered);
-      }
-              
+          const targetsBase = getTargetPeriods(periodoBaseAno, periodoBaseMes, periodoBaseTri, periodType);
+          const targetsComp = getTargetPeriods(periodoCompAno, periodoCompMes, periodoCompTri, periodType);
+
+          // Obter todos os períodos únicos para pré-carregamento paralelo
+          const periodKeyMap = new Map();
+          [...targetsBase, ...targetsComp].forEach(t => {
+              const k = `${t.ano}_${t.mes}`;
+              if (!periodKeyMap.has(k)) {
+                  periodKeyMap.set(k, { ano: t.ano, mes: t.mes });
+              }
+          });
+          const uniquePeriods = Array.from(periodKeyMap.values());
+
+          // Caches em memória para esta execução (elimina centenas de requisições duplicadas)
+          const ccCache = new Map();
+          const dreCache = new Map();
+
+          // Carregar cc_history de todos os períodos em paralelo
+          await Promise.all(uniquePeriods.map(async ({ ano, mes }) => {
+              const key = `${ano}_${mes}`;
+              try {
+                  const rows = await fetchAll(supabase.from('cc_history').select('*').eq('ano', ano).eq('mes', mes));
+                  ccCache.set(key, rows || []);
+              } catch (err) {
+                  console.error(`Erro ao carregar cc_history para ${ano}/${mes}:`, err);
+                  ccCache.set(key, []);
+              }
+          }));
+
+          // Se houver rateio de balancete (CIF), carregar dre_history em paralelo
+          if (includeRateio && cifRateioList && cifRateioList.length > 0) {
+              await Promise.all(uniquePeriods.map(async ({ ano, mes }) => {
+                  const key = `${ano}_${mes}`;
+                  try {
+                      let dreRows = await fetchAll(supabase.from('dre_history').select('*').eq('ano', ano).eq('mes', mes));
+                      if (dreRows) {
+                          dreRows = dreRows.filter(r => !((r.conta.startsWith('7') || r.conta.startsWith('6') || r.conta.startsWith('5.1.1.1.01')) && !r.id.includes('tax-dre') && !r.id.includes('manual_')));
+                      }
+                      dreCache.set(key, dreRows || []);
+                  } catch (err) {
+                      console.error(`Erro ao carregar dre_history para ${ano}/${mes}:`, err);
+                      dreCache.set(key, []);
+                  }
+              }));
+          }
+
+          const filterAndGroupCC = (targets, ccsArray) => {
+              let allRecords = [];
+              for (const t of targets) {
+                  const rows = ccCache.get(`${t.ano}_${t.mes}`) || [];
+                  const filtered = rows.filter(r => ccsArray.includes(r.cc_codigo));
+                  allRecords = allRecords.concat(filtered);
+              }
               const grouped = {};
               allRecords.forEach(r => {
                   const key = r.conta;
                   if (!grouped[key]) grouped[key] = { ...r, valor: 0 };
                   grouped[key].valor += r.valor;
               });
-              
               return Object.values(grouped);
           };
 
-          const baseRecords = await fetchAndFilter(periodoBaseAno, periodoBaseMes, periodoBaseTri, periodType, targetCCs);
-          const compRecords = await fetchAndFilter(periodoCompAno, periodoCompMes, periodoCompTri, periodType, targetCCs);
+          const baseRecords = filterAndGroupCC(targetsBase, targetCCs);
+          const compRecords = filterAndGroupCC(targetsComp, targetCCs);
 
           if (includeRateio && rateioList && rateioList.length > 0) {
               for (const rateioItem of rateioList) {
@@ -628,8 +674,8 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
                   const sourceCCs = projects[sourceName];
                   if (!sourceCCs || sourceCCs.length === 0) continue;
 
-                  const baseSourceRecords = await fetchAndFilter(periodoBaseAno, periodoBaseMes, periodoBaseTri, periodType, sourceCCs);
-                  const compSourceRecords = await fetchAndFilter(periodoCompAno, periodoCompMes, periodoCompTri, periodType, sourceCCs);
+                  const baseSourceRecords = filterAndGroupCC(targetsBase, sourceCCs);
+                  const compSourceRecords = filterAndGroupCC(targetsComp, sourceCCs);
                   
                   let pctBase = 0;
                   let pctComp = 0;
@@ -637,26 +683,43 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
                   if (rateioItem.rule === 'fixa') {
                       pctBase = (rateioItem.fixedPct?.[selectedProject] || 0) / 100;
                       pctComp = pctBase;
+                  } else if (rateioItem.rule === 'faturamento_global') {
+                      // Partilha pelo Faturamento Global da Empresa nas contas 3.1.1.1.01.00001 a 00006
+                      const calcGlobalRevenueShare = (targets) => {
+                          let totalGlobalRev = 0;
+                          let thisProjRev = 0;
+                          const targetCCs = projects[selectedProject] || [];
+                          for (const t of targets) {
+                              const rows = ccCache.get(`${t.ano}_${t.mes}`) || [];
+                              rows.forEach(r => {
+                                  if (r.conta && r.conta.startsWith('3.1.1.1.01')) {
+                                      const v = Math.abs(r.valor || 0);
+                                      totalGlobalRev += v;
+                                      if (targetCCs.includes(r.cc_codigo)) {
+                                          thisProjRev += v;
+                                      }
+                                  }
+                              });
+                          }
+                          return totalGlobalRev > 0 ? (thisProjRev / totalGlobalRev) : 0;
+                      };
+                      pctBase = calcGlobalRevenueShare(targetsBase);
+                      pctComp = calcGlobalRevenueShare(targetsComp);
                   } else if (rateioItem.rule === 'proporcional') {
                       const validTargets = (rateioItem.targetProjects && rateioItem.targetProjects.length > 0) 
                           ? rateioItem.targetProjects 
                           : Object.keys(projects).filter(p => p !== sourceName);
                       
                       if (validTargets.includes(selectedProject)) {
-                          const getRevenueShare = async (ano, mes, tri, type) => {
-                              const targets = getTargetPeriods(ano, mes, tri, type);
+                          const calcRevenueShare = (targets) => {
                               let totalPoolRev = 0;
                               let thisProjRev = 0;
-                              
                               for (const t of targets) {
-                                  const res = await getRawRecords(t.ano, t.mes);
-                                  const ccRows = res.cc || [];
-                                  
-                                  // Calcular receita de cada projeto participante
+                                  const rows = ccCache.get(`${t.ano}_${t.mes}`) || [];
                                   validTargets.forEach(tName => {
                                       const tCCs = projects[tName] || [];
-                                      ccRows.forEach(r => {
-                                          if ((r.conta.startsWith('3.1.1.1.01') || r.conta.startsWith('3.1.1.1.02')) && tCCs.includes(r.cc_codigo)) {
+                                      rows.forEach(r => {
+                                          if (r.conta && r.conta.startsWith('3.1.1.1.01') && tCCs.includes(r.cc_codigo)) {
                                               const v = Math.abs(r.valor || 0);
                                               totalPoolRev += v;
                                               if (tName === selectedProject) thisProjRev += v;
@@ -666,9 +729,8 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
                               }
                               return totalPoolRev > 0 ? (thisProjRev / totalPoolRev) : 0;
                           };
-                          
-                          pctBase = await getRevenueShare(periodoBaseAno, periodoBaseMes, periodoBaseTri, periodType);
-                          pctComp = await getRevenueShare(periodoCompAno, periodoCompMes, periodoCompTri, periodType);
+                          pctBase = calcRevenueShare(targetsBase);
+                          pctComp = calcRevenueShare(targetsComp);
                       }
                   }
                   
@@ -711,12 +773,10 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
           }
 
           if (includeRateio && cifRateioList && cifRateioList.length > 0) {
-              const fetchBalanceteAccount = async (ano, mes, tri, type, empresaId, conta) => {
-                  const targets = getTargetPeriods(ano, mes, tri, type);
+              const calcBalanceteAccount = (targets, empresaId, conta) => {
                   let totalVal = 0;
                   for (const t of targets) {
-                      const res = await getRawRecords(t.ano, t.mes);
-                      const rows = res.dre || [];
+                      const rows = dreCache.get(`${t.ano}_${t.mes}`) || [];
                       rows.forEach(r => {
                           if (r.conta === conta && (!empresaId || r.empresaId === empresaId)) {
                               totalVal += (r.valorMensal || 0);
@@ -727,8 +787,8 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
               };
 
               for (const cifItem of cifRateioList) {
-                  const valBase = await fetchBalanceteAccount(periodoBaseAno, periodoBaseMes, periodoBaseTri, periodType, cifItem.empresaId, cifItem.conta);
-                  const valComp = await fetchBalanceteAccount(periodoCompAno, periodoCompMes, periodoCompTri, periodType, cifItem.empresaId, cifItem.conta);
+                  const valBase = calcBalanceteAccount(targetsBase, cifItem.empresaId, cifItem.conta);
+                  const valComp = calcBalanceteAccount(targetsComp, cifItem.empresaId, cifItem.conta);
 
                   let pctBase = (cifItem.fixedPct?.[selectedProject] || 0) / 100;
                   let pctComp = pctBase;
@@ -775,6 +835,17 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
       } finally {
           setIsProcessing(false);
       }
+  };
+
+  const formatPeriodLabel = (ano, mes, tri, type) => {
+      const monthNames = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+      const monthFullNames = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+      if (type === 'mensal') return `${monthFullNames[mes - 1]}/${ano}`;
+      if (type === 'trimestral') return `${tri}º Tri/${ano}`;
+      if (type === 'anual') return `${ano} (Jan-Dez)`;
+      if (type === 'ytd') return `Jan-${monthNames[mes - 1]}/${ano}`;
+      if (type === 'ttm') return `12M até ${monthNames[mes - 1]}/${ano}`;
+      return `${ano}`;
   };
 
   const getT = (mapped, groupName, lineName = null) => {
@@ -1172,18 +1243,35 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
                                               Método de Distribuição:
                                           </label>
                                           <select 
-                                              value={item.rule} 
+                                              value={item.rule || 'faturamento_global'} 
                                               onChange={e => handleUpdateRateioRule(item.id, 'rule', e.target.value)} 
                                               className="select-input" 
                                               style={{ width: '100%', fontWeight: 'bold' }}
                                           >
-                                              <option value="proporcional">📈 Automática (Proporcional à Receita dos Projetos de Destino)</option>
+                                              <option value="faturamento_global">🌐 Automática (Partilha pelo Faturamento Global da Empresa - Contas 3.1.1.1.01)</option>
+                                              <option value="proporcional">📈 Proporcional Fechada (Apenas entre Projetos Participantes - Soma 100%)</option>
                                               <option value="fixa">🎯 Manual (Porcentagem Fixa % Definida por Projeto)</option>
                                           </select>
                                       </div>
                                   </div>
 
-                                  {/* REGRA FIXA */}
+                                  {(!item.rule || item.rule === 'faturamento_global') && (
+                                      <div style={{ background: 'rgba(33, 150, 243, 0.08)', padding: '1.2rem', borderRadius: '8px', border: '1px solid rgba(33, 150, 243, 0.35)' }}>
+                                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#64B5F6', fontSize: '0.92rem', fontWeight: 'bold', marginBottom: '6px' }}>
+                                              <span>🌐 Partilha pelo Faturamento Global da Empresa (Contas 3.1.1.1.01.00001 a 00006)</span>
+                                          </div>
+                                          <p style={{ color: '#ddd', fontSize: '0.84rem', lineHeight: '1.5', margin: '0 0 10px 0' }}>
+                                              A despesa da origem <b>{item.source}</b> é absorvida por cada projeto proporcionalmente à sua contribuição real no faturamento total bruto de toda a empresa.
+                                          </p>
+                                          <div style={{ background: 'rgba(0,0,0,0.35)', padding: '0.7rem 1rem', borderRadius: '6px', fontSize: '0.8rem', color: '#aaa', border: '1px solid rgba(255,255,255,0.08)' }}>
+                                              📊 <strong>Fórmula Contábil:</strong> <code>% Projeto = (Receita do Projeto nas Contas 3.1.1.1.01) ÷ (Faturamento Bruto Total da Empresa)</code>
+                                              <div style={{ marginTop: '4px', color: '#81c784' }}>
+                                                  ✓ Evita superavaliação e não penaliza projetos caso existam receitas em centros de custo fora dos projetos cadastrados.
+                                              </div>
+                                          </div>
+                                      </div>
+                                  )}
+
                                   {isFixed && (
                                       <div style={{ background: 'rgba(0,0,0,0.3)', padding: '1.2rem', borderRadius: '8px', border: '1px solid #444' }}>
                                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
@@ -1227,14 +1315,13 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
                                       </div>
                                   )}
 
-                                  {/* REGRA PROPORCIONAL */}
-                                  {!isFixed && (
+                                  {item.rule === 'proporcional' && (
                                       <div style={{ background: 'rgba(0,0,0,0.3)', padding: '1.2rem', borderRadius: '8px', border: '1px solid #444' }}>
                                           <label style={{ display: 'block', color: '#64B5F6', fontSize: '0.9rem', fontWeight: 'bold', marginBottom: '8px' }}>
-                                              Projetos de Destino que Participam do Rateio Proporcional:
+                                              Projetos de Destino que Participam do Rateio Proporcional Fechado:
                                           </label>
                                           <p style={{ color: '#888', fontSize: '0.8rem', marginBottom: '1rem' }}>
-                                              A despesa deste projeto será fatiada automaticamente entre os projetos selecionados abaixo de acordo com a receita gerada por cada um no período da DRE.
+                                              A despesa deste projeto será fatiada automaticamente entre os projetos selecionados abaixo de acordo com a receita gerada por cada um no período da DRE, totalizando 100% entre eles.
                                           </p>
                                           <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
                                               {targetProjs.map(p => {
@@ -1247,7 +1334,7 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
                                                               border: '1px solid ' + (isSelected ? '#2196F3' : '#444'), 
                                                               padding: '8px 14px', 
                                                               borderRadius: '6px', 
-                                                              cursor: 'pointer',
+                                                               cursor: 'pointer',
                                                               display: 'flex',
                                                               alignItems: 'center',
                                                               gap: '8px',
@@ -1449,8 +1536,8 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
         <div>
           <h3 style={{ color: 'var(--color-primary)', marginBottom: '0.5rem' }}>DRE do Projeto{selectedProject ? `: ${selectedProject}` : ''}</h3>
           <div className="print-only" style={{ marginBottom: '1.5rem', color: '#888', fontSize: '0.9rem' }}>
-              <strong>Período Base:</strong> {periodoBaseAno} {periodType === 'mensal' ? `- ${['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][periodoBaseMes - 1]}` : (periodType === 'trimestral' ? `- ${periodoBaseTri}º Tri` : '')} |&nbsp;
-              <strong>Período Comparativo:</strong> {periodoCompAno} {periodType === 'mensal' ? `- ${['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][periodoCompMes - 1]}` : (periodType === 'trimestral' ? `- ${periodoCompTri}º Tri` : '')}
+              <strong>Período Base:</strong> {formatPeriodLabel(periodoBaseAno, periodoBaseMes, periodoBaseTri, periodType)} |&nbsp;
+              <strong>Período Comparativo:</strong> {formatPeriodLabel(periodoCompAno, periodoCompMes, periodoCompTri, periodType)}
               {includeRateio && <span> | <strong style={{color: '#4CAF50'}}>Com Rateio Absorvido</strong></span>}
           </div>
 
@@ -1465,8 +1552,9 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
                       <select value={periodType} onChange={e => setPeriodType(e.target.value)} className="select-input" style={{ width: 'auto', minWidth: '130px' }}>
                           <option value="mensal">Mensal</option>
                           <option value="trimestral">Trimestral</option>
-                          <option value="anual">Acumulado do Ano (YTD)</option>
-                          <option value="ttm">Acumulado 12 Meses</option>
+                          <option value="anual">Ano Completo (Jan - Dez)</option>
+                          <option value="ytd">Acumulado do Ano (YTD)</option>
+                          <option value="ttm">Acumulado 12 Meses (TTM)</option>
                       </select>
             </div>
 
@@ -1475,7 +1563,7 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
                 <select value={periodoBaseAno} onChange={handleBaseAnoChange} className="select-input" style={{ width: 'auto', minWidth: '100px' }}>
                     {[2023, 2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
                 </select>
-                {periodType !== 'trimestral' && (
+                {periodType !== 'trimestral' && periodType !== 'anual' && (
                     <select value={periodoBaseMes} onChange={handleBaseMesChange} className="select-input" style={{ width: 'auto', minWidth: '80px' }}>
                         {Array.from({length: 12}, (_, i) => <option key={i+1} value={i+1}>{['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][i]}</option>)}
                     </select>
@@ -1495,7 +1583,7 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
                 <select value={periodoCompAno} onChange={e => setPeriodoCompAno(e.target.value)} className="select-input" style={{ width: 'auto', minWidth: '100px' }}>
                     {[2023, 2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
                 </select>
-                {periodType !== 'trimestral' && (
+                {periodType !== 'trimestral' && periodType !== 'anual' && (
                     <select value={periodoCompMes} onChange={e => setPeriodoCompMes(e.target.value)} className="select-input" style={{ width: 'auto', minWidth: '80px' }}>
                         {Array.from({length: 12}, (_, i) => <option key={i+1} value={i+1}>{['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][i]}</option>)}
                     </select>
@@ -1531,9 +1619,9 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
                       <thead>
                           <tr>
                               <th>Conta / Descrição</th>
-                              <th style={{ textAlign: 'right' }}>Período Base</th>
+                              <th style={{ textAlign: 'right' }}>Base ({formatPeriodLabel(periodoBaseAno, periodoBaseMes, periodoBaseTri, periodType)})</th>
                               <th style={{ textAlign: 'right' }}>AV (%)</th>
-                              <th style={{ textAlign: 'right' }}>Período Comp.</th>
+                              <th style={{ textAlign: 'right' }}>Comp ({formatPeriodLabel(periodoCompAno, periodoCompMes, periodoCompTri, periodType)})</th>
                               <th style={{ textAlign: 'right' }}>AV (%)</th>
                               <th style={{ textAlign: 'right' }}>Variação (R$)</th>
                               <th style={{ textAlign: 'right' }}>Variação (%)</th>

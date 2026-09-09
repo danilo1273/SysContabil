@@ -122,6 +122,14 @@ const UserPanel = ({ onClose }) => {
                   }} disabled={(['danilo', 'ryan.santos'].includes(formData.username))} />
                   Visualizar Dados (Dashboards e DRE)
                 </label>
+
+                <label style={{ color: '#fff', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={formData.permissions?.includes('estoque') || (['danilo', 'ryan.santos'].includes(formData.username))} onChange={(e) => {
+                    const newPerms = e.target.checked ? [...(formData.permissions || []), 'estoque'] : (formData.permissions || []).filter(p => p !== 'estoque');
+                    setFormData({...formData, permissions: newPerms});
+                  }} disabled={(['danilo', 'ryan.santos'].includes(formData.username))} />
+                  📦 Movimento de Estoque (Auditoria de TMs e Filiais)
+                </label>
                 
               </div>
             </div>
@@ -154,6 +162,7 @@ const UserPanel = ({ onClose }) => {
                           {u.permissions?.includes('db') && <span style={{ background: '#9C27B0', color: '#fff', padding: '2px 6px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 'bold' }}>DB</span>}
                           {u.permissions?.includes('contabil') && <span style={{ background: '#4CAF50', color: '#fff', padding: '2px 6px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 'bold' }}>Contábil</span>}
                           {u.permissions?.includes('dash') && <span style={{ background: '#2196F3', color: '#fff', padding: '2px 6px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 'bold' }}>View</span>}
+                          {u.permissions?.includes('estoque') && <span style={{ background: '#FF9800', color: '#fff', padding: '2px 6px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 'bold' }}>Estoque</span>}
                           {(!u.permissions || u.permissions.length === 0) && <span style={{ background: '#555', color: '#ccc', padding: '2px 6px', borderRadius: '4px', fontSize: '0.65rem' }}>Sem acesso</span>}
                         </div>
                       )}
