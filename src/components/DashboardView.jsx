@@ -2,6 +2,141 @@ import React, { useState, useEffect } from 'react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell, LineChart, Line, PieChart, Pie, Legend, ReferenceLine } from 'recharts';
 import { getHistorySeries, getSettings, saveSettings } from '../utils/db';
 
+// Componente executivo de entrada monetária BRL com formatação automática e sem zero residual à esquerda
+function MoneyInput({
+  value,
+  onChange,
+  placeholder = '0,00',
+  style = {},
+  color = '#4CAF50',
+  prefix = 'R$',
+  compact = false
+}) {
+  const [isFocused, setIsFocused] = useState(false);
+  const [tempText, setTempText] = useState('');
+
+  // Sincroniza o valor formatado quando o campo não está com foco
+  useEffect(() => {
+    if (!isFocused) {
+      if (value === undefined || value === null || value === '') {
+        setTempText('');
+      } else {
+        const num = Number(value) || 0;
+        setTempText(num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+      }
+    }
+  }, [value, isFocused]);
+
+  const formatLive = (val) => {
+    if (val === undefined || val === null) return '';
+    let clean = String(val).replace(/[^\d,-]/g, '');
+    const isNeg = clean.startsWith('-');
+    clean = clean.replace(/-/g, '');
+
+    let [intPart = '', decPart] = clean.split(',');
+    // Remove qualquer zero residual à esquerda seguido de dígitos (ex: "0500" -> "500")
+    intPart = intPart.replace(/^0+(?=\d)/, '');
+    if (intPart === '' && decPart !== undefined) intPart = '0';
+
+    const formattedInt = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    let res = formattedInt;
+    if (decPart !== undefined) {
+      res += ',' + decPart.slice(0, 2);
+    }
+    return isNeg ? '-' + res : res;
+  };
+
+  const parseToNum = (val) => {
+    if (!val) return 0;
+    let clean = String(val).replace(/[^\d,-]/g, '');
+    const isNeg = clean.startsWith('-');
+    clean = clean.replace(/-/g, '');
+
+    let [intPart = '0', decPart = '0'] = clean.split(',');
+    intPart = intPart.replace(/^0+(?=\d)/, '');
+    const num = (parseInt(intPart || '0', 10)) + (parseFloat('0.' + (decPart || '0')) || 0);
+    return isNeg ? -num : num;
+  };
+
+  const handleFocus = (e) => {
+    setIsFocused(true);
+    const num = Number(value) || 0;
+    if (num === 0) {
+      // Se for 0, limpa para digitar de primeira sem zero à esquerda
+      setTempText('');
+    } else {
+      setTempText(num.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 }));
+    }
+    setTimeout(() => {
+      e.target?.select?.();
+    }, 10);
+  };
+
+  const handleChange = (e) => {
+    const raw = e.target.value;
+    const formatted = formatLive(raw);
+    setTempText(formatted);
+    const num = parseToNum(formatted);
+    onChange(num);
+  };
+
+  const handleBlur = () => {
+    setIsFocused(false);
+    const num = parseToNum(tempText);
+    onChange(num);
+    setTempText(num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+  };
+
+  return (
+    <div style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      background: 'rgba(0,0,0,0.4)',
+      border: isFocused ? `1px solid ${color}` : '1px solid rgba(255,255,255,0.18)',
+      borderRadius: compact ? '4px' : '8px',
+      padding: compact ? '3px 8px' : '0.55rem 0.85rem',
+      transition: 'all 0.2s ease',
+      boxShadow: isFocused ? `0 0 10px ${color}35` : 'none',
+      width: compact ? 'auto' : '100%',
+      boxSizing: 'border-box',
+      ...style
+    }}>
+      {prefix && (
+        <span style={{
+          color: isFocused ? color : 'rgba(255,255,255,0.45)',
+          fontWeight: 700,
+          fontSize: compact ? '0.74rem' : '0.88rem',
+          marginRight: '6px',
+          userSelect: 'none'
+        }}>
+          {prefix}
+        </span>
+      )}
+      <input
+        type="text"
+        inputMode="numeric"
+        value={tempText}
+        placeholder={placeholder}
+        onFocus={handleFocus}
+        onChange={handleChange}
+        onBlur={handleBlur}
+        style={{
+          background: 'transparent',
+          border: 'none',
+          outline: 'none',
+          color: color || '#fff',
+          fontWeight: 700,
+          fontSize: compact ? '0.82rem' : '1.05rem',
+          width: '100%',
+          textAlign: compact ? 'right' : 'left',
+          padding: 0,
+          fontFamily: 'inherit'
+        }}
+      />
+    </div>
+  );
+}
+
 export default function DashboardView({ selectedCompany, selectedAno, selectedMes, period, selectedTrimestre }) {
   const [loading, setLoading] = useState(true);
   const [dataAtual, setDataAtual] = useState({ dre: [], balanco: [] });
@@ -387,7 +522,7 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
     const key = `${yr}-${m}`;
     setProjOverrides(prev => {
       const current = prev[key] || {};
-      const num = val === '' ? undefined : parseFloat(val);
+      const num = (val === '' || val === undefined || isNaN(val)) ? undefined : Number(val);
       const updated = { ...current, [field]: num };
       if (updated.caixa === undefined && updated.dividaCP === undefined && updated.dividaLP === undefined) {
         const next = { ...prev };
@@ -1912,79 +2047,43 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem' }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.78rem', color: '#ccc', marginBottom: '4px', fontWeight: 600 }}>
+                    <label style={{ display: 'block', fontSize: '0.78rem', color: '#ccc', marginBottom: '6px', fontWeight: 600 }}>
                       Geração Mensal de Caixa (+R$/mês):
                     </label>
-                    <input
-                      type="number"
-                      step="10000"
+                    <MoneyInput
                       value={projAssumptions.monthlyCashGen}
-                      onChange={(e) => setProjAssumptions(prev => ({ ...prev, monthlyCashGen: parseFloat(e.target.value) || 0 }))}
-                      style={{
-                        width: '100%',
-                        padding: '0.6rem 0.8rem',
-                        borderRadius: '8px',
-                        background: 'rgba(0,0,0,0.4)',
-                        border: '1px solid rgba(255,255,255,0.15)',
-                        color: '#4CAF50',
-                        fontSize: '1rem',
-                        fontWeight: 700,
-                        boxSizing: 'border-box'
-                      }}
+                      onChange={(val) => setProjAssumptions(prev => ({ ...prev, monthlyCashGen: val }))}
+                      color="#4CAF50"
                     />
-                    <span style={{ fontSize: '0.72rem', color: '#888', marginTop: '2px', display: 'block' }}>
+                    <span style={{ fontSize: '0.72rem', color: '#888', marginTop: '4px', display: 'block' }}>
                       Aporte/crescimento líquido médio do caixa mensal
                     </span>
                   </div>
 
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.78rem', color: '#ccc', marginBottom: '4px', fontWeight: 600 }}>
+                    <label style={{ display: 'block', fontSize: '0.78rem', color: '#ccc', marginBottom: '6px', fontWeight: 600 }}>
                       Amortização Dívida Curto Prazo (-R$/mês):
                     </label>
-                    <input
-                      type="number"
-                      step="10000"
+                    <MoneyInput
                       value={projAssumptions.monthlyAmortCP}
-                      onChange={(e) => setProjAssumptions(prev => ({ ...prev, monthlyAmortCP: parseFloat(e.target.value) || 0 }))}
-                      style={{
-                        width: '100%',
-                        padding: '0.6rem 0.8rem',
-                        borderRadius: '8px',
-                        background: 'rgba(0,0,0,0.4)',
-                        border: '1px solid rgba(255,255,255,0.15)',
-                        color: '#2196F3',
-                        fontSize: '1rem',
-                        fontWeight: 700,
-                        boxSizing: 'border-box'
-                      }}
+                      onChange={(val) => setProjAssumptions(prev => ({ ...prev, monthlyAmortCP: val }))}
+                      color="#2196F3"
                     />
-                    <span style={{ fontSize: '0.72rem', color: '#888', marginTop: '2px', display: 'block' }}>
+                    <span style={{ fontSize: '0.72rem', color: '#888', marginTop: '4px', display: 'block' }}>
                       Pagamento mensal de principal CP (até zerar)
                     </span>
                   </div>
 
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.78rem', color: '#ccc', marginBottom: '4px', fontWeight: 600 }}>
+                    <label style={{ display: 'block', fontSize: '0.78rem', color: '#ccc', marginBottom: '6px', fontWeight: 600 }}>
                       Amortização Dívida Longo Prazo (-R$/mês):
                     </label>
-                    <input
-                      type="number"
-                      step="10000"
+                    <MoneyInput
                       value={projAssumptions.monthlyAmortLP}
-                      onChange={(e) => setProjAssumptions(prev => ({ ...prev, monthlyAmortLP: parseFloat(e.target.value) || 0 }))}
-                      style={{
-                        width: '100%',
-                        padding: '0.6rem 0.8rem',
-                        borderRadius: '8px',
-                        background: 'rgba(0,0,0,0.4)',
-                        border: '1px solid rgba(255,255,255,0.15)',
-                        color: '#AB47BC',
-                        fontSize: '1rem',
-                        fontWeight: 700,
-                        boxSizing: 'border-box'
-                      }}
+                      onChange={(val) => setProjAssumptions(prev => ({ ...prev, monthlyAmortLP: val }))}
+                      color="#AB47BC"
                     />
-                    <span style={{ fontSize: '0.72rem', color: '#888', marginTop: '2px', display: 'block' }}>
+                    <span style={{ fontSize: '0.72rem', color: '#888', marginTop: '4px', display: 'block' }}>
                       Pagamento mensal de principal LP (até zerar)
                     </span>
                   </div>
@@ -2112,22 +2211,12 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
                             {/* Caixa */}
                             <td style={{ padding: '6px 12px', textAlign: 'right' }}>
                               {row.isProjetado ? (
-                                <input
-                                  type="number"
-                                  placeholder={String(row.DisponivelCaixa)}
-                                  value={ov.caixa !== undefined ? ov.caixa : ''}
-                                  onChange={(e) => handleOverrideChange(projModalAnoTab, m, 'caixa', e.target.value)}
-                                  style={{
-                                    width: '120px',
-                                    padding: '4px 6px',
-                                    borderRadius: '4px',
-                                    background: ov.caixa !== undefined ? 'rgba(76, 175, 80, 0.2)' : 'rgba(0,0,0,0.3)',
-                                    border: ov.caixa !== undefined ? '1px solid #4CAF50' : '1px solid rgba(255,255,255,0.15)',
-                                    color: '#4CAF50',
-                                    fontSize: '0.8rem',
-                                    fontWeight: 700,
-                                    textAlign: 'right'
-                                  }}
+                                <MoneyInput
+                                  compact={true}
+                                  value={ov.caixa !== undefined ? ov.caixa : row.DisponivelCaixa}
+                                  onChange={(val) => handleOverrideChange(projModalAnoTab, m, 'caixa', val)}
+                                  color="#4CAF50"
+                                  style={{ width: '130px' }}
                                 />
                               ) : (
                                 <span style={{ color: '#4CAF50', fontWeight: 600 }}>{formatCurrency(row.DisponivelCaixa)}</span>
@@ -2137,22 +2226,12 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
                             {/* Dívida CP */}
                             <td style={{ padding: '6px 12px', textAlign: 'right' }}>
                               {row.isProjetado ? (
-                                <input
-                                  type="number"
-                                  placeholder={String(row.DividaCP)}
-                                  value={ov.dividaCP !== undefined ? ov.dividaCP : ''}
-                                  onChange={(e) => handleOverrideChange(projModalAnoTab, m, 'dividaCP', e.target.value)}
-                                  style={{
-                                    width: '120px',
-                                    padding: '4px 6px',
-                                    borderRadius: '4px',
-                                    background: ov.dividaCP !== undefined ? 'rgba(33, 150, 243, 0.2)' : 'rgba(0,0,0,0.3)',
-                                    border: ov.dividaCP !== undefined ? '1px solid #2196F3' : '1px solid rgba(255,255,255,0.15)',
-                                    color: '#2196F3',
-                                    fontSize: '0.8rem',
-                                    fontWeight: 700,
-                                    textAlign: 'right'
-                                  }}
+                                <MoneyInput
+                                  compact={true}
+                                  value={ov.dividaCP !== undefined ? ov.dividaCP : row.DividaCP}
+                                  onChange={(val) => handleOverrideChange(projModalAnoTab, m, 'dividaCP', val)}
+                                  color="#2196F3"
+                                  style={{ width: '130px' }}
                                 />
                               ) : (
                                 <span style={{ color: '#2196F3', fontWeight: 600 }}>{formatCurrency(row.DividaCP)}</span>
@@ -2162,22 +2241,12 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
                             {/* Dívida LP */}
                             <td style={{ padding: '6px 12px', textAlign: 'right' }}>
                               {row.isProjetado ? (
-                                <input
-                                  type="number"
-                                  placeholder={String(row.DividaLP)}
-                                  value={ov.dividaLP !== undefined ? ov.dividaLP : ''}
-                                  onChange={(e) => handleOverrideChange(projModalAnoTab, m, 'dividaLP', e.target.value)}
-                                  style={{
-                                    width: '120px',
-                                    padding: '4px 6px',
-                                    borderRadius: '4px',
-                                    background: ov.dividaLP !== undefined ? 'rgba(171, 71, 188, 0.2)' : 'rgba(0,0,0,0.3)',
-                                    border: ov.dividaLP !== undefined ? '1px solid #AB47BC' : '1px solid rgba(255,255,255,0.15)',
-                                    color: '#AB47BC',
-                                    fontSize: '0.8rem',
-                                    fontWeight: 700,
-                                    textAlign: 'right'
-                                  }}
+                                <MoneyInput
+                                  compact={true}
+                                  value={ov.dividaLP !== undefined ? ov.dividaLP : row.DividaLP}
+                                  onChange={(val) => handleOverrideChange(projModalAnoTab, m, 'dividaLP', val)}
+                                  color="#AB47BC"
+                                  style={{ width: '130px' }}
                                 />
                               ) : (
                                 <span style={{ color: '#AB47BC', fontWeight: 600 }}>{formatCurrency(row.DividaLP)}</span>
