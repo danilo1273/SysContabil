@@ -146,8 +146,9 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
   const [debtSearch, setDebtSearch] = useState('');
   const [debtSelectedMes, setDebtSelectedMes] = useState(selectedMes);
 
-  // Projeção de Endividamento, Caixa e Break-Even (3 Anos)
-  const [chartHorizon, setChartHorizon] = useState('3anos'); // Padrão: 3 anos (Break-Even)
+  // Projeção de Endividamento, Caixa e Break-Even (Horizonte Personalizável: 1 a 10 Anos)
+  const [projHorizonYears, setProjHorizonYears] = useState(3); // Anos do horizonte (padrão 3)
+  const [chartHorizon, setChartHorizon] = useState('plurianual'); // 'ano' ou 'plurianual'
   const [showProjModal, setShowProjModal] = useState(false);
   const [projModalAnoTab, setProjModalAnoTab] = useState(selectedAno);
   const [projAssumptions, setProjAssumptions] = useState({
@@ -179,13 +180,17 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
 
         // Buscar dados futuros se existirem (para visualização híbrida real + projetada)
         try {
-          const [next1, next2] = await Promise.all([
+          const [next1, next2, next3, next4] = await Promise.all([
             getHistorySeries(selectedCompany, selectedAno + 1),
-            getHistorySeries(selectedCompany, selectedAno + 2)
+            getHistorySeries(selectedCompany, selectedAno + 2),
+            getHistorySeries(selectedCompany, selectedAno + 3),
+            getHistorySeries(selectedCompany, selectedAno + 4)
           ]);
           setFutureBalancoData({
             [selectedAno + 1]: next1?.balanco || [],
-            [selectedAno + 2]: next2?.balanco || []
+            [selectedAno + 2]: next2?.balanco || [],
+            [selectedAno + 3]: next3?.balanco || [],
+            [selectedAno + 4]: next4?.balanco || []
           });
         } catch (errFut) {
           console.warn('Dados de balanço futuros não disponíveis:', errFut);
@@ -197,6 +202,7 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
           if (savedProj) {
             if (savedProj.assumptions) setProjAssumptions(savedProj.assumptions);
             if (savedProj.overrides) setProjOverrides(savedProj.overrides);
+            if (savedProj.horizonYears) setProjHorizonYears(savedProj.horizonYears);
           }
         } catch (errProj) {
           console.warn('Erro ao carregar projeção salva:', errProj);
@@ -410,15 +416,15 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
     lastRealPoint = { ano: selectedAno, mes: selectedMes || 1, mCP: 0, mLP: 0, mCaixa: 0, mDividaTotal: 0, mDividaLiquida: 0 };
   }
 
-  const years3 = [selectedAno, selectedAno + 1, selectedAno + 2];
-  const full36Months = [];
+  const projectionYears = Array.from({ length: projHorizonYears }, (_, i) => selectedAno + i);
+  const dynamicProjectionMonths = [];
 
   let runningCaixa = lastRealPoint.mCaixa;
   let runningCP = lastRealPoint.mCP;
   let runningLP = lastRealPoint.mLP;
   let breakEvenMonth = null;
 
-  for (const yr of years3) {
+  for (const yr of projectionYears) {
     for (let m = 1; m <= 12; m++) {
       const isPastOrCurrentReal = (yr < lastRealPoint.ano) || (yr === lastRealPoint.ano && m <= lastRealPoint.mes);
       const realBal = getMonthRealBalance(yr, m);
@@ -432,7 +438,7 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
         mesNome: mesesNome[m - 1],
         mesAno: mesAnoAbrev,
         fullLabel: fullLabel,
-        mesKey: chartHorizon === '3anos' ? mesAnoAbrev : mesesAbrev[m - 1]
+        mesKey: chartHorizon === 'plurianual' || chartHorizon === '3anos' ? mesAnoAbrev : mesesAbrev[m - 1]
       };
 
       if (isPastOrCurrentReal && realBal.hasData) {
@@ -491,13 +497,14 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
         };
       }
 
-      full36Months.push(item);
+      dynamicProjectionMonths.push(item);
     }
   }
 
-  const displayedDebtChartData = chartHorizon === '3anos'
-    ? full36Months
-    : full36Months.filter(d => d.ano === selectedAno).map(d => ({ ...d, mesKey: mesesAbrev[d.mesNum - 1] }));
+  const isPlurianualMode = chartHorizon === 'plurianual' || chartHorizon === '3anos';
+  const displayedDebtChartData = isPlurianualMode
+    ? dynamicProjectionMonths
+    : dynamicProjectionMonths.filter(d => d.ano === selectedAno).map(d => ({ ...d, mesKey: mesesAbrev[d.mesNum - 1] }));
 
   const handleSaveProjection = async () => {
     setSaveProjStatus('saving');
@@ -505,6 +512,7 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
       const payload = {
         assumptions: projAssumptions,
         overrides: projOverrides,
+        horizonYears: projHorizonYears,
         updatedAt: new Date().toISOString()
       };
       await saveSettings(`agf_projecao_endividamento_${selectedCompany}`, payload);
@@ -1641,17 +1649,17 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
           <div>
             <h3 style={{ margin: 0, color: '#fff', fontSize: '1.3rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span>📈</span> Evolução do Endividamento vs. Disponibilidades {chartHorizon === '3anos' ? `(Horizonte 3 Anos: ${selectedAno} a ${selectedAno + 2})` : `- ${selectedAno}`}
+              <span>📈</span> Evolução do Endividamento vs. Disponibilidades {isPlurianualMode ? `(Horizonte ${projHorizonYears} Anos: ${selectedAno} a ${selectedAno + projHorizonYears - 1})` : `- ${selectedAno}`}
             </h3>
             <p style={{ margin: '0.3rem 0 0 0', color: '#aaa', fontSize: '0.85rem' }}>
-              {chartHorizon === '3anos'
-                ? 'Projeção plurianual dinâmica de Dívida Total (CP + LP) vs. Caixa Disponível para determinação do Break-Even.'
+              {isPlurianualMode
+                ? `Projeção dinâmica de ${projHorizonYears * 12} meses de Dívida Total vs. Caixa Disponível para determinação do Break-Even.`
                 : 'Acompanhamento mensal da Dívida Total (Curto + Longo Prazo), Caixa Disponível e Dívida Líquida.'}
             </p>
           </div>
           
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-            {/* Toggle de Horizonte */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            {/* Toggle de Modo: Ano Atual vs Plurianual */}
             <div style={{ display: 'flex', background: 'rgba(255,255,255,0.06)', borderRadius: '8px', padding: '3px', border: '1px solid rgba(255,255,255,0.1)' }}>
               <button
                 type="button"
@@ -1672,7 +1680,7 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
               </button>
               <button
                 type="button"
-                onClick={() => setChartHorizon('3anos')}
+                onClick={() => setChartHorizon('plurianual')}
                 style={{
                   padding: '6px 14px',
                   borderRadius: '6px',
@@ -1680,14 +1688,42 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
                   fontSize: '0.78rem',
                   fontWeight: 700,
                   cursor: 'pointer',
-                  background: chartHorizon === '3anos' ? 'linear-gradient(135deg, #3F51B5 0%, #00B0FF 100%)' : 'transparent',
-                  color: chartHorizon === '3anos' ? '#fff' : '#aaa',
-                  boxShadow: chartHorizon === '3anos' ? '0 2px 8px rgba(63,81,181,0.4)' : 'none',
+                  background: isPlurianualMode ? 'linear-gradient(135deg, #3F51B5 0%, #00B0FF 100%)' : 'transparent',
+                  color: isPlurianualMode ? '#fff' : '#aaa',
+                  boxShadow: isPlurianualMode ? '0 2px 8px rgba(63,81,181,0.4)' : 'none',
                   transition: 'all 0.2s'
                 }}
               >
-                🚀 Visão 3 Anos (Break-Even)
+                🚀 {projHorizonYears} Anos ({projHorizonYears * 12}M)
               </button>
+            </div>
+
+            {/* Seletor rápido de horizonte em anos */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '3px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', padding: '3px 6px', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <span style={{ fontSize: '0.72rem', color: '#888', marginRight: '3px', fontWeight: 600 }}>Horizonte:</span>
+              {[1, 2, 3, 4, 5].map(yrCount => (
+                <button
+                  key={yrCount}
+                  type="button"
+                  onClick={() => {
+                    setProjHorizonYears(yrCount);
+                    setChartHorizon('plurianual');
+                  }}
+                  style={{
+                    padding: '3px 7px',
+                    borderRadius: '4px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: '0.72rem',
+                    fontWeight: 700,
+                    background: projHorizonYears === yrCount && isPlurianualMode ? '#00B0FF' : 'transparent',
+                    color: projHorizonYears === yrCount && isPlurianualMode ? '#000' : '#aaa',
+                    transition: 'all 0.15s'
+                  }}
+                >
+                  {yrCount}A
+                </button>
+              ))}
             </div>
 
             {/* Botão de Simulação & Premissas */}
@@ -1810,29 +1846,47 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
               <span style={{ fontSize: '1.6rem' }}>⚠️</span>
               <div>
                 <div style={{ color: '#FFA726', fontWeight: 700, fontSize: '0.95rem' }}>
-                  Break-Even não alcançado no horizonte de 3 anos ({selectedAno} a {selectedAno + 2})
+                  Break-Even não alcançado no horizonte de {projHorizonYears} anos ({selectedAno} a {selectedAno + projHorizonYears - 1})
                 </div>
                 <div style={{ color: '#aaa', fontSize: '0.8rem', marginTop: '2px' }}>
-                  Com as premissas atuais de geração de caixa ({formatCurrency(projAssumptions.monthlyCashGen)}/mês) e amortização ({formatCurrency(projAssumptions.monthlyAmortCP + projAssumptions.monthlyAmortLP)}/mês), a dívida ainda não converge a zero.
+                  Com as premissas atuais de geração de caixa ({formatCurrency(projAssumptions.monthlyCashGen)}/mês) e amortização ({formatCurrency(projAssumptions.monthlyAmortCP + projAssumptions.monthlyAmortLP)}/mês), a dívida ainda não converge a zero em {projHorizonYears * 12} meses.
                 </div>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowProjModal(true)}
-              style={{
-                padding: '6px 14px',
-                borderRadius: '6px',
-                background: 'rgba(255, 152, 0, 0.2)',
-                border: '1px solid rgba(255, 152, 0, 0.4)',
-                color: '#FFA726',
-                fontSize: '0.8rem',
-                fontWeight: 600,
-                cursor: 'pointer'
-              }}
-            >
-              Ajustar Premissas
-            </button>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={() => setProjHorizonYears(prev => Math.min(10, prev + 1))}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  background: 'rgba(255, 152, 0, 0.2)',
+                  border: '1px solid rgba(255, 152, 0, 0.4)',
+                  color: '#FFA726',
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                + Expandir para {projHorizonYears + 1} Anos
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowProjModal(true)}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  background: 'rgba(0, 176, 255, 0.2)',
+                  border: '1px solid rgba(0, 176, 255, 0.4)',
+                  color: '#00B0FF',
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                Ajustar Premissas
+              </button>
+            </div>
           </div>
         )}
 
@@ -1842,7 +1896,7 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
               <XAxis 
                 dataKey="mesKey" 
                 stroke="#aaa" 
-                interval={chartHorizon === '3anos' ? 2 : 0} 
+                interval={!isPlurianualMode ? 0 : projHorizonYears >= 5 ? 5 : projHorizonYears >= 3 ? 2 : 1} 
                 tick={{ fontSize: 11 }}
               />
               <YAxis stroke="#aaa" tickFormatter={(v) => `R$ ${(v/1000000).toFixed(1)}M`} />
@@ -1923,7 +1977,7 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
 
               {lastRealPoint && (
                 <ReferenceLine 
-                  x={chartHorizon === '3anos' ? `${mesesAbrev[lastRealPoint.mes - 1]}/${String(lastRealPoint.ano).slice(-2)}` : mesesAbrev[lastRealPoint.mes - 1]} 
+                  x={isPlurianualMode ? `${mesesAbrev[lastRealPoint.mes - 1]}/${String(lastRealPoint.ano).slice(-2)}` : mesesAbrev[lastRealPoint.mes - 1]} 
                   stroke="rgba(255,255,255,0.25)" 
                   strokeWidth={1} 
                   strokeDasharray="2 2" 
@@ -2090,7 +2144,80 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
                 </div>
               </div>
 
-              {/* 3. Resumo Executivo do Break-Even Calculado */}
+              {/* 3. Seletor de Horizonte de Projeção Personalizável */}
+              <div style={{
+                marginBottom: '1.5rem',
+                background: 'rgba(0, 176, 255, 0.08)',
+                padding: '1.1rem 1.3rem',
+                borderRadius: '12px',
+                border: '1px solid rgba(0, 176, 255, 0.25)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '1rem'
+              }}>
+                <div>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#00B0FF', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    ⏱️ Horizonte Temporal da Projeção Personalizado
+                  </div>
+                  <p style={{ margin: '3px 0 0 0', fontSize: '0.76rem', color: '#bbb' }}>
+                    Escolha por quantos anos simular (1 a 10 anos) para encontrar o ponto de equilíbrio mesmo com amortizações de longo prazo:
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                  {[1, 2, 3, 4, 5, 6, 7].map(yrCount => (
+                    <button
+                      key={yrCount}
+                      type="button"
+                      onClick={() => setProjHorizonYears(yrCount)}
+                      style={{
+                        padding: '6px 13px',
+                        borderRadius: '6px',
+                        border: projHorizonYears === yrCount ? '1px solid #00B0FF' : '1px solid rgba(255,255,255,0.1)',
+                        cursor: 'pointer',
+                        fontSize: '0.8rem',
+                        fontWeight: 700,
+                        background: projHorizonYears === yrCount ? 'linear-gradient(135deg, #0288D1 0%, #00B0FF 100%)' : 'rgba(255,255,255,0.06)',
+                        color: projHorizonYears === yrCount ? '#fff' : '#aaa',
+                        boxShadow: projHorizonYears === yrCount ? '0 2px 8px rgba(0,176,255,0.4)' : 'none',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      {yrCount} {yrCount === 1 ? 'Ano' : 'Anos'} ({yrCount * 12}M)
+                    </button>
+                  ))}
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '6px' }}>
+                    <span style={{ fontSize: '0.75rem', color: '#888' }}>Outro:</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="15"
+                      value={projHorizonYears}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        if (val >= 1 && val <= 15) setProjHorizonYears(val);
+                      }}
+                      style={{
+                        width: '52px',
+                        padding: '4px 6px',
+                        borderRadius: '6px',
+                        background: 'rgba(0,0,0,0.4)',
+                        border: '1px solid rgba(0,176,255,0.4)',
+                        color: '#00B0FF',
+                        fontWeight: 700,
+                        fontSize: '0.85rem',
+                        textAlign: 'center'
+                      }}
+                    />
+                    <span style={{ fontSize: '0.75rem', color: '#888' }}>anos</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 4. Resumo Executivo do Break-Even Calculado */}
               <div style={{
                 background: breakEvenMonth ? 'rgba(0, 230, 118, 0.1)' : 'rgba(255, 152, 0, 0.1)',
                 border: breakEvenMonth ? '1px solid rgba(0, 230, 118, 0.4)' : '1px solid rgba(255, 152, 0, 0.4)',
@@ -2109,23 +2236,59 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
                     <div style={{ color: breakEvenMonth ? '#00E676' : '#FFA726', fontWeight: 800, fontSize: '1.05rem' }}>
                       {breakEvenMonth
                         ? `Break-Even Previsto para ${breakEvenMonth.fullLabel} (${breakEvenMonth.mesesRestantes} meses após a base)`
-                        : `Break-Even não alcançado no horizonte de 3 anos com o ritmo atual`}
+                        : `Break-Even não alcançado no horizonte de ${projHorizonYears} anos (${projHorizonYears * 12} meses) com o ritmo atual`}
                     </div>
                     <div style={{ color: '#ccc', fontSize: '0.8rem', marginTop: '3px' }}>
                       {breakEvenMonth
                         ? `Neste mês, o Caixa atingirá ${formatCurrency(breakEvenMonth.caixa)}, cobrindo integralmente a dívida remanescente de ${formatCurrency(breakEvenMonth.divida)}.`
-                        : `Aumente a geração de caixa ou as amortizações acima para que as curvas se cruzem nos próximos 36 meses.`}
+                        : `Aumente as amortizações/geração de caixa, ou amplie o horizonte de projeção acima para encontrar a data de convergência.`}
                     </div>
                   </div>
                 </div>
-                {breakEvenMonth && (
+
+                {breakEvenMonth ? (
                   <div style={{ background: 'rgba(0, 230, 118, 0.15)', padding: '6px 14px', borderRadius: '20px', color: '#00E676', fontWeight: 700, fontSize: '0.85rem' }}>
                     Superávit: +{formatCurrency(breakEvenMonth.sobraCaixa)}
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      onClick={() => setProjHorizonYears(prev => Math.min(15, prev + 1))}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '6px',
+                        background: 'rgba(255, 152, 0, 0.2)',
+                        border: '1px solid rgba(255, 152, 0, 0.5)',
+                        color: '#FFA726',
+                        fontSize: '0.8rem',
+                        fontWeight: 700,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      + Expandir para {projHorizonYears + 1} Anos
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setProjHorizonYears(5)}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '6px',
+                        background: 'rgba(0, 176, 255, 0.2)',
+                        border: '1px solid rgba(0, 176, 255, 0.5)',
+                        color: '#00B0FF',
+                        fontSize: '0.8rem',
+                        fontWeight: 700,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      🚀 Ver em 5 Anos
+                    </button>
                   </div>
                 )}
               </div>
 
-              {/* 4. Tabela de Detalhamento & Ajustes Finos (3 Anos) */}
+              {/* 5. Tabela de Detalhamento & Ajustes Finos */}
               <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden' }}>
                 <div style={{ padding: '0.8rem 1.2rem', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', background: 'rgba(255,255,255,0.03)' }}>
                   <div>
@@ -2137,9 +2300,9 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
                     </span>
                   </div>
 
-                  {/* Abas dos 3 Anos */}
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    {years3.map(yr => (
+                  {/* Abas dos Anos Personalizados */}
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    {projectionYears.map(yr => (
                       <button
                         key={yr}
                         type="button"
@@ -2151,11 +2314,11 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
                           cursor: 'pointer',
                           fontSize: '0.8rem',
                           fontWeight: 700,
-                          background: projModalAnoTab === yr ? '#3F51B5' : 'rgba(255,255,255,0.06)',
-                          color: projModalAnoTab === yr ? '#fff' : '#aaa'
+                          background: (projectionYears.includes(projModalAnoTab) ? projModalAnoTab : selectedAno) === yr ? '#3F51B5' : 'rgba(255,255,255,0.06)',
+                          color: (projectionYears.includes(projModalAnoTab) ? projModalAnoTab : selectedAno) === yr ? '#fff' : '#aaa'
                         }}
                       >
-                        {yr} {yr === selectedAno ? '(Ano 1)' : yr === selectedAno + 1 ? '(Ano 2)' : '(Ano 3)'}
+                        {yr} (Ano {yr - selectedAno + 1})
                       </button>
                     ))}
                   </div>
@@ -2176,24 +2339,26 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
                       </tr>
                     </thead>
                     <tbody>
-                      {Array.from({ length: 12 }, (_, i) => i + 1).map(m => {
-                        const row = full36Months.find(d => d.ano === projModalAnoTab && d.mesNum === m);
-                        if (!row) return null;
-                        const ovKey = `${projModalAnoTab}-${m}`;
-                        const ov = projOverrides[ovKey] || {};
-                        const isOv = ov.caixa !== undefined || ov.dividaCP !== undefined || ov.dividaLP !== undefined;
+                      {(() => {
+                        const activeModalAno = projectionYears.includes(projModalAnoTab) ? projModalAnoTab : selectedAno;
+                        return Array.from({ length: 12 }, (_, i) => i + 1).map(m => {
+                          const row = dynamicProjectionMonths.find(d => d.ano === activeModalAno && d.mesNum === m);
+                          if (!row) return null;
+                          const ovKey = `${activeModalAno}-${m}`;
+                          const ov = projOverrides[ovKey] || {};
+                          const isOv = ov.caixa !== undefined || ov.dividaCP !== undefined || ov.dividaLP !== undefined;
 
-                        return (
-                          <tr
-                            key={m}
-                            style={{
-                              borderBottom: '1px solid rgba(255,255,255,0.04)',
-                              background: row.isBreakEven ? 'rgba(0, 230, 118, 0.05)' : m % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)'
-                            }}
-                          >
-                            <td style={{ padding: '8px 12px', fontWeight: 600, color: '#fff' }}>
-                              {mesesNome[m - 1]} / {projModalAnoTab}
-                            </td>
+                          return (
+                            <tr
+                              key={m}
+                              style={{
+                                borderBottom: '1px solid rgba(255,255,255,0.04)',
+                                background: row.isBreakEven ? 'rgba(0, 230, 118, 0.05)' : m % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.015)'
+                              }}
+                            >
+                              <td style={{ padding: '8px 12px', fontWeight: 600, color: '#fff' }}>
+                                {mesesNome[m - 1]} / {activeModalAno}
+                              </td>
                             <td style={{ padding: '8px 12px' }}>
                               <span style={{
                                 padding: '2px 6px',
@@ -2214,7 +2379,7 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
                                 <MoneyInput
                                   compact={true}
                                   value={ov.caixa !== undefined ? ov.caixa : row.DisponivelCaixa}
-                                  onChange={(val) => handleOverrideChange(projModalAnoTab, m, 'caixa', val)}
+                                  onChange={(val) => handleOverrideChange(activeModalAno, m, 'caixa', val)}
                                   color="#4CAF50"
                                   style={{ width: '130px' }}
                                 />
@@ -2229,7 +2394,7 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
                                 <MoneyInput
                                   compact={true}
                                   value={ov.dividaCP !== undefined ? ov.dividaCP : row.DividaCP}
-                                  onChange={(val) => handleOverrideChange(projModalAnoTab, m, 'dividaCP', val)}
+                                  onChange={(val) => handleOverrideChange(activeModalAno, m, 'dividaCP', val)}
                                   color="#2196F3"
                                   style={{ width: '130px' }}
                                 />
@@ -2244,7 +2409,7 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
                                 <MoneyInput
                                   compact={true}
                                   value={ov.dividaLP !== undefined ? ov.dividaLP : row.DividaLP}
-                                  onChange={(val) => handleOverrideChange(projModalAnoTab, m, 'dividaLP', val)}
+                                  onChange={(val) => handleOverrideChange(activeModalAno, m, 'dividaLP', val)}
                                   color="#AB47BC"
                                   style={{ width: '130px' }}
                                 />
@@ -2273,7 +2438,8 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
                             </td>
                           </tr>
                         );
-                      })}
+                      });
+                    })()}
                     </tbody>
                   </table>
                 </div>
