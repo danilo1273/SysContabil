@@ -546,7 +546,7 @@ export default function RateioModule({ companies }) {
   return (
     <div style={{ marginTop: '0.5rem' }}>
       {/* NAVEGAÇÃO DE SUB-ROTINAS DA HOLDING */}
-      <div className="glass-panel" style={{ 
+      <div className="glass-panel print-hide" style={{ 
         display: 'inline-flex', 
         alignItems: 'center',
         flexWrap: 'wrap',
@@ -609,7 +609,8 @@ export default function RateioModule({ companies }) {
       )}
 
       {subTab === 'rateio' && (
-        <div className="glass-panel" style={{ padding: '1.5rem' }}>
+        <>
+          <div className="glass-panel print-hide" style={{ padding: '1.5rem' }}>
       
       <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '2rem', alignItems: 'center' }}>
          <div style={{ flex: 1, minWidth: '200px', fontSize: '1.2rem', fontWeight: 'bold', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '1rem' }}>
@@ -1025,35 +1026,42 @@ export default function RateioModule({ companies }) {
 
         </div>
       )}
+      </div>
 
       {/* MODAL DE RELATÓRIO EXECUTIVO & DETALHADO DE RATEIO / COBRANÇA */}
       {showReportModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.85)',
-          zIndex: 9999,
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          padding: '20px',
-          backdropFilter: 'blur(5px)'
-        }}>
-          <div style={{
-            background: '#13141a',
-            border: '1px solid #2d3748',
-            borderRadius: '12px',
-            width: '100%',
-            maxWidth: '1250px',
-            maxHeight: '92vh',
+        <div 
+          className="rateio-modal-backdrop"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+            zIndex: 9999,
             display: 'flex',
-            flexDirection: 'column',
-            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.8)',
-            overflow: 'hidden'
-          }}>
+            justifyContent: 'center',
+            alignItems: 'center',
+            padding: '20px',
+            backdropFilter: 'blur(5px)'
+          }}
+        >
+          <div 
+            className="rateio-modal-dialog"
+            style={{
+              background: '#13141a',
+              border: '1px solid #2d3748',
+              borderRadius: '12px',
+              width: '100%',
+              maxWidth: '1250px',
+              maxHeight: '92vh',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.8)',
+              overflow: 'hidden'
+            }}
+          >
             {/* Barra Superior do Modal (Oculta na Impressão) */}
             <div className="print-hide" style={{
               display: 'flex',
@@ -1480,68 +1488,129 @@ export default function RateioModule({ companies }) {
                 <style dangerouslySetInnerHTML={{__html: `
                   @media print {
                     @page {
-                      size: A4 portrait;
-                      margin: 10mm 10mm 10mm 10mm;
+                      size: A4 landscape !important;
+                      margin: 8mm 8mm 8mm 8mm !important;
                     }
-                    body * {
-                      visibility: hidden !important;
+                    html, body {
+                      background: #ffffff !important;
+                      color: #0f172a !important;
+                      margin: 0 !important;
+                      padding: 0 !important;
+                      height: auto !important;
+                      overflow: visible !important;
                     }
-                    #printable-rateio-report, #printable-rateio-report * {
-                      visibility: visible !important;
+                    .print-hide,
+                    .app-header,
+                    .module-tabs,
+                    nav,
+                    button,
+                    select {
+                      display: none !important;
+                    }
+                    .rateio-modal-backdrop {
+                      position: static !important;
+                      inset: auto !important;
+                      background: transparent !important;
+                      padding: 0 !important;
+                      margin: 0 !important;
+                      width: 100% !important;
+                      height: auto !important;
+                      overflow: visible !important;
+                      display: block !important;
+                      backdrop-filter: none !important;
+                    }
+                    .rateio-modal-dialog {
+                      position: static !important;
+                      background: #ffffff !important;
+                      border: none !important;
+                      box-shadow: none !important;
+                      border-radius: 0 !important;
+                      max-width: 100% !important;
+                      max-height: none !important;
+                      width: 100% !important;
+                      height: auto !important;
+                      overflow: visible !important;
+                      display: block !important;
+                      padding: 0 !important;
+                      margin: 0 !important;
+                    }
+                    .rateio-modal-scroll {
+                      overflow: visible !important;
+                      max-height: none !important;
+                      height: auto !important;
+                      padding: 0 !important;
+                      margin: 0 !important;
+                      display: block !important;
                     }
                     #printable-rateio-report {
-                      position: absolute !important;
-                      left: 0 !important;
-                      top: 0 !important;
+                      position: static !important;
                       width: 100% !important;
                       background: #ffffff !important;
                       color: #0f172a !important;
                       margin: 0 !important;
                       padding: 0 !important;
+                      overflow: visible !important;
+                      display: block !important;
                       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
                     }
-                    .print-hide {
-                      display: none !important;
+                    #printable-rateio-report * {
+                      color: #0f172a !important;
+                      text-shadow: none !important;
+                      box-shadow: none !important;
                     }
                     .report-card-print {
                       background: #f8fafc !important;
                       border: 1px solid #cbd5e1 !important;
                       color: #0f172a !important;
-                    }
-                    .report-card-print div {
-                      color: #0f172a !important;
+                      break-inside: avoid !important;
+                      page-break-inside: avoid !important;
                     }
                     .report-table-print {
                       width: 100% !important;
                       border-collapse: collapse !important;
-                      margin-bottom: 15px !important;
+                      margin-bottom: 12px !important;
                       color: #0f172a !important;
                     }
+                    .report-table-print thead {
+                      display: table-header-group !important;
+                    }
+                    .report-table-print tfoot {
+                      display: table-footer-group !important;
+                    }
+                    .report-table-print tr {
+                      page-break-inside: avoid !important;
+                      break-inside: avoid !important;
+                    }
                     .report-table-print th {
-                      background: #e2e8f0 !important;
+                      background: #f1f5f9 !important;
                       color: #0f172a !important;
                       border: 1px solid #94a3b8 !important;
-                      padding: 5px 6px !important;
-                      font-size: 8pt !important;
+                      padding: 4px 6px !important;
+                      font-size: 7.5pt !important;
                       font-weight: bold !important;
                     }
                     .report-table-print td {
                       border: 1px solid #cbd5e1 !important;
                       color: #0f172a !important;
-                      padding: 4px 6px !important;
-                      font-size: 7.5pt !important;
+                      padding: 3px 6px !important;
+                      font-size: 7pt !important;
                       background: #ffffff !important;
                     }
                     .report-table-print tr:nth-child(even) td {
                       background: #f8fafc !important;
                     }
                     .report-company-box {
-                      page-break-inside: avoid !important;
                       border: 1px solid #cbd5e1 !important;
-                      margin-bottom: 16px !important;
-                      padding: 10px !important;
+                      margin-bottom: 14px !important;
+                      padding: 8px 10px !important;
                       background: #ffffff !important;
                       border-radius: 4px !important;
+                      page-break-inside: auto !important;
+                      break-inside: auto !important;
+                    }
+                    .report-company-header {
+                      page-break-after: avoid !important;
+                      break-after: avoid !important;
                     }
                     h2, h3, h4, strong {
                       color: #0f172a !important;
@@ -1553,8 +1622,8 @@ export default function RateioModule({ companies }) {
           </div>
         </div>
       )}
-    </div>
-      )}
-    </div>
+    </>
+  )}
+</div>
   );
 }
