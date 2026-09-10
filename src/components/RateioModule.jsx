@@ -2,6 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { getRawRecords, getSettings, saveSettings, updateRecord, addManualEntryToDB } from '../utils/db';
 import EquivalenciaPatrimonialModule from './EquivalenciaPatrimonialModule';
 
+const NOMES_MESES = [
+  '', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+];
+
 export default function RateioModule({ companies }) {
   const [subTab, setSubTab] = useState('mep'); // 'mep' ou 'rateio'
   const [selectedHolding, setSelectedHolding] = useState('');
@@ -21,6 +26,10 @@ export default function RateioModule({ companies }) {
   const [detalhesFolha, setDetalhesFolha] = useState([]);
   const [detalhesOutras, setDetalhesOutras] = useState([]);
   const [showDetalhes, setShowDetalhes] = useState(false);
+
+  // Estados do Relatório de Rateio e Cobrança
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportCompanyFilter, setReportCompanyFilter] = useState('todas');
 
   const [includeProvisions, setIncludeProvisions] = useState(true);
   const [expensePercents, setExpensePercents] = useState({});
@@ -345,6 +354,185 @@ export default function RateioModule({ companies }) {
     }
   };
 
+  // Detalhamento analítico das despesas que compõem o que cada empresa está pagando
+  const getDetalhamentoEmpresa = (empresaId) => {
+    const percGeral = rateioConfig[empresaId] || 0;
+
+    // 1. Folha de Pagamento (contas que não são específicas)
+    const folhaItens = [];
+    detalhesFolha.forEach(item => {
+      const isSpec = !!contasEspecificas[item.conta];
+      if (!isSpec && percGeral > 0 && item.valor > 0) {
+        const valorLiquido = item.valor * (percGeral / 100);
+        const valorFaturar = fatorGrossUp > 0 ? valorLiquido / fatorGrossUp : 0;
+        const valorImpostos = valorFaturar - valorLiquido;
+        folhaItens.push({
+          conta: item.conta,
+          descricao: item.descricao,
+          isSpec: false,
+          tipoRateio: 'Geral',
+          perc: percGeral,
+          valorHolding: item.valor,
+          valorLiquido,
+          valorImpostos,
+          valorFaturar
+        });
+      }
+    });
+
+    // 2. Despesas Administrativas Gerais (não específicas)
+    const outrasGeraisItens = [];
+    detalhesOutras.forEach(item => {
+      const isSpec = !!contasEspecificas[item.conta];
+      if (!isSpec && percGeral > 0 && item.valor > 0) {
+        const valorLiquido = item.valor * (percGeral / 100);
+        const valorFaturar = fatorGrossUp > 0 ? valorLiquido / fatorGrossUp : 0;
+        const valorImpostos = valorFaturar - valorLiquido;
+        outrasGeraisItens.push({
+          conta: item.conta,
+          descricao: item.descricao,
+          isSpec: false,
+          tipoRateio: 'Geral',
+          perc: percGeral,
+          valorHolding: item.valor,
+          valorLiquido,
+          valorImpostos,
+          valorFaturar
+        });
+      }
+    });
+
+    // 3. Contas com Rateio Específico direcionadas a esta empresa
+    const especificasItens = [];
+    contasEspecificasAtivas.forEach(spec => {
+      const perc = parseFloat(spec.percentuais?.[empresaId]) || 0;
+      if (perc > 0 && spec.valor > 0) {
+        const valorLiquido = spec.valor * (perc / 100);
+        const valorFaturar = fatorGrossUp > 0 ? valorLiquido / fatorGrossUp : 0;
+        const valorImpostos = valorFaturar - valorLiquido;
+        especificasItens.push({
+          conta: spec.conta,
+          descricao: spec.descricao,
+          isSpec: true,
+          tipoRateio: 'Específico',
+          perc,
+          valorHolding: spec.valor,
+          valorLiquido,
+          valorImpostos,
+          valorFaturar
+        });
+      }
+    });
+
+    const subtotalFolha = {
+      liquido: folhaItens.reduce((acc, i) => acc + i.valorLiquido, 0),
+      impostos: folhaItens.reduce((acc, i) => acc + i.valorImpostos, 0),
+      faturar: folhaItens.reduce((acc, i) => acc + i.valorFaturar, 0)
+    };
+
+    const subtotalGerais = {
+      liquido: outrasGeraisItens.reduce((acc, i) => acc + i.valorLiquido, 0),
+      impostos: outrasGeraisItens.reduce((acc, i) => acc + i.valorImpostos, 0),
+      faturar: outrasGeraisItens.reduce((acc, i) => acc + i.valorFaturar, 0)
+    };
+
+    const subtotalEspecificas = {
+      liquido: especificasItens.reduce((acc, i) => acc + i.valorLiquido, 0),
+      impostos: especificasItens.reduce((acc, i) => acc + i.valorImpostos, 0),
+      faturar: especificasItens.reduce((acc, i) => acc + i.valorFaturar, 0)
+    };
+
+    const totalGeral = {
+      liquido: subtotalFolha.liquido + subtotalGerais.liquido + subtotalEspecificas.liquido,
+      impostos: subtotalFolha.impostos + subtotalGerais.impostos + subtotalEspecificas.impostos,
+      faturar: subtotalFolha.faturar + subtotalGerais.faturar + subtotalEspecificas.faturar
+    };
+
+    return {
+      folhaItens,
+      outrasGeraisItens,
+      especificasItens,
+      subtotalFolha,
+      subtotalGerais,
+      subtotalEspecificas,
+      totalGeral
+    };
+  };
+
+  // Exportação para Excel (.CSV) formatado com UTF-8 BOM e separador ';'
+  const handleExportCSV = () => {
+    const holdingObj = companies.find(c => c.id === selectedHolding);
+    const holdingNome = holdingObj ? holdingObj.name : 'Holding';
+    const mesNome = NOMES_MESES[selectedMes] || selectedMes;
+    const fmtNum = (v) => (v || 0).toFixed(2).replace('.', ',');
+
+    let csv = '\uFEFF'; // UTF-8 BOM para abrir sem erros de acentos no Excel
+    csv += `"RELATÓRIO DE RATEIO E COBRANÇA DE DESPESAS (MANAGEMENT FEE)";\n`;
+    csv += `"Empresa Holding:";"${holdingNome}";\n`;
+    csv += `"Período de Apuração:";"${mesNome} / ${selectedAno}";\n`;
+    csv += `"Data de Emissão:";"${new Date().toLocaleDateString('pt-BR')} ${new Date().toLocaleTimeString('pt-BR')}";\n`;
+    csv += `"Gross-up Tributário:";"ISS: ${aliqISS}% | PIS: ${aliqPIS}% | COFINS: ${aliqCOFINS}% | Total Impostos: ${aliquotaTotal.toFixed(2)}% | Fator Gross-up: ${fatorGrossUp.toFixed(4)}";\n\n`;
+
+    // 1. Resumo Consolidado
+    csv += `"--- QUADRO CONSOLIDADO POR EMPRESA OPERACIONAL ---";\n`;
+    csv += `"Empresa Operacional";"% Geral";"% Efetivo no Total";"Custo Líquido Absorvido (R$)";"Fatia Geral c/ Impostos (R$)";"Fatia Específica c/ Impostos (R$)";"Total a Faturar / Cobrança (R$)"\n`;
+
+    distribuicaoPorEmpresa.forEach(d => {
+      const det = getDetalhamentoEmpresa(d.empresa.id);
+      csv += `"${d.empresa.name}";"${d.percGeral.toFixed(2)}%";"${d.percEfetivoTotal.toFixed(2)}%";"${fmtNum(det.totalGeral.liquido)}";"${fmtNum(d.fatiaGeral)}";"${fmtNum(d.fatiaEspecifica)}";"${fmtNum(d.totalFaturarEmpresa)}"\n`;
+    });
+
+    csv += `"TOTAL CONSOLIDADO";"${totalPercentualGeral.toFixed(2)}%";"100.00%";"${fmtNum(totalCusto)}";"${fmtNum(totalFaturarGeral)}";"${fmtNum(totalFaturarEspecifico)}";"${fmtNum(totalFaturar)}"\n\n`;
+
+    // 2. Detalhamento Analítico por Empresa
+    csv += `"--- DETALHAMENTO ANALÍTICO: O QUE CADA EMPRESA ESTÁ PAGANDO ---";\n`;
+    csv += `"Empresa";"Categoria";"Conta Contábil";"Descrição da Despesa";"Tipo Rateio";"% Rateio";"Valor Total Holding (R$)";"Custo Líquido Empresa (R$)";"Gross-up Impostos (R$)";"Total a Faturar Empresa (R$)"\n`;
+
+    const empresasParaExportar = reportCompanyFilter === 'todas'
+      ? operacionais
+      : operacionais.filter(c => c.id === reportCompanyFilter);
+
+    empresasParaExportar.forEach(c => {
+      const det = getDetalhamentoEmpresa(c.id);
+
+      det.folhaItens.forEach(i => {
+        csv += `"${c.name}";"Folha Salarial & Encargos";"${i.conta}";"${i.descricao}";"${i.tipoRateio}";"${i.perc.toFixed(2)}%";"${fmtNum(i.valorHolding)}";"${fmtNum(i.valorLiquido)}";"${fmtNum(i.valorImpostos)}";"${fmtNum(i.valorFaturar)}"\n`;
+      });
+      if (det.folhaItens.length > 0) {
+        csv += `"${c.name}";"SUBTOTAL FOLHA SALARIAL";"";"";"";"";"";"${fmtNum(det.subtotalFolha.liquido)}";"${fmtNum(det.subtotalFolha.impostos)}";"${fmtNum(det.subtotalFolha.faturar)}"\n`;
+      }
+
+      det.outrasGeraisItens.forEach(i => {
+        csv += `"${c.name}";"Despesas Administrativas Gerais";"${i.conta}";"${i.descricao}";"${i.tipoRateio}";"${i.perc.toFixed(2)}%";"${fmtNum(i.valorHolding)}";"${fmtNum(i.valorLiquido)}";"${fmtNum(i.valorImpostos)}";"${fmtNum(i.valorFaturar)}"\n`;
+      });
+      if (det.outrasGeraisItens.length > 0) {
+        csv += `"${c.name}";"SUBTOTAL DESPESAS GERAIS";"";"";"";"";"";"${fmtNum(det.subtotalGerais.liquido)}";"${fmtNum(det.subtotalGerais.impostos)}";"${fmtNum(det.subtotalGerais.faturar)}"\n`;
+      }
+
+      det.especificasItens.forEach(i => {
+        csv += `"${c.name}";"Rateio Específico / Direcionado";"${i.conta}";"${i.descricao}";"${i.tipoRateio}";"${i.perc.toFixed(2)}%";"${fmtNum(i.valorHolding)}";"${fmtNum(i.valorLiquido)}";"${fmtNum(i.valorImpostos)}";"${fmtNum(i.valorFaturar)}"\n`;
+      });
+      if (det.especificasItens.length > 0) {
+        csv += `"${c.name}";"SUBTOTAL RATEIO ESPECÍFICO";"";"";"";"";"";"${fmtNum(det.subtotalEspecificas.liquido)}";"${fmtNum(det.subtotalEspecificas.impostos)}";"${fmtNum(det.subtotalEspecificas.faturar)}"\n`;
+      }
+
+      csv += `"${c.name}";"TOTAL GERAL DA EMPRESA";"";"";"";"";"";"${fmtNum(det.totalGeral.liquido)}";"${fmtNum(det.totalGeral.impostos)}";"${fmtNum(det.totalGeral.faturar)}"\n\n`;
+    });
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `Relatorio_Rateio_Cobranca_${holdingNome.replace(/[^a-zA-Z0-9]/g, '_')}_${mesNome}_${selectedAno}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handlePrintReport = () => {
+    window.print();
+  };
+
   return (
     <div style={{ marginTop: '1rem' }}>
       {/* NAVEGAÇÃO DE SUB-ROTINAS DA HOLDING */}
@@ -431,6 +619,29 @@ export default function RateioModule({ companies }) {
             {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
           </select>
           {isProcessing && <span style={{ padding: '0.5rem', color: 'var(--color-primary)' }}>Calculando...</span>}
+          
+          <button
+            onClick={() => setShowReportModal(true)}
+            style={{
+              marginLeft: 'auto',
+              background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+              color: '#fff',
+              border: '1px solid #3b82f6',
+              borderRadius: '8px',
+              padding: '0.45rem 1.1rem',
+              fontSize: '0.88rem',
+              fontWeight: '600',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              boxShadow: '0 4px 12px rgba(37, 99, 235, 0.35)',
+              whiteSpace: 'nowrap'
+            }}
+            title="Abrir relatório executivo e extrato analítico do que cada empresa paga"
+          >
+            <span>📑</span> Relatório de Cobrança / Rateio
+          </button>
       </div>
 
       {!selectedHolding ? (
@@ -684,7 +895,28 @@ export default function RateioModule({ companies }) {
 
           {/* Lado Direito: Rateio por Empresa Operacional */}
           <div>
-            <h4 style={{ marginBottom: '1rem', color: '#fff' }}>Distribuição Consolidada do Rateio</h4>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h4 style={{ margin: 0, color: '#fff' }}>Distribuição Consolidada do Rateio</h4>
+              <button 
+                onClick={() => setShowReportModal(true)}
+                style={{
+                  background: 'rgba(59, 130, 246, 0.15)',
+                  border: '1px solid #3b82f6',
+                  color: '#60a5fa',
+                  borderRadius: '6px',
+                  padding: '0.35rem 0.8rem',
+                  fontSize: '0.82rem',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+                title="Visualizar e exportar relatório detalhado de cobrança por empresa"
+              >
+                <span>📑</span> Relatório O Que Cada Empresa Paga
+              </button>
+            </div>
             
             <div style={{ marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: '0.9rem', color: totalPercentualGeral === 100 ? '#4CAF50' : '#f44336' }}>
@@ -773,6 +1005,534 @@ export default function RateioModule({ companies }) {
             </div>
           </div>
 
+        </div>
+      )}
+
+      {/* MODAL DE RELATÓRIO EXECUTIVO & DETALHADO DE RATEIO / COBRANÇA */}
+      {showReportModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.85)',
+          zIndex: 9999,
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          padding: '20px',
+          backdropFilter: 'blur(5px)'
+        }}>
+          <div style={{
+            background: '#13141a',
+            border: '1px solid #2d3748',
+            borderRadius: '12px',
+            width: '100%',
+            maxWidth: '1250px',
+            maxHeight: '92vh',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.8)',
+            overflow: 'hidden'
+          }}>
+            {/* Barra Superior do Modal (Oculta na Impressão) */}
+            <div className="print-hide" style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '1rem 1.5rem',
+              borderBottom: '1px solid #2d3748',
+              background: '#1a1d26',
+              flexWrap: 'wrap',
+              gap: '12px'
+            }}>
+              <div>
+                <h3 style={{ margin: 0, color: '#fff', fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>📑</span> Relatório de Rateio & Cobrança (Management Fee)
+                </h3>
+                <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '4px' }}>
+                  Holding: <strong style={{ color: '#fff' }}>{companies.find(c => c.id === selectedHolding)?.name || 'Holding'}</strong> • Período: <strong style={{ color: '#60a5fa' }}>{NOMES_MESES[selectedMes]} / {selectedAno}</strong>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '0.85rem', color: '#aaa' }}>Visualização:</span>
+                  <select
+                    value={reportCompanyFilter}
+                    onChange={e => setReportCompanyFilter(e.target.value)}
+                    className="select-input"
+                    style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem', minWidth: '200px' }}
+                  >
+                    <option value="todas">🏢 Todas as Empresas (Visão Consolidada)</option>
+                    {operacionais.map(c => (
+                      <option key={c.id} value={c.id}>🏢 {c.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <button
+                  onClick={handlePrintReport}
+                  style={{
+                    background: '#0284c7',
+                    color: '#fff',
+                    border: 'none',
+                    padding: '0.45rem 1rem',
+                    borderRadius: '6px',
+                    fontSize: '0.85rem',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                  title="Imprimir ou Salvar em PDF"
+                >
+                  <span>🖨️</span> Imprimir / PDF
+                </button>
+
+                <button
+                  onClick={handleExportCSV}
+                  style={{
+                    background: '#059669',
+                    color: '#fff',
+                    border: 'none',
+                    padding: '0.45rem 1rem',
+                    borderRadius: '6px',
+                    fontSize: '0.85rem',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                  title="Baixar planilha para Excel (.csv)"
+                >
+                  <span>📥</span> Baixar Excel (.CSV)
+                </button>
+
+                <button
+                  onClick={() => setShowReportModal(false)}
+                  style={{
+                    background: '#374151',
+                    color: '#e5e7eb',
+                    border: 'none',
+                    padding: '0.45rem 0.8rem',
+                    borderRadius: '6px',
+                    fontSize: '0.85rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  ✕ Fechar
+                </button>
+              </div>
+            </div>
+
+            {/* Conteúdo Imprimível do Relatório */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem' }}>
+              <div id="printable-rateio-report">
+                {/* Cabeçalho do Relatório */}
+                <div style={{
+                  borderBottom: '2px solid #3b82f6',
+                  paddingBottom: '1rem',
+                  marginBottom: '1.5rem',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'flex-start',
+                  flexWrap: 'wrap',
+                  gap: '1rem'
+                }}>
+                  <div>
+                    <span style={{
+                      fontSize: '0.75rem',
+                      fontWeight: '700',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      color: '#3b82f6',
+                      display: 'block',
+                      marginBottom: '4px'
+                    }}>
+                      Demonstrativo Contábil & Financeiro
+                    </span>
+                    <h2 style={{ margin: '0 0 6px 0', fontSize: '1.4rem', color: '#fff' }}>
+                      RATEIO DE CUSTOS & FATURAMENTO DE MANAGEMENT FEE
+                    </h2>
+                    <div style={{ fontSize: '0.9rem', color: '#cbd5e1' }}>
+                      Empresa Prestadora (Holding): <strong style={{ color: '#fff' }}>{companies.find(c => c.id === selectedHolding)?.name || 'Holding'}</strong>
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right', fontSize: '0.85rem', color: '#94a3b8' }}>
+                    <div>Competência: <strong style={{ color: '#fff', fontSize: '1rem' }}>{NOMES_MESES[selectedMes]} / {selectedAno}</strong></div>
+                    <div>Emissão: {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR')}</div>
+                    <div>Gross-up Tributário: <strong>{aliquotaTotal.toFixed(2)}%</strong> (Fator: {fatorGrossUp.toFixed(4)})</div>
+                  </div>
+                </div>
+
+                {/* Métricas Principais / KPIs */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                  gap: '12px',
+                  marginBottom: '1.5rem'
+                }}>
+                  <div className="report-card-print" style={{ background: 'rgba(30, 41, 59, 0.5)', border: '1px solid #334155', borderRadius: '8px', padding: '1rem' }}>
+                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase' }}>Custo Líquido da Holding</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#fff', marginTop: '4px' }}>
+                      {totalCusto.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '4px' }}>
+                      Folha: {despesasFolha.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} | Adm: {outrasDespesas.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    </div>
+                  </div>
+
+                  <div className="report-card-print" style={{ background: 'rgba(30, 41, 59, 0.5)', border: '1px solid #334155', borderRadius: '8px', padding: '1rem' }}>
+                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase' }}>Divisão Base do Custo</div>
+                    <div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#38bdf8', marginTop: '4px' }}>
+                      Geral: {totalCustoGeral.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: '#c084fc', marginTop: '4px' }}>
+                      Específico: {custoEspecificoTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} ({contasEspecificasAtivas.length} regras)
+                    </div>
+                  </div>
+
+                  <div className="report-card-print" style={{ background: 'rgba(30, 41, 59, 0.5)', border: '1px solid #334155', borderRadius: '8px', padding: '1rem' }}>
+                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase' }}>Gross-up de Tributos ({aliquotaTotal.toFixed(2)}%)</div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#f87171', marginTop: '4px' }}>
+                      {impostos.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '4px' }}>
+                      ISS {aliqISS}% | PIS {aliqPIS}% | COFINS {aliqCOFINS}%
+                    </div>
+                  </div>
+
+                  <div className="report-card-print" style={{ background: 'rgba(16, 185, 129, 0.1)', border: '1px solid #10b981', borderRadius: '8px', padding: '1rem' }}>
+                    <div style={{ fontSize: '0.75rem', color: '#6ee7b7', textTransform: 'uppercase' }}>Faturamento Total (Management Fee)</div>
+                    <div style={{ fontSize: '1.3rem', fontWeight: 'bold', color: '#34d399', marginTop: '4px' }}>
+                      {totalFaturar.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: '#a7f3d0', marginTop: '4px' }}>
+                      Valor total a ser cobrado das operacionais
+                    </div>
+                  </div>
+                </div>
+
+                {/* Seção 1: Quadro Consolidado */}
+                <div style={{ marginBottom: '2rem' }}>
+                  <h4 style={{ color: '#fff', marginBottom: '0.8rem', fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span>📊</span> Quadro Consolidado de Distribuição por Empresa
+                  </h4>
+                  <table className="report-table-print data-table" style={{ width: '100%', fontSize: '0.85rem' }}>
+                    <thead>
+                      <tr style={{ background: '#1e293b' }}>
+                        <th style={{ textAlign: 'left' }}>Empresa Operacional</th>
+                        <th style={{ textAlign: 'center', width: '85px' }}>% Geral</th>
+                        <th style={{ textAlign: 'center', width: '85px' }}>% Efetivo</th>
+                        <th style={{ textAlign: 'right' }}>Custo Líquido Absorvido</th>
+                        <th style={{ textAlign: 'right' }}>Rateio Geral (c/ Impostos)</th>
+                        <th style={{ textAlign: 'right', color: '#c084fc' }}>Rateio Específico (c/ Impostos)</th>
+                        <th style={{ textAlign: 'right', color: '#4ade80' }}>Total a Faturar (Cobrança)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {distribuicaoPorEmpresa.map(d => {
+                        const c = d.empresa;
+                        const det = getDetalhamentoEmpresa(c.id);
+                        return (
+                          <tr key={c.id}>
+                            <td>
+                              <strong>{c.name}</strong>
+                              {d.detalhesEspecificos.length > 0 && (
+                                <span style={{ marginLeft: '8px', fontSize: '0.72rem', color: '#c084fc', background: 'rgba(168,85,247,0.15)', padding: '2px 6px', borderRadius: '4px' }}>
+                                  {d.detalhesEspecificos.length} conta(s) personalizada(s)
+                                </span>
+                              )}
+                            </td>
+                            <td style={{ textAlign: 'center' }}>{d.percGeral.toFixed(2)}%</td>
+                            <td style={{ textAlign: 'center', color: '#94a3b8' }}>{d.percEfetivoTotal.toFixed(2)}%</td>
+                            <td style={{ textAlign: 'right' }}>{det.totalGeral.liquido.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                            <td style={{ textAlign: 'right' }}>{d.fatiaGeral.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                            <td style={{ textAlign: 'right', color: d.fatiaEspecifica > 0 ? '#c084fc' : '#64748b', fontWeight: d.fatiaEspecifica > 0 ? 'bold' : 'normal' }}>
+                              {d.fatiaEspecifica.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            </td>
+                            <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#4ade80', fontSize: '0.95rem' }}>
+                              {d.totalFaturarEmpresa.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ background: '#0f172a', fontWeight: 'bold', borderTop: '2px solid #475569' }}>
+                        <td>TOTAL CONSOLIDADO</td>
+                        <td style={{ textAlign: 'center' }}>{totalPercentualGeral.toFixed(2)}%</td>
+                        <td style={{ textAlign: 'center' }}>100.00%</td>
+                        <td style={{ textAlign: 'right' }}>{totalCusto.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                        <td style={{ textAlign: 'right' }}>{totalFaturarGeral.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                        <td style={{ textAlign: 'right', color: '#c084fc' }}>{totalFaturarEspecifico.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                        <td style={{ textAlign: 'right', color: '#4ade80' }}>{totalFaturar.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+
+                {/* Seção 2: Detalhamento Analítico "O Que Cada Empresa Está Pagando" */}
+                <div>
+                  <h4 style={{ color: '#fff', marginBottom: '1rem', fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span>🔍</span> Detalhamento Analítico: O Que Cada Empresa Está Pagando
+                  </h4>
+
+                  {(reportCompanyFilter === 'todas' ? operacionais : operacionais.filter(c => c.id === reportCompanyFilter)).map(c => {
+                    const detalhe = getDetalhamentoEmpresa(c.id);
+                    const percGeral = rateioConfig[c.id] || 0;
+                    const distEmp = distribuicaoPorEmpresa.find(d => d.empresa.id === c.id);
+                    const totalCobrado = distEmp ? distEmp.totalFaturarEmpresa : detalhe.totalGeral.faturar;
+                    const percEfetivo = distEmp ? distEmp.percEfetivoTotal : (totalFaturar > 0 ? (totalCobrado / totalFaturar) * 100 : 0);
+
+                    return (
+                      <div key={c.id} className="report-company-box" style={{
+                        background: 'rgba(30, 41, 59, 0.3)',
+                        border: '1px solid #334155',
+                        borderRadius: '8px',
+                        padding: '1.2rem',
+                        marginBottom: '1.5rem'
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+                          <div>
+                            <h4 style={{ margin: 0, color: '#60a5fa', fontSize: '1.15rem' }}>
+                              🏢 {c.name}
+                            </h4>
+                            <span style={{ fontSize: '0.82rem', color: '#94a3b8' }}>
+                              Participação no Rateio Geral: <strong style={{ color: '#fff' }}>{percGeral.toFixed(2)}%</strong> • Participação Efetiva no Faturamento: <strong style={{ color: '#34d399' }}>{percEfetivo.toFixed(2)}%</strong>
+                            </span>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>Total Cobrado / Faturado (Management Fee):</div>
+                            <div style={{ fontSize: '1.3rem', fontWeight: 'bold', color: '#4ade80' }}>
+                              {totalCobrado.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Tabela de Extrato Analítico */}
+                        <table className="report-table-print data-table" style={{ width: '100%', fontSize: '0.82rem', marginBottom: '0.5rem' }}>
+                          <thead>
+                            <tr style={{ background: '#1e293b' }}>
+                              <th style={{ textAlign: 'left', width: '120px' }}>Conta Contábil</th>
+                              <th style={{ textAlign: 'left' }}>Descrição da Despesa</th>
+                              <th style={{ textAlign: 'center', width: '85px' }}>Tipo Rateio</th>
+                              <th style={{ textAlign: 'center', width: '75px' }}>% Rateado</th>
+                              <th style={{ textAlign: 'right', width: '115px' }}>Custo Holding</th>
+                              <th style={{ textAlign: 'right', width: '115px' }}>Custo Líquido</th>
+                              <th style={{ textAlign: 'right', width: '105px' }}>Gross-up Impostos</th>
+                              <th style={{ textAlign: 'right', width: '125px' }}>Total a Faturar</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {/* 1. Folha de Pagamento */}
+                            {detalhe.folhaItens.length > 0 && (
+                              <>
+                                <tr style={{ background: 'rgba(59, 130, 246, 0.1)', fontWeight: 'bold' }}>
+                                  <td colSpan="8" style={{ color: '#60a5fa', padding: '6px 8px' }}>
+                                    👥 Folha Salarial & Encargos (Rateio Geral)
+                                  </td>
+                                </tr>
+                                {detalhe.folhaItens.map(item => (
+                                  <tr key={item.conta}>
+                                    <td style={{ fontFamily: 'monospace', color: '#94a3b8' }}>{item.conta}</td>
+                                    <td>{item.descricao}</td>
+                                    <td style={{ textAlign: 'center' }}>
+                                      <span style={{ fontSize: '0.72rem', padding: '2px 6px', borderRadius: '4px', background: 'rgba(59,130,246,0.2)', color: '#93c5fd' }}>
+                                        {item.tipoRateio}
+                                      </span>
+                                    </td>
+                                    <td style={{ textAlign: 'center' }}>{item.perc.toFixed(2)}%</td>
+                                    <td style={{ textAlign: 'right', color: '#94a3b8' }}>{item.valorHolding.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                    <td style={{ textAlign: 'right', color: '#e2e8f0' }}>{item.valorLiquido.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                    <td style={{ textAlign: 'right', color: '#f87171' }}>{item.valorImpostos.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                    <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#fff' }}>{item.valorFaturar.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                  </tr>
+                                ))}
+                                <tr style={{ background: 'rgba(59, 130, 246, 0.05)', fontWeight: 'bold', borderBottom: '1px solid #334155' }}>
+                                  <td colSpan="5" style={{ textAlign: 'right', color: '#93c5fd', fontSize: '0.8rem' }}>Subtotal Folha de Pagamento:</td>
+                                  <td style={{ textAlign: 'right', color: '#93c5fd' }}>{detalhe.subtotalFolha.liquido.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                  <td style={{ textAlign: 'right', color: '#f87171' }}>{detalhe.subtotalFolha.impostos.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                  <td style={{ textAlign: 'right', color: '#93c5fd' }}>{detalhe.subtotalFolha.faturar.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                </tr>
+                              </>
+                            )}
+
+                            {/* 2. Despesas Administrativas Gerais */}
+                            {detalhe.outrasGeraisItens.length > 0 && (
+                              <>
+                                <tr style={{ background: 'rgba(245, 158, 11, 0.1)', fontWeight: 'bold' }}>
+                                  <td colSpan="8" style={{ color: '#fbbf24', padding: '6px 8px' }}>
+                                    🏢 Despesas Administrativas & Operacionais Gerais (Rateio Geral)
+                                  </td>
+                                </tr>
+                                {detalhe.outrasGeraisItens.map(item => (
+                                  <tr key={item.conta}>
+                                    <td style={{ fontFamily: 'monospace', color: '#94a3b8' }}>{item.conta}</td>
+                                    <td>{item.descricao}</td>
+                                    <td style={{ textAlign: 'center' }}>
+                                      <span style={{ fontSize: '0.72rem', padding: '2px 6px', borderRadius: '4px', background: 'rgba(245,158,11,0.2)', color: '#fcd34d' }}>
+                                        {item.tipoRateio}
+                                      </span>
+                                    </td>
+                                    <td style={{ textAlign: 'center' }}>{item.perc.toFixed(2)}%</td>
+                                    <td style={{ textAlign: 'right', color: '#94a3b8' }}>{item.valorHolding.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                    <td style={{ textAlign: 'right', color: '#e2e8f0' }}>{item.valorLiquido.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                    <td style={{ textAlign: 'right', color: '#f87171' }}>{item.valorImpostos.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                    <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#fff' }}>{item.valorFaturar.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                  </tr>
+                                ))}
+                                <tr style={{ background: 'rgba(245, 158, 11, 0.05)', fontWeight: 'bold', borderBottom: '1px solid #334155' }}>
+                                  <td colSpan="5" style={{ textAlign: 'right', color: '#fcd34d', fontSize: '0.8rem' }}>Subtotal Despesas Gerais:</td>
+                                  <td style={{ textAlign: 'right', color: '#fcd34d' }}>{detalhe.subtotalGerais.liquido.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                  <td style={{ textAlign: 'right', color: '#f87171' }}>{detalhe.subtotalGerais.impostos.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                  <td style={{ textAlign: 'right', color: '#fcd34d' }}>{detalhe.subtotalGerais.faturar.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                </tr>
+                              </>
+                            )}
+
+                            {/* 3. Despesas com Rateio Específico */}
+                            {detalhe.especificasItens.length > 0 && (
+                              <>
+                                <tr style={{ background: 'rgba(168, 85, 247, 0.1)', fontWeight: 'bold' }}>
+                                  <td colSpan="8" style={{ color: '#c084fc', padding: '6px 8px' }}>
+                                    🎯 Despesas com Rateio Específico / Direcionado
+                                  </td>
+                                </tr>
+                                {detalhe.especificasItens.map(item => (
+                                  <tr key={item.conta}>
+                                    <td style={{ fontFamily: 'monospace', color: '#94a3b8' }}>{item.conta}</td>
+                                    <td>{item.descricao}</td>
+                                    <td style={{ textAlign: 'center' }}>
+                                      <span style={{ fontSize: '0.72rem', padding: '2px 6px', borderRadius: '4px', background: 'rgba(168,85,247,0.2)', color: '#d8b4fe' }}>
+                                        Específico
+                                      </span>
+                                    </td>
+                                    <td style={{ textAlign: 'center', fontWeight: 'bold', color: '#c084fc' }}>{item.perc.toFixed(2)}%</td>
+                                    <td style={{ textAlign: 'right', color: '#94a3b8' }}>{item.valorHolding.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                    <td style={{ textAlign: 'right', color: '#e2e8f0' }}>{item.valorLiquido.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                    <td style={{ textAlign: 'right', color: '#f87171' }}>{item.valorImpostos.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                    <td style={{ textAlign: 'right', fontWeight: 'bold', color: '#c084fc' }}>{item.valorFaturar.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                  </tr>
+                                ))}
+                                <tr style={{ background: 'rgba(168, 85, 247, 0.05)', fontWeight: 'bold', borderBottom: '1px solid #334155' }}>
+                                  <td colSpan="5" style={{ textAlign: 'right', color: '#d8b4fe', fontSize: '0.8rem' }}>Subtotal Rateio Específico:</td>
+                                  <td style={{ textAlign: 'right', color: '#d8b4fe' }}>{detalhe.subtotalEspecificas.liquido.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                  <td style={{ textAlign: 'right', color: '#f87171' }}>{detalhe.subtotalEspecificas.impostos.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                  <td style={{ textAlign: 'right', color: '#d8b4fe' }}>{detalhe.subtotalEspecificas.faturar.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                                </tr>
+                              </>
+                            )}
+                          </tbody>
+                          <tfoot>
+                            <tr style={{ background: '#0f172a', fontWeight: 'bold', borderTop: '2px solid #38bdf8' }}>
+                              <td colSpan="5" style={{ textAlign: 'right', color: '#fff', fontSize: '0.88rem' }}>
+                                TOTAL COBRADO DA EMPRESA ({c.name}):
+                              </td>
+                              <td style={{ textAlign: 'right', color: '#38bdf8', fontSize: '0.88rem' }}>
+                                {detalhe.totalGeral.liquido.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                              </td>
+                              <td style={{ textAlign: 'right', color: '#f87171', fontSize: '0.88rem' }}>
+                                {detalhe.totalGeral.impostos.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                              </td>
+                              <td style={{ textAlign: 'right', color: '#4ade80', fontSize: '1rem' }}>
+                                {detalhe.totalGeral.faturar.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                              </td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Observações Contábeis de Rodapé */}
+                <div style={{ marginTop: '1.5rem', padding: '1rem', background: 'rgba(255,255,255,0.02)', borderRadius: '6px', border: '1px solid #334155', fontSize: '0.8rem', color: '#94a3b8' }}>
+                  <strong style={{ color: '#cbd5e1' }}>Nota Explicativa sobre o Faturamento de Management Fee:</strong>
+                  <div style={{ marginTop: '4px' }}>
+                    O presente relatório discrimina a recomposição das despesas corporativas e de pessoal mantidas pela Holding para apoio estratégico e administrativo às empresas do Grupo. O valor faturado recompõe o custo efetivo incorrido acrescido dos tributos municipais e federais calculados via alíquotas por dentro (gross-up de ISS, PIS e COFINS).
+                  </div>
+                </div>
+
+                {/* Estilos Específicos para Impressão */}
+                <style dangerouslySetInnerHTML={{__html: `
+                  @media print {
+                    @page {
+                      size: A4 portrait;
+                      margin: 10mm 10mm 10mm 10mm;
+                    }
+                    body * {
+                      visibility: hidden !important;
+                    }
+                    #printable-rateio-report, #printable-rateio-report * {
+                      visibility: visible !important;
+                    }
+                    #printable-rateio-report {
+                      position: absolute !important;
+                      left: 0 !important;
+                      top: 0 !important;
+                      width: 100% !important;
+                      background: #ffffff !important;
+                      color: #0f172a !important;
+                      margin: 0 !important;
+                      padding: 0 !important;
+                      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+                    }
+                    .print-hide {
+                      display: none !important;
+                    }
+                    .report-card-print {
+                      background: #f8fafc !important;
+                      border: 1px solid #cbd5e1 !important;
+                      color: #0f172a !important;
+                    }
+                    .report-card-print div {
+                      color: #0f172a !important;
+                    }
+                    .report-table-print {
+                      width: 100% !important;
+                      border-collapse: collapse !important;
+                      margin-bottom: 15px !important;
+                      color: #0f172a !important;
+                    }
+                    .report-table-print th {
+                      background: #e2e8f0 !important;
+                      color: #0f172a !important;
+                      border: 1px solid #94a3b8 !important;
+                      padding: 5px 6px !important;
+                      font-size: 8pt !important;
+                      font-weight: bold !important;
+                    }
+                    .report-table-print td {
+                      border: 1px solid #cbd5e1 !important;
+                      color: #0f172a !important;
+                      padding: 4px 6px !important;
+                      font-size: 7.5pt !important;
+                      background: #ffffff !important;
+                    }
+                    .report-table-print tr:nth-child(even) td {
+                      background: #f8fafc !important;
+                    }
+                    .report-company-box {
+                      page-break-inside: avoid !important;
+                      border: 1px solid #cbd5e1 !important;
+                      margin-bottom: 16px !important;
+                      padding: 10px !important;
+                      background: #ffffff !important;
+                      border-radius: 4px !important;
+                    }
+                    h2, h3, h4, strong {
+                      color: #0f172a !important;
+                    }
+                  }
+                `}} />
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
