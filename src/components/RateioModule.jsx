@@ -534,32 +534,38 @@ export default function RateioModule({ companies }) {
   };
 
   return (
-    <div style={{ marginTop: '1rem' }}>
+    <div style={{ marginTop: '0.5rem' }}>
       {/* NAVEGAÇÃO DE SUB-ROTINAS DA HOLDING */}
-      <div style={{ 
-        display: 'flex', 
-        gap: '0.8rem', 
-        borderBottom: '1px solid rgba(255,255,255,0.1)', 
-        paddingBottom: '0.8rem', 
-        marginBottom: '1.5rem' 
+      <div className="glass-panel" style={{ 
+        display: 'inline-flex', 
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: '0.6rem', 
+        padding: '0.45rem 0.6rem', 
+        marginBottom: '1.5rem',
+        borderRadius: '12px',
+        border: '1px solid rgba(255,255,255,0.12)',
+        background: 'rgba(20, 20, 28, 0.75)'
       }}>
         <button
           onClick={() => setSubTab('mep')}
           style={{
-            background: subTab === 'mep' ? '#D4AF37' : 'rgba(255,255,255,0.05)',
-            color: subTab === 'mep' ? '#000' : '#aaa',
-            border: 'none',
-            padding: '0.6rem 1.2rem',
+            background: subTab === 'mep' ? 'rgba(212, 175, 55, 0.18)' : 'transparent',
+            color: subTab === 'mep' ? '#FFD54F' : '#aaa',
+            border: subTab === 'mep' ? '1px solid rgba(212, 175, 55, 0.45)' : '1px solid transparent',
+            padding: '0.55rem 1.1rem',
             borderRadius: '8px',
             cursor: 'pointer',
-            fontWeight: 'bold',
-            fontSize: '0.95rem',
+            fontWeight: subTab === 'mep' ? '700' : '500',
+            fontSize: '0.92rem',
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
-            boxShadow: subTab === 'mep' ? '0 4px 12px rgba(212,175,55,0.3)' : 'none',
+            boxShadow: subTab === 'mep' ? '0 4px 14px rgba(212,175,55,0.25)' : 'none',
             transition: 'all 0.2s'
           }}
+          onMouseEnter={(e) => { if (subTab !== 'mep') { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#fff'; } }}
+          onMouseLeave={(e) => { if (subTab !== 'mep') { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#aaa'; } }}
         >
           <span>⚖️</span> Equivalência Patrimonial (MEP)
         </button>
@@ -567,20 +573,22 @@ export default function RateioModule({ companies }) {
         <button
           onClick={() => setSubTab('rateio')}
           style={{
-            background: subTab === 'rateio' ? '#2196F3' : 'rgba(255,255,255,0.05)',
-            color: subTab === 'rateio' ? '#fff' : '#aaa',
-            border: 'none',
-            padding: '0.6rem 1.2rem',
+            background: subTab === 'rateio' ? 'rgba(33, 150, 243, 0.18)' : 'transparent',
+            color: subTab === 'rateio' ? '#64B5F6' : '#aaa',
+            border: subTab === 'rateio' ? '1px solid rgba(33, 150, 243, 0.45)' : '1px solid transparent',
+            padding: '0.55rem 1.1rem',
             borderRadius: '8px',
             cursor: 'pointer',
-            fontWeight: 'bold',
-            fontSize: '0.95rem',
+            fontWeight: subTab === 'rateio' ? '700' : '500',
+            fontSize: '0.92rem',
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
-            boxShadow: subTab === 'rateio' ? '0 4px 12px rgba(33,150,243,0.3)' : 'none',
+            boxShadow: subTab === 'rateio' ? '0 4px 14px rgba(33,150,243,0.25)' : 'none',
             transition: 'all 0.2s'
           }}
+          onMouseEnter={(e) => { if (subTab !== 'rateio') { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = '#fff'; } }}
+          onMouseLeave={(e) => { if (subTab !== 'rateio') { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#aaa'; } }}
         >
           <span>🏢</span> Rateio de Custos & Despesas (Management Fee)
         </button>
