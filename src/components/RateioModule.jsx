@@ -83,7 +83,8 @@ export default function RateioModule({ companies }) {
   // Estados da Fatura / Nota de Débito
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [invoiceCompanyId, setInvoiceCompanyId] = useState('todas');
-  const [invoiceNumberBase, setInvoiceNumberBase] = useState('276/2026');
+  const [invoiceStartNumber, setInvoiceStartNumber] = useState(1);
+  const [invoiceNumberBase, setInvoiceNumberBase] = useState('');
   const [invoiceEmissionDate, setInvoiceEmissionDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [invoiceDueDate, setInvoiceDueDate] = useState(() => {
     const d = new Date();
@@ -122,6 +123,7 @@ export default function RateioModule({ companies }) {
         if (config.aliqCOFINS !== undefined) setAliqCOFINS(config.aliqCOFINS);
         if (config.includeProvisions !== undefined) setIncludeProvisions(config.includeProvisions);
         if (config.expensePercents !== undefined) setExpensePercents(config.expensePercents);
+        if (config.invoiceStartNumber !== undefined) setInvoiceStartNumber(config.invoiceStartNumber);
 
         if (config.holdingId) {
             setSelectedHolding(config.holdingId);
@@ -168,20 +170,6 @@ export default function RateioModule({ companies }) {
 
   const holdingMeta = getCompanyMeta(selectedHolding) || companyMetadata.holding || DEFAULT_COMPANY_METADATA.holding;
 
-  const getInvoiceNumberForIndex = (index) => {
-    const base = (invoiceNumberBase || '').trim();
-    if (!base) {
-      return `${String(index + 1).padStart(3, '0')}/${selectedAno}`;
-    }
-    const match = base.match(/^(\d+)(.*)$/);
-    if (match) {
-      const startNum = parseInt(match[1], 10);
-      const suffix = match[2] || `/${selectedAno}`;
-      return `${startNum + index}${suffix}`;
-    }
-    return `${base}-${index + 1}`;
-  };
-
   const saveConfig = async (
     newRateios = rateioConfig, 
     iss = aliqISS, 
@@ -190,7 +178,8 @@ export default function RateioModule({ companies }) {
     newHolding = selectedHolding, 
     incProv = includeProvisions, 
     expPerc = expensePercents,
-    specContas = contasEspecificas
+    specContas = contasEspecificas,
+    startNum = invoiceStartNumber
   ) => {
     try {
       await saveSettings('agf_rateio_config', { 
@@ -201,7 +190,8 @@ export default function RateioModule({ companies }) {
         aliqCOFINS: cofins, 
         holdingId: newHolding,
         includeProvisions: incProv,
-        expensePercents: expPerc
+        expensePercents: expPerc,
+        invoiceStartNumber: startNum
       });
     } catch (e) { console.error(e); }
   };
@@ -356,6 +346,58 @@ export default function RateioModule({ companies }) {
   };
 
   const operacionais = companies.filter(c => c.id !== selectedHolding);
+
+  // Função que calcula o número padrão da fatura com base na sequência anual (ex: 001/2026) e avanço mensal contínuo
+  const computeDefaultInvoiceNumber = (mes = selectedMes, ano = selectedAno, compId = invoiceCompanyId) => {
+    const totalOps = Math.max(operacionais.length, 1);
+    let compOffset = 0;
+    if (compId && compId !== 'todas') {
+      const idx = operacionais.findIndex(op => op.id === compId);
+      if (idx >= 0) compOffset = idx;
+    }
+    const start = parseInt(invoiceStartNumber, 10) || 1;
+    const num = start + ((mes - 1) * totalOps) + compOffset;
+    return `${String(num).padStart(3, '0')}/${ano}`;
+  };
+
+  useEffect(() => {
+    setInvoiceNumberBase(computeDefaultInvoiceNumber(selectedMes, selectedAno, invoiceCompanyId));
+  }, [selectedMes, selectedAno, invoiceCompanyId, operacionais.length, invoiceStartNumber]);
+
+  // Retorna o número da fatura para uma empresa, respeitando o cálculo contínuo e edições manuais
+  const getInvoiceNumberForCompany = (companyId) => {
+    const totalOps = Math.max(operacionais.length, 1);
+    const compIdx = operacionais.findIndex(op => op.id === companyId);
+    const validIdx = compIdx >= 0 ? compIdx : 0;
+
+    const base = (invoiceNumberBase || '').trim();
+    if (base) {
+      const match = base.match(/^(\d+)(.*)$/);
+      if (match) {
+        const startDigits = match[1];
+        const numDigits = Math.max(3, startDigits.length);
+        const startNum = parseInt(startDigits, 10);
+        const suffix = match[2] || `/${selectedAno}`;
+
+        let numParaEmpresa;
+        if (invoiceCompanyId === 'todas') {
+          numParaEmpresa = startNum + validIdx;
+        } else {
+          numParaEmpresa = startNum;
+        }
+
+        const padded = String(numParaEmpresa).padStart(numDigits, '0');
+        const formattedSuffix = suffix.startsWith('/') ? suffix : `/${suffix.replace(/^[-\s/]+/, '')}`;
+        return `${padded}${formattedSuffix}`;
+      }
+      return `${base}-${validIdx + 1}`;
+    }
+
+    const start = parseInt(invoiceStartNumber, 10) || 1;
+    const num = start + ((selectedMes - 1) * totalOps) + validIdx;
+    return `${String(num).padStart(3, '0')}/${selectedAno}`;
+  };
+
   const todasDespesas = [...detalhesFolha, ...detalhesOutras];
 
   // Cálculo das Contas Específicas
@@ -1740,12 +1782,38 @@ export default function RateioModule({ companies }) {
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <span style={{ fontSize: '0.8rem', color: '#cbd5e1' }}>Competência:</span>
+                  <select
+                    value={selectedMes}
+                    onChange={e => setSelectedMes(parseInt(e.target.value, 10))}
+                    className="select-input"
+                    style={{ padding: '0.38rem 0.5rem', fontSize: '0.82rem' }}
+                    title="Mês de Competência da Cobrança"
+                  >
+                    {NOMES_MESES.slice(1).map((m, i) => (
+                      <option key={i + 1} value={i + 1}>{m}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={selectedAno}
+                    onChange={e => setSelectedAno(parseInt(e.target.value, 10))}
+                    className="select-input"
+                    style={{ padding: '0.38rem 0.5rem', fontSize: '0.82rem', width: '75px' }}
+                    title="Ano de Competência da Cobrança"
+                  >
+                    {[2024, 2025, 2026, 2027, 2028].map(y => (
+                      <option key={y} value={y}>{y}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                   <span style={{ fontSize: '0.8rem', color: '#cbd5e1' }}>Empresa:</span>
                   <select
                     value={invoiceCompanyId}
                     onChange={e => setInvoiceCompanyId(e.target.value)}
                     className="select-input"
-                    style={{ padding: '0.4rem 0.6rem', fontSize: '0.82rem', minWidth: '180px' }}
+                    style={{ padding: '0.38rem 0.6rem', fontSize: '0.82rem', minWidth: '170px' }}
                   >
                     <option value="todas">🏢 Todas ({operacionais.length} Faturas em Lote)</option>
                     {operacionais.map(c => (
@@ -1755,14 +1823,34 @@ export default function RateioModule({ companies }) {
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                  <span style={{ fontSize: '0.8rem', color: '#cbd5e1' }}>Nº Fatura:</span>
-                  <input
-                    type="text"
-                    value={invoiceNumberBase}
-                    onChange={e => setInvoiceNumberBase(e.target.value)}
-                    placeholder="ex: 276/2026"
-                    style={{ padding: '0.4rem 0.6rem', fontSize: '0.82rem', width: '85px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }}
-                  />
+                  <span style={{ fontSize: '0.8rem', color: '#cbd5e1' }} title="Número sequencial da fatura (ano dinâmico)">Nº Fatura:</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <input
+                      type="text"
+                      value={invoiceNumberBase}
+                      onChange={e => setInvoiceNumberBase(e.target.value)}
+                      placeholder={computeDefaultInvoiceNumber(selectedMes, selectedAno, invoiceCompanyId)}
+                      style={{ padding: '0.38rem 0.6rem', fontSize: '0.82rem', width: '92px', background: '#0f172a', border: '1px solid #334155', color: '#38bdf8', fontWeight: 'bold', borderRadius: '4px', textAlign: 'center' }}
+                      title="Número inicial ou da fatura selecionada. Continua a sequência mês a mês (001/Ano)."
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setInvoiceNumberBase(computeDefaultInvoiceNumber(selectedMes, selectedAno, invoiceCompanyId))}
+                      style={{
+                        background: 'rgba(56, 189, 248, 0.12)',
+                        border: '1px solid #0284c7',
+                        color: '#38bdf8',
+                        borderRadius: '4px',
+                        padding: '0.35rem 0.5rem',
+                        fontSize: '0.72rem',
+                        cursor: 'pointer',
+                        fontWeight: '600'
+                      }}
+                      title="Restaurar numeração sequencial automática contínua (ex: 001/Ano, 004/Ano...)"
+                    >
+                      ↺ Auto
+                    </button>
+                  </div>
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
@@ -1869,7 +1957,7 @@ export default function RateioModule({ companies }) {
                 {(invoiceCompanyId === 'todas' ? operacionais : operacionais.filter(c => c.id === invoiceCompanyId)).map((c, idx) => {
                   const dist = distribuicaoPorEmpresa.find(d => d.empresa.id === c.id);
                   const totalFaturarEmpresa = dist ? dist.totalFaturarEmpresa : 0;
-                  const numFatura = getInvoiceNumberForIndex(idx);
+                  const numFatura = getInvoiceNumberForCompany(c.id);
                   const destMeta = getCompanyMeta(c.id);
                   const dataEmissaoFormatada = formatDateBR(invoiceEmissionDate);
                   const dataVencimentoFormatada = formatDateBR(invoiceDueDate);
@@ -2140,11 +2228,194 @@ export default function RateioModule({ companies }) {
                   </button>
                 );
               })}
+
+              <button
+                onClick={() => setActiveMetadataTab('sequencia')}
+                style={{
+                  padding: '0.5rem 1rem',
+                  borderRadius: '6px',
+                  fontSize: '0.82rem',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  border: activeMetadataTab === 'sequencia' ? '1px solid #38bdf8' : '1px solid #334155',
+                  background: activeMetadataTab === 'sequencia' ? '#0284c7' : 'rgba(255, 255, 255, 0.04)',
+                  color: activeMetadataTab === 'sequencia' ? '#ffffff' : '#94a3b8',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  whiteSpace: 'nowrap',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <span>🔢</span> Numeração das Faturas
+              </button>
             </div>
 
-            {/* Formulário com a Empresa Selecionada */}
+            {/* Formulário com a Empresa Selecionada ou Painel de Sequência */}
             <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem' }}>
               {(() => {
+                if (activeMetadataTab === 'sequencia') {
+                  const start = parseInt(invoiceStartNumber, 10) || 1;
+                  const totalOps = Math.max(operacionais.length, 1);
+                  return (
+                    <div>
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px',
+                        marginBottom: '1.2rem',
+                        paddingBottom: '0.8rem',
+                        borderBottom: '1px solid #2d3748'
+                      }}>
+                        <div style={{
+                          width: '36px',
+                          height: '36px',
+                          borderRadius: '8px',
+                          background: 'rgba(56, 189, 248, 0.15)',
+                          border: '1px solid #38bdf8',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '1.2rem'
+                        }}>
+                          🔢
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#f8fafc' }}>
+                            Sequência de Numeração das Faturas & Ano Dinâmico
+                          </div>
+                          <div style={{ fontSize: '0.78rem', color: '#38bdf8' }}>
+                            Controle do sequenciamento contínuo das Notas de Débito mês a mês
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Regras e Explicação */}
+                      <div style={{
+                        padding: '1rem',
+                        background: 'rgba(15, 23, 42, 0.6)',
+                        borderRadius: '8px',
+                        border: '1px solid #334155',
+                        marginBottom: '1.5rem',
+                        fontSize: '0.82rem',
+                        color: '#cbd5e1',
+                        lineHeight: '1.5'
+                      }}>
+                        <div style={{ fontWeight: 'bold', color: '#38bdf8', marginBottom: '6px' }}>
+                          📌 Como funciona o sequenciamento automático:
+                        </div>
+                        <ul style={{ margin: 0, paddingLeft: '1.2rem', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <li><b>Início da Numeração:</b> O exercício começa em <code>{String(start).padStart(3, '0')}/{selectedAno}</code> (padrão <code>001/{selectedAno}</code>).</li>
+                          <li><b>Sequência Mês a Mês:</b> A cada novo mês, a numeração continua de onde parou no mês anterior, gerando os números para as {totalOps} empresas operacionais do Grupo.</li>
+                          <li><b>Ano Dinâmico:</b> O ano da fatura acompanha automaticamente a competência selecionada (ex: <code>/{selectedAno}</code>). Ao mudar o ano, o sufixo é atualizado.</li>
+                          <li><b>Flexibilidade:</b> Se precisar alterar o número de uma fatura específica, basta editar o campo "Nº Fatura" diretamente no topo do modal ou clicar em <code>↺ Auto</code> para restaurar a sequência.</li>
+                        </ul>
+                      </div>
+
+                      {/* Configuração do Início da Sequência */}
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '1rem',
+                        padding: '1rem',
+                        background: '#0f172a',
+                        borderRadius: '8px',
+                        border: '1px solid #334155',
+                        marginBottom: '1.5rem',
+                        flexWrap: 'wrap'
+                      }}>
+                        <div>
+                          <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 'bold', color: '#f8fafc', marginBottom: '4px' }}>
+                            Número Inicial Anual da Sequência
+                          </label>
+                          <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+                            Define o primeiro número emitido em Janeiro (ex: 1 para iniciar em <code>001/{selectedAno}</code>)
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <input
+                            type="number"
+                            min="1"
+                            value={invoiceStartNumber}
+                            onChange={e => {
+                              const val = Math.max(1, parseInt(e.target.value, 10) || 1);
+                              setInvoiceStartNumber(val);
+                              saveConfig(rateioConfig, aliqISS, aliqPIS, aliqCOFINS, selectedHolding, includeProvisions, expensePercents, contasEspecificas, val);
+                            }}
+                            style={{
+                              width: '90px',
+                              padding: '8px 12px',
+                              background: '#1e293b',
+                              border: '1px solid #0284c7',
+                              borderRadius: '6px',
+                              color: '#38bdf8',
+                              fontSize: '1rem',
+                              fontWeight: 'bold',
+                              textAlign: 'center'
+                            }}
+                          />
+                          <span style={{ fontSize: '0.85rem', color: '#64748b' }}>/{selectedAno}</span>
+                        </div>
+                      </div>
+
+                      {/* Tabela Demonstrativa da Sequência nos 12 Meses */}
+                      <div>
+                        <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#f8fafc', marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span>Demonstrativo da Sequência das Faturas para o Exercício de {selectedAno}:</span>
+                          <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{totalOps} empresas operacionais por mês</span>
+                        </div>
+                        <div style={{ maxHeight: '280px', overflowY: 'auto', border: '1px solid #334155', borderRadius: '6px' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                            <thead>
+                              <tr style={{ background: '#1e293b', borderBottom: '1px solid #334155', color: '#94a3b8', textAlign: 'left' }}>
+                                <th style={{ padding: '8px 12px' }}>Competência</th>
+                                <th style={{ padding: '8px 12px' }}>Faixa de Numeração</th>
+                                <th style={{ padding: '8px 12px' }}>Distribuição por Empresa</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {NOMES_MESES.slice(1).map((mNome, idx) => {
+                                const mesNum = idx + 1;
+                                const isCurrent = mesNum === selectedMes;
+                                const startNumMes = start + (idx * totalOps);
+                                const endNumMes = startNumMes + totalOps - 1;
+                                return (
+                                  <tr
+                                    key={mesNum}
+                                    style={{
+                                      background: isCurrent ? 'rgba(56, 189, 248, 0.1)' : idx % 2 === 0 ? 'rgba(255, 255, 255, 0.02)' : 'transparent',
+                                      borderBottom: '1px solid #2d3748',
+                                      color: isCurrent ? '#38bdf8' : '#cbd5e1'
+                                    }}
+                                  >
+                                    <td style={{ padding: '7px 12px', fontWeight: isCurrent ? 'bold' : '500' }}>
+                                      {mNome} / {selectedAno} {isCurrent && <span style={{ fontSize: '0.7rem', background: '#0284c7', color: '#fff', padding: '1px 5px', borderRadius: '3px', marginLeft: '4px' }}>Atual</span>}
+                                    </td>
+                                    <td style={{ padding: '7px 12px', fontWeight: 'bold' }}>
+                                      {String(startNumMes).padStart(3, '0')}/{selectedAno} até {String(endNumMes).padStart(3, '0')}/{selectedAno}
+                                    </td>
+                                    <td style={{ padding: '7px 12px', fontSize: '0.76rem', color: '#94a3b8' }}>
+                                      {operacionais.map((op, opIdx) => {
+                                        const num = startNumMes + opIdx;
+                                        return (
+                                          <span key={op.id} style={{ marginRight: '10px' }}>
+                                            • {op.name}: <strong style={{ color: isCurrent ? '#38bdf8' : '#cbd5e1' }}>{String(num).padStart(3, '0')}/{selectedAno}</strong>
+                                          </span>
+                                        );
+                                      })}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
                 const isHolding = activeMetadataTab === 'holding';
                 const currentData = isHolding 
                   ? (editingMetadata.holding || DEFAULT_COMPANY_METADATA.holding)
