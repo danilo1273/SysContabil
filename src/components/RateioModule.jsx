@@ -1655,171 +1655,6 @@ export default function RateioModule({ companies }) {
                     O presente relatório discrimina a recomposição das despesas corporativas e de pessoal mantidas pela Holding para apoio estratégico e administrativo às empresas do Grupo. O valor faturado recompõe o custo efetivo incorrido acrescido dos tributos municipais e federais calculados via alíquotas por dentro (gross-up de ISS, PIS e COFINS).
                   </div>
                 </div>
-
-                {/* Estilos Específicos para Impressão */}
-                <style dangerouslySetInnerHTML={{__html: `
-                  @media print {
-                    @page {
-                      size: A4 portrait !important;
-                      margin: 8mm 8mm 8mm 8mm !important;
-                    }
-                    html, body {
-                      background: #ffffff !important;
-                      color: #0f172a !important;
-                      margin: 0 !important;
-                      padding: 0 !important;
-                      height: auto !important;
-                      overflow: visible !important;
-                    }
-                    .print-hide,
-                    .app-header,
-                    .module-tabs,
-                    nav,
-                    button,
-                    select,
-                    input,
-                    textarea {
-                      display: none !important;
-                    }
-                    .rateio-modal-backdrop {
-                      position: static !important;
-                      inset: auto !important;
-                      background: transparent !important;
-                      padding: 0 !important;
-                      margin: 0 !important;
-                      width: 100% !important;
-                      height: auto !important;
-                      overflow: visible !important;
-                      display: block !important;
-                      backdrop-filter: none !important;
-                    }
-                    .rateio-modal-dialog {
-                      position: static !important;
-                      background: #ffffff !important;
-                      border: none !important;
-                      box-shadow: none !important;
-                      border-radius: 0 !important;
-                      max-width: 100% !important;
-                      max-height: none !important;
-                      width: 100% !important;
-                      height: auto !important;
-                      overflow: visible !important;
-                      display: block !important;
-                      padding: 0 !important;
-                      margin: 0 !important;
-                    }
-                    .rateio-modal-scroll {
-                      overflow: visible !important;
-                      max-height: none !important;
-                      height: auto !important;
-                      padding: 0 !important;
-                      margin: 0 !important;
-                      display: block !important;
-                      background: #ffffff !important;
-                    }
-
-                    /* REGRAS DA NOTA DE DÉBITO */
-                    #printable-nota-debito {
-                      display: block !important;
-                      width: 100% !important;
-                      margin: 0 !important;
-                      padding: 0 !important;
-                    }
-                    .nota-debito-sheet {
-                      border: 2px solid #000000 !important;
-                      box-shadow: none !important;
-                      width: 100% !important;
-                      max-width: 100% !important;
-                      margin: 0 auto 0 auto !important;
-                      page-break-inside: avoid !important;
-                      break-inside: avoid !important;
-                      box-sizing: border-box !important;
-                    }
-                    .nota-debito-sheet * {
-                      color: #000000 !important;
-                    }
-                    .nota-debito-page {
-                      page-break-after: always !important;
-                      break-after: page !important;
-                      margin-bottom: 0 !important;
-                    }
-
-                    /* REGRAS DO RELATÓRIO ANALÍTICO (ANEXO INTERNO) */
-                    #printable-rateio-report {
-                      position: static !important;
-                      width: 100% !important;
-                      background: #ffffff !important;
-                      color: #0f172a !important;
-                      margin: 0 !important;
-                      padding: 0 !important;
-                      overflow: visible !important;
-                      display: block !important;
-                      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
-                    }
-                    #printable-rateio-report * {
-                      color: #0f172a !important;
-                      text-shadow: none !important;
-                      box-shadow: none !important;
-                    }
-                    .report-card-print {
-                      background: #f8fafc !important;
-                      border: 1px solid #cbd5e1 !important;
-                      color: #0f172a !important;
-                      break-inside: avoid !important;
-                      page-break-inside: avoid !important;
-                    }
-                    .report-table-print {
-                      width: 100% !important;
-                      border-collapse: collapse !important;
-                      margin-bottom: 12px !important;
-                      color: #0f172a !important;
-                    }
-                    .report-table-print thead {
-                      display: table-header-group !important;
-                    }
-                    .report-table-print tfoot {
-                      display: table-footer-group !important;
-                    }
-                    .report-table-print tr {
-                      page-break-inside: avoid !important;
-                      break-inside: avoid !important;
-                    }
-                    .report-table-print th {
-                      background: #f1f5f9 !important;
-                      color: #0f172a !important;
-                      border: 1px solid #94a3b8 !important;
-                      padding: 3px 5px !important;
-                      font-size: 7pt !important;
-                      font-weight: bold !important;
-                    }
-                    .report-table-print td {
-                      border: 1px solid #cbd5e1 !important;
-                      color: #0f172a !important;
-                      padding: 2.5px 5px !important;
-                      font-size: 6.8pt !important;
-                      background: #ffffff !important;
-                    }
-                    .report-table-print tr:nth-child(even) td {
-                      background: #f8fafc !important;
-                    }
-                    .report-company-box {
-                      border: 1px solid #cbd5e1 !important;
-                      margin-bottom: 12px !important;
-                      padding: 8px 10px !important;
-                      background: #ffffff !important;
-                      border-radius: 4px !important;
-                      page-break-inside: auto !important;
-                      break-inside: auto !important;
-                    }
-                    .report-company-header {
-                      page-break-after: avoid !important;
-                      break-after: avoid !important;
-                    }
-                    h2, h3, h4, strong {
-                      color: #0f172a !important;
-                    }
-                  }
-                `}} />
               </div>
             </div>
           </div>
@@ -2301,6 +2136,176 @@ export default function RateioModule({ companies }) {
           </div>
         </div>
       )}
+
+      {/* Estilos Globais de Impressão (Ativos em Todo o Módulo de Rateio) */}
+      <style dangerouslySetInnerHTML={{__html: `
+        @media print {
+          @page {
+            size: A4 portrait !important;
+            margin: 8mm 8mm 8mm 8mm !important;
+          }
+          html, body {
+            background: #ffffff !important;
+            color: #0f172a !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            height: auto !important;
+            overflow: visible !important;
+          }
+          .print-hide,
+          .app-header,
+          .module-tabs,
+          nav,
+          button,
+          select,
+          input,
+          textarea {
+            display: none !important;
+          }
+          .rateio-modal-backdrop {
+            position: static !important;
+            inset: auto !important;
+            background: transparent !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            width: 100% !important;
+            height: auto !important;
+            overflow: visible !important;
+            display: block !important;
+            backdrop-filter: none !important;
+            box-shadow: none !important;
+          }
+          .rateio-modal-dialog {
+            position: static !important;
+            background: #ffffff !important;
+            border: none !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+            max-width: 100% !important;
+            max-height: none !important;
+            width: 100% !important;
+            height: auto !important;
+            overflow: visible !important;
+            display: block !important;
+            padding: 0 !important;
+            margin: 0 !important;
+          }
+          .rateio-modal-scroll {
+            overflow: visible !important;
+            max-height: none !important;
+            height: auto !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            display: block !important;
+            background: #ffffff !important;
+            border: none !important;
+            box-shadow: none !important;
+          }
+
+          /* REGRAS DA NOTA DE DÉBITO */
+          #printable-nota-debito {
+            display: block !important;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #ffffff !important;
+          }
+          .nota-debito-sheet {
+            border: 2px solid #000000 !important;
+            box-shadow: none !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 auto 0 auto !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+            box-sizing: border-box !important;
+            background: #ffffff !important;
+          }
+          .nota-debito-sheet * {
+            color: #000000 !important;
+          }
+          .nota-debito-page {
+            page-break-after: always !important;
+            break-after: page !important;
+            margin-bottom: 0 !important;
+          }
+
+          /* REGRAS DO RELATÓRIO ANALÍTICO (ANEXO INTERNO) */
+          #printable-rateio-report {
+            position: static !important;
+            width: 100% !important;
+            background: #ffffff !important;
+            color: #0f172a !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: visible !important;
+            display: block !important;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+          }
+          #printable-rateio-report * {
+            color: #0f172a !important;
+            text-shadow: none !important;
+            box-shadow: none !important;
+          }
+          .report-card-print {
+            background: #f8fafc !important;
+            border: 1px solid #cbd5e1 !important;
+            color: #0f172a !important;
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+          .report-table-print {
+            width: 100% !important;
+            border-collapse: collapse !important;
+            margin-bottom: 12px !important;
+            color: #0f172a !important;
+          }
+          .report-table-print thead {
+            display: table-header-group !important;
+          }
+          .report-table-print tfoot {
+            display: table-footer-group !important;
+          }
+          .report-table-print tr {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+          .report-table-print th {
+            background: #f1f5f9 !important;
+            color: #0f172a !important;
+            border: 1px solid #94a3b8 !important;
+            padding: 3px 5px !important;
+            font-size: 7pt !important;
+            font-weight: bold !important;
+          }
+          .report-table-print td {
+            border: 1px solid #cbd5e1 !important;
+            color: #0f172a !important;
+            padding: 2.5px 5px !important;
+            font-size: 6.8pt !important;
+            background: #ffffff !important;
+          }
+          .report-table-print tr:nth-child(even) td {
+            background: #f8fafc !important;
+          }
+          .report-company-box {
+            border: 1px solid #cbd5e1 !important;
+            margin-bottom: 12px !important;
+            padding: 8px 10px !important;
+            background: #ffffff !important;
+            border-radius: 4px !important;
+            page-break-inside: auto !important;
+            break-inside: auto !important;
+          }
+          .report-company-header {
+            page-break-after: avoid !important;
+            break-after: avoid !important;
+          }
+          h2, h3, h4, strong {
+            color: #0f172a !important;
+          }
+        }
+      `}} />
     </>
   )}
 </div>
