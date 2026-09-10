@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getBalancoFromDB } from '../utils/db';
+import { printReport } from '../utils/printHelper';
 
 export default function RelatoriosContabeis({ selectedAno, selectedMes, companies }) {
   const [selectedCompany, setSelectedCompany] = useState('consolidado');
@@ -45,15 +46,18 @@ export default function RelatoriosContabeis({ selectedAno, selectedMes, companie
   };
 
   const handlePrint = () => {
-     const oldTitle = document.title;
-     const compName = compData ? compData.name.replace(/\s+/g, '_') : 'Consolidado';
-     const repName = reportType === 'endividamento' ? 'Endividamento' : 'Disponibilidade';
-     const dateStr = `${String(selectedMes).padStart(2, '0')}_${selectedAno}`;
-     document.title = `Relatorio_${repName}_${compName}_${dateStr}`;
-     
-     window.print();
-     
-     document.title = oldTitle;
+     const cData = selectedCompany !== 'consolidado' && companies ? companies.find(c => c.id === selectedCompany) : null;
+     const compName = selectedCompany === 'consolidado' ? 'AGF Group (Consolidado)' : (cData ? cData.name : 'AGF');
+     const repName = reportType === 'endividamento' ? 'Relatório de Endividamento' : 'Relatório de Disponibilidade';
+     const mesNome = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][selectedMes-1] || '';
+     const periodText = `${mesNome} ${selectedAno}`;
+
+     printReport({
+       company: compName,
+       reportName: repName,
+       period: periodText,
+       orientation: 'landscape'
+     });
   };
 
   const filterEndividamento = (r) => r.conta.startsWith('2.1.1.2') || r.conta.startsWith('2.2.1.1') || r.conta.startsWith('2.3.1.1') || r.conta.startsWith('2.1.1.3') || r.conta.startsWith('2.1.2.1') || r.conta.startsWith('2.2.2.1') || r.descricao.toUpperCase().includes('EMPRESTIMO') || r.descricao.toUpperCase().includes('FINANCIAMENTO');

@@ -14,6 +14,7 @@ import CentroCustoModule from './CentroCustoModule';
 import GestaoContabilModule from './GestaoContabilModule';
 import PerdcompModule from './PerdcompModule';
 import EstoqueModule from './EstoqueModule';
+import { printReport } from '../utils/printHelper';
 
 const COLORS = ['#4CAF50', '#2196F3', '#f7c324', '#9C27B0', '#FF9800'];
 
@@ -1341,25 +1342,19 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
 
     const handlePrint = (reportName) => {
         const compData = selectedCompany !== 'consolidado' ? companies.find(c => c.id === selectedCompany) : null;
-        const headerNome = selectedCompany === 'consolidado' ? 'GRUPO AGF CONSOLIDADO' : (compData ? compData.name.toUpperCase() : '');
+        const compNome = selectedCompany === 'consolidado' ? 'AGF Group (Consolidado)' : (compData ? compData.name : 'AGF');
         const mesNome = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][selectedMes-1];
         let periodText = '';
         if (period === 'mensal') periodText = `${mesNome} ${selectedAno}`;
-        else if (period === 'trimestre') periodText = `${selectedTrimestre}T ${selectedAno}`;
+        else if (period === 'trimestre') periodText = `${selectedTrimestre}º Trimestre ${selectedAno}`;
         else periodText = `Acumulado ${selectedAno}`;
         
-        const fileName = `${headerNome} - ${reportName} - ${periodText}`;
-        const originalTitle = document.title;
-        document.title = fileName;
-
-        const style = document.createElement('style');
-        style.innerHTML = `@media print { @page { size: A4 ${selectedCompany === 'consolidado' ? 'landscape' : 'portrait'} !important; } }`;
-        document.head.appendChild(style);
-
-        window.print();
-
-        document.title = originalTitle;
-        document.head.removeChild(style);
+        printReport({
+            company: compNome,
+            reportName: reportName,
+            period: periodText,
+            orientation: selectedCompany === 'consolidado' ? 'landscape' : 'portrait'
+        });
     };
 
     const PrintHeader = () => {

@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import { getRawRecords, saveCCToDB, getSettings, saveSettings, fetchAll } from '../utils/db';
 import { applyMapping, protheusMapping } from '../utils/mappingConfig';
 import { supabase } from '../supabaseClient';
+import { printReport } from '../utils/printHelper';
 
 export default function CentroCustoModule({ companies, userRole, userPermissions, username }) {
   const isSuper = (['danilo', 'ryan.santos'].includes(username)) || userRole === 'admin' || userRole === 'superadmin';
@@ -1607,8 +1608,22 @@ export default function CentroCustoModule({ companies, userRole, userPermissions
                 {isProcessing ? 'Gerando...' : 'Gerar DRE'}
             </button>
             {dreBase && (
-                <button className="btn-secondary" onClick={() => window.print()} style={{ marginLeft: 'auto' }}>
-                    Gerar PDF
+                <button 
+                  className="btn-secondary" 
+                  onClick={() => {
+                    const compName = selectedComp ? (companies?.find(c => c.id === selectedComp)?.name || 'AGF Group') : 'AGF Group';
+                    const projName = selectedProject ? `Projeto ${selectedProject}` : 'Centro de Custo';
+                    const periodText = formatPeriodLabel(periodoBaseAno, periodoBaseMes, periodoBaseTri, periodType);
+                    printReport({
+                      company: compName,
+                      reportName: `DRE - ${projName}`,
+                      period: periodText,
+                      orientation: 'landscape'
+                    });
+                  }} 
+                  style={{ marginLeft: 'auto' }}
+                >
+                    🖨️ Gerar PDF
                 </button>
             )}
           </div>

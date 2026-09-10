@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getHistorySeries, getSettings, saveSettings } from '../utils/db';
+import { printReport } from '../utils/printHelper';
 
 const formatNumber = (val) => {
   return (val || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -311,7 +312,15 @@ function FaturamentoModule({ companies = [], selectedCompany, selectedAno, selec
         </div>
 
         <button 
-          onClick={() => window.print()} 
+          onClick={() => {
+            const compName = headerNome || 'AGF Group';
+            printReport({
+              company: compName,
+              reportName: 'Demonstrativo de Faturamento',
+              period: `Exercício ${selectedAno}`,
+              orientation: 'portrait'
+            });
+          }} 
           className="btn-primary" 
           style={{ padding: '0.6rem 1.2rem', fontWeight: 700 }}
         >

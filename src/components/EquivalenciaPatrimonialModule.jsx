@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getRawRecords, getSettings, saveSettings, updateRecord, addManualEntryToDB } from '../utils/db';
 import { protheusMapping } from '../utils/mappingConfig';
+import { printReport } from '../utils/printHelper';
 
 function applyMapping(data, mapping, factor = 1, valueField = 'valor') {
   const result = {};
@@ -801,24 +802,47 @@ export default function EquivalenciaPatrimonialModule({ companies = [] }) {
             </p>
           </div>
 
-          <button
-            onClick={() => {
-              const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + 
-                "EMPRESA;TIPO;PARTICIPACAO_PCT;PL_ANTERIOR;PL_ATUAL;VARIACAO_PL;RESULTADO_MEP;CONTA_DEBITO;CONTA_CREDITO\n" +
-                apuracaoMEP.map(r => `"${r.nome}";"${r.tipo}";${r.participacao};${r.plAnterior};${r.isAguardando ? 'Aguardando Balancete' : r.plAtual};${r.isAguardando ? '-' : r.variacaoPL};${r.isAguardando ? 'Aguardando Balancete' : r.resultadoMEP};"${r.contaDebito}";"${r.contaCredito}"`).join("\n");
-              const encodedUri = encodeURI(csvContent);
-              const link = document.createElement("a");
-              link.setAttribute("href", encodedUri);
-              link.setAttribute("download", `MEP_${selectedHolding}_${selectedMes}_${selectedAno}.csv`);
-              document.body.appendChild(link);
-              link.click();
-              document.body.removeChild(link);
-            }}
-            className="btn-secondary"
-            style={{ fontSize: '0.82rem' }}
-          >
-            📥 Exportar Demonstrativo (CSV)
-          </button>
+          <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+            <button
+              onClick={() => {
+                const holdingData = companies.find(c => c.id === selectedHolding);
+                const holdingNome = holdingData ? holdingData.name : 'AGF Participações';
+                const mesNome = meses[selectedMes - 1] || '';
+                printReport({
+                  company: holdingNome,
+                  reportName: 'Demonstrativo de Equivalência Patrimonial (MEP)',
+                  period: `${mesNome} ${selectedAno}`,
+                  orientation: 'landscape'
+                });
+              }}
+              className="btn-primary"
+              style={{ fontSize: '0.82rem', padding: '0.45rem 0.9rem' }}
+            >
+              🖨️ Exportar PDF
+            </button>
+
+            <button
+              onClick={() => {
+                const holdingData = companies.find(c => c.id === selectedHolding);
+                const holdingNome = holdingData ? holdingData.name : 'AGF Participações';
+                const mesNome = meses[selectedMes - 1] || '';
+                const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + 
+                  "EMPRESA;TIPO;PARTICIPACAO_PCT;PL_ANTERIOR;PL_ATUAL;VARIACAO_PL;RESULTADO_MEP;CONTA_DEBITO;CONTA_CREDITO\n" +
+                  apuracaoMEP.map(r => `"${r.nome}";"${r.tipo}";${r.participacao};${r.plAnterior};${r.isAguardando ? 'Aguardando Balancete' : r.plAtual};${r.isAguardando ? '-' : r.variacaoPL};${r.isAguardando ? 'Aguardando Balancete' : r.resultadoMEP};"${r.contaDebito}";"${r.contaCredito}"`).join("\n");
+                const encodedUri = encodeURI(csvContent);
+                const link = document.createElement("a");
+                link.setAttribute("href", encodedUri);
+                link.setAttribute("download", `${holdingNome} - Demonstrativo MEP - ${mesNome} ${selectedAno}.csv`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+              }}
+              className="btn-secondary"
+              style={{ fontSize: '0.82rem' }}
+            >
+              📥 Exportar CSV
+            </button>
+          </div>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>

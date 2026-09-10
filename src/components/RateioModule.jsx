@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getRawRecords, getSettings, saveSettings, updateRecord, addManualEntryToDB } from '../utils/db';
 import EquivalenciaPatrimonialModule from './EquivalenciaPatrimonialModule';
+import { printReport } from '../utils/printHelper';
 
 const NOMES_MESES = [
   '', 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
@@ -530,7 +531,16 @@ export default function RateioModule({ companies }) {
   };
 
   const handlePrintReport = () => {
-    window.print();
+    const holdingData = companies.find(c => c.id === selectedHolding);
+    const holdingNome = holdingData ? holdingData.name : 'AGF Participações';
+    const mesNome = NOMES_MESES[selectedMes] || '';
+
+    printReport({
+      company: holdingNome,
+      reportName: 'Relatório de Rateio e Cobrança (Management Fee)',
+      period: `${mesNome} ${selectedAno}`,
+      orientation: 'landscape'
+    });
   };
 
   return (
