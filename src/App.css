@@ -144,8 +144,9 @@
 .select-input {
   width: 100%;
   padding: 0.55rem 0.8rem;
+  background-color: #1a1a20;
   backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 8px;
   color: var(--color-primary);
   font-size: 0.95rem;
@@ -164,7 +165,12 @@
 .select-input:focus, .select-input:hover {
   border-color: var(--color-primary);
   box-shadow: 0 0 0 2px rgba(212, 175, 55, 0.2), inset 0 2px 4px rgba(0,0,0,0.5);
-  background-color: rgba(35, 35, 35, 0.9);
+  background-color: #25252d;
+}
+
+.select-input option {
+  background-color: #1a1a20;
+  color: #fff;
 }
 
 /* Exclusions Screen */
