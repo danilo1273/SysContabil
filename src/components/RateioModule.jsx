@@ -8,6 +8,54 @@ const NOMES_MESES = [
   'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
 ];
 
+const DEFAULT_COMPANY_METADATA = {
+  holding: {
+    nome: 'AGF PARTICIPAÇÕES LTDA',
+    razaoSocial: 'AGF Imp. Exp. E Comercialização de Máquinas e Acessórios Ltda',
+    cnpj: '11.681.470/0001-84',
+    ie: '530.051.442.114',
+    endereco: 'Rod. SP 346, Km 202,5 - Distrito Industrial - CEP: 13990-000',
+    municipio: 'Espirito Santo do Pinhal',
+    uf: 'SP',
+    telefone: '(19) 38885800',
+    site: 'www.agfequipamentos.com.br'
+  },
+  equipamentos: {
+    nome: 'AGF Equipamentos',
+    razaoSocial: 'AGF IMPORTAÇÃO EXPORTAÇÃO E COMERCIALIZAÇÃO DE MAQUINAS E ACESSORIOS LTDA',
+    cnpj: '11.681.470/0001-84',
+    ie: '530.051.442.114',
+    endereco: 'Rod. SP 346, Km 202,5 - Distrito Industrial - CEP: 13990-000',
+    municipio: 'Espirito Santo do Pinhal',
+    uf: 'SP'
+  },
+  rompedores: {
+    nome: 'AGF Rompedores',
+    razaoSocial: 'AGF ROMPEDORES LTDA',
+    cnpj: '18.468.912/0001-10',
+    ie: '530.098.123.110',
+    endereco: 'Rod. SP 346, Km 202,5 - Distrito Industrial - CEP: 13990-000',
+    municipio: 'Espirito Santo do Pinhal',
+    uf: 'SP'
+  },
+  casa: {
+    nome: 'Casa da Escavadeira',
+    razaoSocial: 'CASA DA ESCAVADEIRA LTDA',
+    cnpj: '24.123.456/0001-78',
+    ie: '530.154.789.112',
+    endereco: 'Rod. SP 346, Km 202,5 - Distrito Industrial - CEP: 13990-000',
+    municipio: 'Espirito Santo do Pinhal',
+    uf: 'SP'
+  }
+};
+
+const formatDateBR = (isoDate) => {
+  if (!isoDate) return '';
+  const parts = isoDate.split('-');
+  if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  return isoDate;
+};
+
 export default function RateioModule({ companies }) {
   const [subTab, setSubTab] = useState('mep'); // 'mep' ou 'rateio'
   const [selectedHolding, setSelectedHolding] = useState('');
@@ -28,9 +76,24 @@ export default function RateioModule({ companies }) {
   const [detalhesOutras, setDetalhesOutras] = useState([]);
   const [showDetalhes, setShowDetalhes] = useState(false);
 
-  // Estados do Relatório de Rateio e Cobrança
+  // Estados do Relatório de Rateio e Cobrança (Anexo Interno)
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportCompanyFilter, setReportCompanyFilter] = useState('todas');
+
+  // Estados da Fatura / Nota de Débito
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [invoiceCompanyId, setInvoiceCompanyId] = useState('todas');
+  const [invoiceNumberBase, setInvoiceNumberBase] = useState('276/2026');
+  const [invoiceEmissionDate, setInvoiceEmissionDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [invoiceDueDate, setInvoiceDueDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.toISOString().slice(0, 10);
+  });
+  const [invoiceCustomText, setInvoiceCustomText] = useState('');
+  const [companyMetadata, setCompanyMetadata] = useState(DEFAULT_COMPANY_METADATA);
+  const [showMetadataEditor, setShowMetadataEditor] = useState(false);
+  const [editingMetadata, setEditingMetadata] = useState(DEFAULT_COMPANY_METADATA);
 
   const [includeProvisions, setIncludeProvisions] = useState(true);
   const [expensePercents, setExpensePercents] = useState({});
@@ -69,7 +132,53 @@ export default function RateioModule({ companies }) {
         const hold = companies.find(c => c.name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, "").includes('participacoes'));
         if (hold) setSelectedHolding(hold.id);
       }
+
+      const meta = await getSettings('agf_companies_metadata');
+      if (meta) {
+        setCompanyMetadata(prev => ({ ...prev, ...meta }));
+        setEditingMetadata(prev => ({ ...prev, ...meta }));
+      }
     } catch (e) { console.error(e); }
+  };
+
+  const handleSaveCompanyMetadata = async (newMeta) => {
+    setCompanyMetadata(newMeta);
+    await saveSettings('agf_companies_metadata', newMeta);
+    if (window.$toast) window.$toast('Dados cadastrais salvos com sucesso!', { type: 'success' });
+  };
+
+  const getCompanyMeta = (id) => {
+    if (!id) return companyMetadata.holding || DEFAULT_COMPANY_METADATA.holding;
+    if (companyMetadata[id]) return companyMetadata[id];
+    if (DEFAULT_COMPANY_METADATA[id]) return DEFAULT_COMPANY_METADATA[id];
+    const c = companies.find(item => item.id === id);
+    return {
+      nome: c ? c.name : id,
+      razaoSocial: c ? c.name.toUpperCase() : id.toUpperCase(),
+      cnpj: '',
+      ie: 'Isento',
+      endereco: 'Rod. SP 346, Km 202,5 - Distrito Industrial - CEP: 13990-000',
+      municipio: 'Espirito Santo do Pinhal',
+      uf: 'SP',
+      telefone: '(19) 38885800',
+      site: 'www.agfequipamentos.com.br'
+    };
+  };
+
+  const holdingMeta = getCompanyMeta(selectedHolding) || companyMetadata.holding || DEFAULT_COMPANY_METADATA.holding;
+
+  const getInvoiceNumberForIndex = (index) => {
+    const base = (invoiceNumberBase || '').trim();
+    if (!base) {
+      return `${String(index + 1).padStart(3, '0')}/${selectedAno}`;
+    }
+    const match = base.match(/^(\d+)(.*)$/);
+    if (match) {
+      const startNum = parseInt(match[1], 10);
+      const suffix = match[2] || `/${selectedAno}`;
+      return `${startNum + index}${suffix}`;
+    }
+    return `${base}-${index + 1}`;
   };
 
   const saveConfig = async (
@@ -537,9 +646,25 @@ export default function RateioModule({ companies }) {
 
     printReport({
       company: holdingNome,
-      reportName: 'Relatório de Rateio e Cobrança (Management Fee)',
+      reportName: 'Anexo Interno - Demonstrativo de Rateio (Management Fee)',
       period: `${mesNome} ${selectedAno}`,
-      orientation: 'landscape'
+      orientation: 'portrait'
+    });
+  };
+
+  const handlePrintInvoice = (targetEmpresaId = invoiceCompanyId) => {
+    const mesNome = NOMES_MESES[selectedMes] || '';
+    let targetName = 'Todas as Empresas';
+    if (targetEmpresaId !== 'todas') {
+      const targetComp = companies.find(c => c.id === targetEmpresaId);
+      targetName = targetComp ? targetComp.name : targetEmpresaId;
+    }
+
+    printReport({
+      company: targetName,
+      reportName: 'Nota de Debito (Fatura Rateio)',
+      period: `${mesNome} ${selectedAno}`,
+      orientation: 'portrait'
     });
   };
 
@@ -914,27 +1039,51 @@ export default function RateioModule({ companies }) {
 
           {/* Lado Direito: Rateio por Empresa Operacional */}
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
               <h4 style={{ margin: 0, color: '#fff' }}>Distribuição Consolidada do Rateio</h4>
-              <button 
-                onClick={() => setShowReportModal(true)}
-                style={{
-                  background: 'rgba(59, 130, 246, 0.15)',
-                  border: '1px solid #3b82f6',
-                  color: '#60a5fa',
-                  borderRadius: '6px',
-                  padding: '0.35rem 0.8rem',
-                  fontSize: '0.82rem',
-                  fontWeight: '600',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}
-                title="Visualizar e exportar relatório detalhado de cobrança por empresa"
-              >
-                <span>📑</span> Relatório O Que Cada Empresa Paga
-              </button>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button 
+                  onClick={() => {
+                    setInvoiceCompanyId('todas');
+                    setShowInvoiceModal(true);
+                  }}
+                  style={{
+                    background: 'rgba(16, 185, 129, 0.15)',
+                    border: '1px solid #10b981',
+                    color: '#34d399',
+                    borderRadius: '6px',
+                    padding: '0.35rem 0.8rem',
+                    fontSize: '0.82rem',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                  title="Gerar faturas e notas de débito para cobrança interna do rateio"
+                >
+                  <span>📄</span> Gerar Faturas (Notas de Débito)
+                </button>
+                <button 
+                  onClick={() => setShowReportModal(true)}
+                  style={{
+                    background: 'rgba(59, 130, 246, 0.15)',
+                    border: '1px solid #3b82f6',
+                    color: '#60a5fa',
+                    borderRadius: '6px',
+                    padding: '0.35rem 0.8rem',
+                    fontSize: '0.82rem',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                  title="Visualizar e exportar demonstrativo analítico como anexo interno"
+                >
+                  <span>📑</span> Relatório Analítico (Anexo Interno)
+                </button>
+              </div>
             </div>
             
             <div style={{ marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -955,6 +1104,7 @@ export default function RateioModule({ companies }) {
                   <th style={{ textAlign: 'right', color: '#BA68C8' }}>Fatia Específica</th>
                   <th style={{ textAlign: 'right', color: '#81C784' }}>Total a Faturar</th>
                   <th style={{ width: '70px', textAlign: 'right' }}>% Efetivo</th>
+                  <th style={{ width: '85px', textAlign: 'center' }}>Fatura</th>
                 </tr>
               </thead>
               <tbody>
@@ -996,6 +1146,27 @@ export default function RateioModule({ companies }) {
                       <td style={{ textAlign: 'right', color: '#aaa', fontSize: '0.8rem' }}>
                         {d.percEfetivoTotal.toFixed(2)}%
                       </td>
+                      <td style={{ textAlign: 'center' }}>
+                        <button
+                          onClick={() => {
+                            setInvoiceCompanyId(c.id);
+                            setShowInvoiceModal(true);
+                          }}
+                          style={{
+                            background: 'rgba(16, 185, 129, 0.18)',
+                            border: '1px solid #10b981',
+                            color: '#6ee7b7',
+                            borderRadius: '4px',
+                            padding: '3px 8px',
+                            fontSize: '0.74rem',
+                            cursor: 'pointer',
+                            fontWeight: '600'
+                          }}
+                          title={`Gerar Fatura / Nota de Débito para ${c.name}`}
+                        >
+                          📄 Fatura
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
@@ -1008,6 +1179,7 @@ export default function RateioModule({ companies }) {
                   <td style={{ textAlign: 'right', color: '#BA68C8' }}>{totalFaturarEspecifico.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
                   <td style={{ textAlign: 'right', color: '#4CAF50' }}>{totalFaturar.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
                   <td style={{ textAlign: 'right' }}>100.00%</td>
+                  <td style={{ textAlign: 'center' }}>-</td>
                 </tr>
               </tfoot>
             </table>
@@ -1175,16 +1347,16 @@ export default function RateioModule({ companies }) {
                       fontWeight: '700',
                       textTransform: 'uppercase',
                       letterSpacing: '0.05em',
-                      color: '#3b82f6',
+                      color: '#0284c7',
                       display: 'block',
                       marginBottom: '4px'
                     }}>
-                      Demonstrativo Contábil & Financeiro
+                      ANEXO INTERNO • DEMONSTRATIVO ANALÍTICO DE RATEIO
                     </span>
-                    <h2 style={{ margin: '0 0 6px 0', fontSize: '1.4rem', color: '#fff' }}>
+                    <h2 style={{ margin: '0 0 4px 0', fontSize: '1.25rem', color: '#fff' }}>
                       RATEIO DE CUSTOS & FATURAMENTO DE MANAGEMENT FEE
                     </h2>
-                    <div style={{ fontSize: '0.9rem', color: '#cbd5e1' }}>
+                    <div style={{ fontSize: '0.85rem', color: '#cbd5e1' }}>
                       Empresa Prestadora (Holding): <strong style={{ color: '#fff' }}>{companies.find(c => c.id === selectedHolding)?.name || 'Holding'}</strong>
                     </div>
                   </div>
@@ -1488,7 +1660,7 @@ export default function RateioModule({ companies }) {
                 <style dangerouslySetInnerHTML={{__html: `
                   @media print {
                     @page {
-                      size: A4 landscape !important;
+                      size: A4 portrait !important;
                       margin: 8mm 8mm 8mm 8mm !important;
                     }
                     html, body {
@@ -1504,7 +1676,9 @@ export default function RateioModule({ companies }) {
                     .module-tabs,
                     nav,
                     button,
-                    select {
+                    select,
+                    input,
+                    textarea {
                       display: none !important;
                     }
                     .rateio-modal-backdrop {
@@ -1541,7 +1715,36 @@ export default function RateioModule({ companies }) {
                       padding: 0 !important;
                       margin: 0 !important;
                       display: block !important;
+                      background: #ffffff !important;
                     }
+
+                    /* REGRAS DA NOTA DE DÉBITO */
+                    #printable-nota-debito {
+                      display: block !important;
+                      width: 100% !important;
+                      margin: 0 !important;
+                      padding: 0 !important;
+                    }
+                    .nota-debito-sheet {
+                      border: 2px solid #000000 !important;
+                      box-shadow: none !important;
+                      width: 100% !important;
+                      max-width: 100% !important;
+                      margin: 0 auto 0 auto !important;
+                      page-break-inside: avoid !important;
+                      break-inside: avoid !important;
+                      box-sizing: border-box !important;
+                    }
+                    .nota-debito-sheet * {
+                      color: #000000 !important;
+                    }
+                    .nota-debito-page {
+                      page-break-after: always !important;
+                      break-after: page !important;
+                      margin-bottom: 0 !important;
+                    }
+
+                    /* REGRAS DO RELATÓRIO ANALÍTICO (ANEXO INTERNO) */
                     #printable-rateio-report {
                       position: static !important;
                       width: 100% !important;
@@ -1585,15 +1788,15 @@ export default function RateioModule({ companies }) {
                       background: #f1f5f9 !important;
                       color: #0f172a !important;
                       border: 1px solid #94a3b8 !important;
-                      padding: 4px 6px !important;
-                      font-size: 7.5pt !important;
+                      padding: 3px 5px !important;
+                      font-size: 7pt !important;
                       font-weight: bold !important;
                     }
                     .report-table-print td {
                       border: 1px solid #cbd5e1 !important;
                       color: #0f172a !important;
-                      padding: 3px 6px !important;
-                      font-size: 7pt !important;
+                      padding: 2.5px 5px !important;
+                      font-size: 6.8pt !important;
                       background: #ffffff !important;
                     }
                     .report-table-print tr:nth-child(even) td {
@@ -1601,7 +1804,7 @@ export default function RateioModule({ companies }) {
                     }
                     .report-company-box {
                       border: 1px solid #cbd5e1 !important;
-                      margin-bottom: 14px !important;
+                      margin-bottom: 12px !important;
                       padding: 8px 10px !important;
                       background: #ffffff !important;
                       border-radius: 4px !important;
@@ -1617,6 +1820,482 @@ export default function RateioModule({ companies }) {
                     }
                   }
                 `}} />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE EMISSÃO DE NOTA DE DÉBITO / FATURA (MANAGEMENT FEE) */}
+      {showInvoiceModal && (
+        <div 
+          className="rateio-modal-backdrop"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+            zIndex: 9999,
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            padding: '20px',
+            backdropFilter: 'blur(5px)'
+          }}
+        >
+          <div 
+            className="rateio-modal-dialog"
+            style={{
+              background: '#13141a',
+              border: '1px solid #2d3748',
+              borderRadius: '12px',
+              width: '100%',
+              maxWidth: '1150px',
+              maxHeight: '92vh',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.8)',
+              overflow: 'hidden'
+            }}
+          >
+            {/* Barra de Ações Superior (Oculta na Impressão) */}
+            <div className="print-hide" style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '1rem 1.5rem',
+              borderBottom: '1px solid #2d3748',
+              background: '#1a1d26',
+              flexWrap: 'wrap',
+              gap: '12px'
+            }}>
+              <div>
+                <h3 style={{ margin: 0, color: '#fff', fontSize: '1.15rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>📄</span> Faturas de Rateio / Notas de Débito
+                </h3>
+                <div style={{ fontSize: '0.82rem', color: '#94a3b8', marginTop: '3px' }}>
+                  Holding Emissora: <strong style={{ color: '#fff' }}>{holdingMeta.razaoSocial || holdingMeta.nome}</strong> • Competência: <strong style={{ color: '#60a5fa' }}>{NOMES_MESES[selectedMes]} / {selectedAno}</strong>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <span style={{ fontSize: '0.8rem', color: '#cbd5e1' }}>Empresa:</span>
+                  <select
+                    value={invoiceCompanyId}
+                    onChange={e => setInvoiceCompanyId(e.target.value)}
+                    className="select-input"
+                    style={{ padding: '0.4rem 0.6rem', fontSize: '0.82rem', minWidth: '180px' }}
+                  >
+                    <option value="todas">🏢 Todas ({operacionais.length} Faturas em Lote)</option>
+                    {operacionais.map(c => (
+                      <option key={c.id} value={c.id}>🏢 {c.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <span style={{ fontSize: '0.8rem', color: '#cbd5e1' }}>Nº Fatura:</span>
+                  <input
+                    type="text"
+                    value={invoiceNumberBase}
+                    onChange={e => setInvoiceNumberBase(e.target.value)}
+                    placeholder="ex: 276/2026"
+                    style={{ padding: '0.4rem 0.6rem', fontSize: '0.82rem', width: '85px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <span style={{ fontSize: '0.8rem', color: '#cbd5e1' }}>Emissão:</span>
+                  <input
+                    type="date"
+                    value={invoiceEmissionDate}
+                    onChange={e => setInvoiceEmissionDate(e.target.value)}
+                    style={{ padding: '0.35rem 0.5rem', fontSize: '0.82rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <span style={{ fontSize: '0.8rem', color: '#cbd5e1' }}>Vencimento:</span>
+                  <input
+                    type="date"
+                    value={invoiceDueDate}
+                    onChange={e => setInvoiceDueDate(e.target.value)}
+                    style={{ padding: '0.35rem 0.5rem', fontSize: '0.82rem', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '4px' }}
+                  />
+                </div>
+
+                <button
+                  onClick={() => setShowMetadataEditor(!showMetadataEditor)}
+                  style={{
+                    background: showMetadataEditor ? '#3b82f6' : 'rgba(255,255,255,0.08)',
+                    color: '#fff',
+                    border: '1px solid #475569',
+                    padding: '0.4rem 0.7rem',
+                    borderRadius: '6px',
+                    fontSize: '0.82rem',
+                    cursor: 'pointer'
+                  }}
+                  title="Editar CNPJ, Inscrição Estadual e Endereço das empresas"
+                >
+                  ⚙️ Cadastros
+                </button>
+
+                <button
+                  onClick={() => handlePrintInvoice(invoiceCompanyId)}
+                  style={{
+                    background: '#059669',
+                    color: '#fff',
+                    border: 'none',
+                    padding: '0.45rem 1rem',
+                    borderRadius: '6px',
+                    fontSize: '0.85rem',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                  title="Imprimir ou Salvar em PDF"
+                >
+                  <span>🖨️</span> {invoiceCompanyId === 'todas' ? 'Imprimir Todas' : 'Imprimir Fatura'}
+                </button>
+
+                <button
+                  onClick={() => setShowInvoiceModal(false)}
+                  style={{
+                    background: '#374151',
+                    color: '#e5e7eb',
+                    border: 'none',
+                    padding: '0.45rem 0.8rem',
+                    borderRadius: '6px',
+                    fontSize: '0.85rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  ✕ Fechar
+                </button>
+              </div>
+            </div>
+
+            {/* Painel de Edição de Cadastros (Oculto na Impressão) */}
+            {showMetadataEditor && (
+              <div className="print-hide" style={{
+                background: '#1e293b',
+                borderBottom: '1px solid #334155',
+                padding: '1rem 1.5rem',
+                maxHeight: '230px',
+                overflowY: 'auto'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
+                  <strong style={{ color: '#38bdf8', fontSize: '0.9rem' }}>⚙️ Dados Cadastrais para Nota de Débito (Persistidos no Sistema)</strong>
+                  <button
+                    onClick={() => {
+                      handleSaveCompanyMetadata(editingMetadata);
+                      setShowMetadataEditor(false);
+                    }}
+                    style={{
+                      background: '#0284c7',
+                      color: '#fff',
+                      border: 'none',
+                      padding: '0.35rem 0.8rem',
+                      borderRadius: '4px',
+                      fontSize: '0.8rem',
+                      cursor: 'pointer',
+                      fontWeight: '600'
+                    }}
+                  >
+                    💾 Salvar Dados
+                  </button>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '12px' }}>
+                  {/* Holding */}
+                  <div style={{ background: 'rgba(15, 23, 42, 0.6)', padding: '10px', borderRadius: '6px', border: '1px solid #475569' }}>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#fbbf24', marginBottom: '6px' }}>REMETENTE (Holding / Emissora)</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.75rem' }}>
+                      <input 
+                        type="text" 
+                        placeholder="Razão Social" 
+                        value={editingMetadata.holding?.razaoSocial || ''} 
+                        onChange={e => setEditingMetadata(prev => ({ ...prev, holding: { ...(prev.holding || {}), razaoSocial: e.target.value } }))}
+                        style={{ padding: '3px 6px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '3px' }}
+                      />
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <input 
+                          type="text" 
+                          placeholder="CNPJ" 
+                          value={editingMetadata.holding?.cnpj || ''} 
+                          onChange={e => setEditingMetadata(prev => ({ ...prev, holding: { ...(prev.holding || {}), cnpj: e.target.value } }))}
+                          style={{ flex: 1, padding: '3px 6px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '3px' }}
+                        />
+                        <input 
+                          type="text" 
+                          placeholder="Inscr. Estadual" 
+                          value={editingMetadata.holding?.ie || ''} 
+                          onChange={e => setEditingMetadata(prev => ({ ...prev, holding: { ...(prev.holding || {}), ie: e.target.value } }))}
+                          style={{ flex: 1, padding: '3px 6px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '3px' }}
+                        />
+                      </div>
+                      <input 
+                        type="text" 
+                        placeholder="Endereço" 
+                        value={editingMetadata.holding?.endereco || ''} 
+                        onChange={e => setEditingMetadata(prev => ({ ...prev, holding: { ...(prev.holding || {}), endereco: e.target.value } }))}
+                        style={{ padding: '3px 6px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '3px' }}
+                      />
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <input 
+                          type="text" 
+                          placeholder="Município" 
+                          value={editingMetadata.holding?.municipio || ''} 
+                          onChange={e => setEditingMetadata(prev => ({ ...prev, holding: { ...(prev.holding || {}), municipio: e.target.value } }))}
+                          style={{ flex: 2, padding: '3px 6px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '3px' }}
+                        />
+                        <input 
+                          type="text" 
+                          placeholder="UF" 
+                          value={editingMetadata.holding?.uf || ''} 
+                          onChange={e => setEditingMetadata(prev => ({ ...prev, holding: { ...(prev.holding || {}), uf: e.target.value } }))}
+                          style={{ flex: 1, padding: '3px 6px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '3px' }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Operacionais */}
+                  {operacionais.map(c => {
+                    const cur = editingMetadata[c.id] || {};
+                    return (
+                      <div key={c.id} style={{ background: 'rgba(15, 23, 42, 0.6)', padding: '10px', borderRadius: '6px', border: '1px solid #475569' }}>
+                        <div style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#60a5fa', marginBottom: '6px' }}>DESTINATÁRIO: {c.name}</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.75rem' }}>
+                          <input 
+                            type="text" 
+                            placeholder="Razão Social" 
+                            value={cur.razaoSocial || ''} 
+                            onChange={e => setEditingMetadata(prev => ({ ...prev, [c.id]: { ...(prev[c.id] || {}), razaoSocial: e.target.value } }))}
+                            style={{ padding: '3px 6px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '3px' }}
+                          />
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <input 
+                              type="text" 
+                              placeholder="CNPJ" 
+                              value={cur.cnpj || ''} 
+                              onChange={e => setEditingMetadata(prev => ({ ...prev, [c.id]: { ...(prev[c.id] || {}), cnpj: e.target.value } }))}
+                              style={{ flex: 1, padding: '3px 6px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '3px' }}
+                            />
+                            <input 
+                              type="text" 
+                              placeholder="Inscr. Estadual" 
+                              value={cur.ie || ''} 
+                              onChange={e => setEditingMetadata(prev => ({ ...prev, [c.id]: { ...(prev[c.id] || {}), ie: e.target.value } }))}
+                              style={{ flex: 1, padding: '3px 6px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '3px' }}
+                            />
+                          </div>
+                          <input 
+                            type="text" 
+                            placeholder="Endereço" 
+                            value={cur.endereco || ''} 
+                            onChange={e => setEditingMetadata(prev => ({ ...prev, [c.id]: { ...(prev[c.id] || {}), endereco: e.target.value } }))}
+                            style={{ padding: '3px 6px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '3px' }}
+                          />
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <input 
+                              type="text" 
+                              placeholder="Município" 
+                              value={cur.municipio || ''} 
+                              onChange={e => setEditingMetadata(prev => ({ ...prev, [c.id]: { ...(prev[c.id] || {}), municipio: e.target.value } }))}
+                              style={{ flex: 2, padding: '3px 6px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '3px' }}
+                            />
+                            <input 
+                              type="text" 
+                              placeholder="UF" 
+                              value={cur.uf || ''} 
+                              onChange={e => setEditingMetadata(prev => ({ ...prev, [c.id]: { ...(prev[c.id] || {}), uf: e.target.value } }))}
+                              style={{ flex: 1, padding: '3px 6px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '3px' }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Discriminação Editável Rápida (Oculta na Impressão) */}
+            <div className="print-hide" style={{ padding: '0.8rem 1.5rem', background: 'rgba(0,0,0,0.2)', borderBottom: '1px solid #2d3748' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>Texto da Discriminação da Nota de Débito (editável):</span>
+                {invoiceCustomText && (
+                  <button 
+                    onClick={() => setInvoiceCustomText('')}
+                    style={{ background: 'transparent', border: 'none', color: '#f87171', fontSize: '0.72rem', cursor: 'pointer' }}
+                  >
+                    Restaurar texto padrão
+                  </button>
+                )}
+              </div>
+              <input 
+                type="text" 
+                value={invoiceCustomText} 
+                onChange={e => setInvoiceCustomText(e.target.value)}
+                placeholder={`RESSARCIMENTO / REEMBOLSO DE DESPESAS ADMINISTRATIVAS E OPERACIONAIS COMPARTILHADAS (RATEIO DE CUSTOS - MANAGEMENT FEE) REFERENTE À COMPETÊNCIA DE ${NOMES_MESES[selectedMes].toUpperCase()} / ${selectedAno}, CONFORME CONTRATO DE COMPARTILHAMENTO DE CUSTOS E ANEXO DEMONSTRATIVO INTERNO.`}
+                style={{ width: '100%', padding: '6px 10px', fontSize: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#cbd5e1', borderRadius: '4px' }}
+              />
+            </div>
+
+            {/* Folhas Imprimíveis da Nota de Débito */}
+            <div className="rateio-modal-scroll" style={{ flex: 1, overflowY: 'auto', padding: '1.5rem', background: '#262936' }}>
+              <div id="printable-nota-debito">
+                {(invoiceCompanyId === 'todas' ? operacionais : operacionais.filter(c => c.id === invoiceCompanyId)).map((c, idx) => {
+                  const dist = distribuicaoPorEmpresa.find(d => d.empresa.id === c.id);
+                  const totalFaturarEmpresa = dist ? dist.totalFaturarEmpresa : 0;
+                  const numFatura = getInvoiceNumberForIndex(idx);
+                  const destMeta = getCompanyMeta(c.id);
+                  const dataEmissaoFormatada = formatDateBR(invoiceEmissionDate);
+                  const dataVencimentoFormatada = formatDateBR(invoiceDueDate);
+                  const valorTotalFormatado = totalFaturarEmpresa.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+                  const defaultDiscrim = `RESSARCIMENTO / REEMBOLSO DE DESPESAS ADMINISTRATIVAS E OPERACIONAIS COMPARTILHADAS (RATEIO DE CUSTOS - MANAGEMENT FEE) REFERENTE À COMPETÊNCIA DE ${NOMES_MESES[selectedMes].toUpperCase()} / ${selectedAno}, CONFORME CONTRATO DE COMPARTILHAMENTO DE CUSTOS E ANEXO DEMONSTRATIVO INTERNO.`;
+                  const textoFinal = invoiceCustomText.trim() || defaultDiscrim;
+
+                  return (
+                    <div 
+                      key={c.id}
+                      className={`nota-debito-sheet ${idx < operacionais.length - 1 ? 'nota-debito-page' : ''}`}
+                      style={{
+                        border: '2px solid #000',
+                        background: '#ffffff',
+                        color: '#000000',
+                        maxWidth: '820px',
+                        margin: '0 auto 30px auto',
+                        fontFamily: 'Arial, Helvetica, sans-serif',
+                        boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
+                        boxSizing: 'border-box'
+                      }}
+                    >
+                      {/* 1. Header (Logo / Contato | NOTA DE DEBITO | Nº Fatura / Data Emissão) */}
+                      <div style={{ display: 'flex', borderBottom: '2px solid #000', alignItems: 'stretch' }}>
+                        <div style={{ width: '38%', padding: '10px 14px', borderRight: '1px solid #000', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                            <img 
+                              src="/logo.jpg" 
+                              alt="Logo AGF" 
+                              style={{ height: '42px', maxWidth: '140px', objectFit: 'contain' }}
+                              onError={(e) => { e.target.style.display = 'none'; }}
+                            />
+                          </div>
+                          <div style={{ fontSize: '9px', fontWeight: 'bold', color: '#000', marginBottom: '2px' }}>
+                            Tel.: {holdingMeta.telefone || '(19) 38885800'}
+                          </div>
+                          <div style={{ fontSize: '8px', color: '#222', marginBottom: '2px' }}>
+                            {holdingMeta.endereco || 'Rod. SP 346, Km 202,5 - Espirito Sto do Pinhal - SP'}
+                          </div>
+                          <div style={{ fontSize: '8px', color: '#222' }}>
+                            {holdingMeta.site || 'www.agfequipamentos.com.br'}
+                          </div>
+                        </div>
+
+                        <div style={{ width: '38%', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRight: '1px solid #000', padding: '12px' }}>
+                          <h1 style={{ margin: 0, fontSize: '19px', fontWeight: 'bold', color: '#000', letterSpacing: '0.5px', textAlign: 'center' }}>
+                            NOTA DE DEBITO
+                          </h1>
+                        </div>
+
+                        <div style={{ width: '24%', display: 'flex', flexDirection: 'column' }}>
+                          <div style={{ flex: 1, borderBottom: '1px solid #000', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', fontSize: '10px' }}>
+                            <span style={{ fontWeight: 'bold', color: '#000' }}>Número do Fatura</span>
+                            <span style={{ fontWeight: 'bold', fontSize: '11px', color: '#000' }}>{numFatura}</span>
+                          </div>
+                          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', fontSize: '10px' }}>
+                            <span style={{ fontWeight: 'bold', color: '#000' }}>Data Emissão</span>
+                            <span style={{ color: '#000' }}>{dataEmissaoFormatada}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 2. REMETENTE */}
+                      <div style={{ background: '#f8fafc', borderBottom: '1px solid #000', textAlign: 'center', padding: '4px', fontWeight: 'bold', fontSize: '10px', letterSpacing: '1px', color: '#000' }}>
+                        REMETENTE
+                      </div>
+                      <div style={{ padding: '8px 14px', borderBottom: '2px solid #000', fontSize: '9.5px', lineHeight: '1.45', color: '#000' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                          <div><strong style={{ color: '#000' }}>CPF/CNPJ:</strong> {holdingMeta.cnpj || '11.681.470/0001-84'}</div>
+                          <div><strong style={{ color: '#000' }}>Inscrição Estadual:</strong> {holdingMeta.ie || '530.051.442.114'}</div>
+                        </div>
+                        <div style={{ marginBottom: '3px' }}>
+                          <strong style={{ color: '#000' }}>Nome/Razão Social:</strong> {holdingMeta.razaoSocial || holdingMeta.nome}
+                        </div>
+                        <div style={{ marginBottom: '3px' }}>
+                          <strong style={{ color: '#000' }}>Endereço:</strong> {holdingMeta.endereco}
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <div><strong style={{ color: '#000' }}>Município:</strong> {holdingMeta.municipio || 'Espirito Santo do Pinhal'}</div>
+                          <div><strong style={{ color: '#000' }}>UF:</strong> {holdingMeta.uf || 'SP'}</div>
+                        </div>
+                      </div>
+
+                      {/* 3. DESTINATARIO */}
+                      <div style={{ background: '#f8fafc', borderBottom: '1px solid #000', textAlign: 'center', padding: '4px', fontWeight: 'bold', fontSize: '10px', letterSpacing: '1px', color: '#000' }}>
+                        DESTINATARIO
+                      </div>
+                      <div style={{ padding: '8px 14px', borderBottom: '2px solid #000', fontSize: '9.5px', lineHeight: '1.45', color: '#000' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                          <div><strong style={{ color: '#000' }}>CPF/CNPJ:</strong> {destMeta.cnpj || 'Sob consulta'}</div>
+                          <div><strong style={{ color: '#000' }}>Inscrição Estadual:</strong> {destMeta.ie || 'Isento'}</div>
+                        </div>
+                        <div style={{ marginBottom: '3px' }}>
+                          <strong style={{ color: '#000' }}>Nome/Razão Social:</strong> {destMeta.razaoSocial || destMeta.nome || c.name}
+                        </div>
+                        <div style={{ marginBottom: '3px' }}>
+                          <strong style={{ color: '#000' }}>Endereço:</strong> {destMeta.endereco || 'Rod. SP 346, Km 202,5 - Distrito Industrial'}
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <div><strong style={{ color: '#000' }}>Município:</strong> {destMeta.municipio || 'Espirito Santo do Pinhal'}</div>
+                          <div><strong style={{ color: '#000' }}>UF:</strong> {destMeta.uf || 'SP'}</div>
+                        </div>
+                      </div>
+
+                      {/* 4. DISCRIMINAÇÃO NOTA DEBITO */}
+                      <div style={{ background: '#f8fafc', borderBottom: '1px solid #000', textAlign: 'center', padding: '4px', fontWeight: 'bold', fontSize: '10px', letterSpacing: '1px', color: '#000' }}>
+                        DISCRIMINAÇÃO NOTA DEBITO
+                      </div>
+                      <div style={{ padding: '16px 14px', borderBottom: '2px solid #000', fontSize: '9.5px', minHeight: '80px', display: 'flex', alignItems: 'center', color: '#000' }}>
+                        <div style={{ textAlign: 'justify', lineHeight: '1.5', width: '100%' }}>
+                          {textoFinal}
+                        </div>
+                      </div>
+
+                      {/* 5. VENCIMENTO E VALOR TOTAL */}
+                      <div style={{ borderBottom: '1px solid #000' }}>
+                        <div style={{ display: 'flex', borderBottom: '1px solid #000', fontSize: '9.5px', color: '#000' }}>
+                          <div style={{ width: '22%', padding: '7px 10px', fontWeight: 'bold', borderRight: '1px solid #000', display: 'flex', alignItems: 'center' }}>
+                            VENCIMENTO-
+                          </div>
+                          <div style={{ width: '28%', padding: '7px 10px', borderRight: '1px solid #000', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>{dataVencimentoFormatada}</span>
+                            <span style={{ fontWeight: 'bold' }}>{valorTotalFormatado.replace('R$', '').trim()}</span>
+                          </div>
+                          <div style={{ flex: 1, padding: '7px 10px', background: '#fafafa' }}>
+                            {/* Reserva para futuras parcelas */}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', padding: '10px 16px', background: '#f8fafc', fontSize: '12.5px', fontWeight: 'bold', color: '#000' }}>
+                          <span>VALOR TOTAL&nbsp;</span>
+                          <span style={{ fontSize: '13.5px' }}>{valorTotalFormatado}</span>
+                        </div>
+                      </div>
+
+                      {/* 6. Base Legal de Isenção (Sem ISS e Sem PIS/COFINS) */}
+                      <div style={{ padding: '8px 14px', fontSize: '7pt', color: '#444', lineHeight: '1.4', background: '#fafafa' }}>
+                        <strong>Base Legal / Observação Fiscal:</strong> Documento emitido para fins estritos de ressarcimento/reembolso de custos e despesas administrativas compartilhadas entre empresas do mesmo grupo econômico (Rateio de Custos - <i>Cost Sharing Agreement</i>), sem margem de lucro. Não incidência de ISSQN (Lei Complementar Federal nº 116/2003) e sem incidência de PIS/COFINS (Solução de Consulta Cosit nº 23/2013 e Parecer Normativo CST nº 23/1982). Dispensa a emissão de Nota Fiscal de Serviços (NFS-e).
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
