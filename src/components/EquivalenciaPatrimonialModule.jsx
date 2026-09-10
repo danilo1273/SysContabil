@@ -229,11 +229,28 @@ export default function EquivalenciaPatrimonialModule({ companies = [] }) {
     const perc = parseFloat(cfg.participacao) || 0;
     const isAtivo = cfg.ativo !== false && perc > 0;
 
-    const plAtual = isAtivo ? calculatePL(cfg.empresaId, selectedMes, selectedAno) : 0;
-    const plAnterior = isAtivo ? calculatePL(cfg.empresaId, prevMes, prevAno) : 0;
-    const variacaoPL = isAtivo ? (plAtual - plAnterior) : 0;
-    const resultadoMEP = isAtivo ? (variacaoPL * (perc / 100)) : 0;
-    const plEquivalente = isAtivo ? (plAtual * (perc / 100)) : 0;
+    // Verificar se há balancete importado no BD para o mês atual
+    const hasDataAtual = isAtivo && (
+      (rawBalanco || []).some(r => r.empresaId === cfg.empresaId && r.mes === selectedMes && r.ano === selectedAno) ||
+      (rawDre || []).some(r => r.empresaId === cfg.empresaId && r.mes === selectedMes && r.ano === selectedAno)
+    );
+
+    // Verificar se há balancete importado no BD para o mês anterior
+    const hasDataAnterior = isAtivo && (
+      (rawBalanco || []).some(r => r.empresaId === cfg.empresaId && r.mes === prevMes && r.ano === prevAno) ||
+      (rawDre || []).some(r => r.empresaId === cfg.empresaId && r.mes === prevMes && r.ano === prevAno)
+    );
+
+    const plAtual = hasDataAtual ? calculatePL(cfg.empresaId, selectedMes, selectedAno) : 0;
+    const plAnterior = hasDataAnterior ? calculatePL(cfg.empresaId, prevMes, prevAno) : 0;
+
+    // Se o mês atual não tiver dados, está aguardando balancete! Não calcular falso negativo!
+    const isAguardando = isAtivo && !hasDataAtual;
+
+    const variacaoPL = isAtivo && !isAguardando ? (plAtual - plAnterior) : 0;
+    const resultadoMEP = isAtivo && !isAguardando ? (variacaoPL * (perc / 100)) : 0;
+    // Se aguardando o mês atual, mantém o PL equivalente baseado no último balancete apurado
+    const plEquivalente = isAtivo ? ((hasDataAtual ? plAtual : plAnterior) * (perc / 100)) : 0;
 
     // Conta Débito e Crédito sugeridas para partida dobrada
     let contaDebito = '-';
@@ -241,7 +258,7 @@ export default function EquivalenciaPatrimonialModule({ companies = [] }) {
     let contaCredito = '-';
     let descCredito = '-';
 
-    if (isAtivo) {
+    if (isAtivo && !isAguardando) {
       if (resultadoMEP >= 0) {
         // Ganho de MEP
         contaDebito = cfg.contaEquivalencia;
@@ -260,6 +277,9 @@ export default function EquivalenciaPatrimonialModule({ companies = [] }) {
     return {
       ...cfg,
       isAtivo,
+      hasDataAtual,
+      hasDataAnterior,
+      isAguardando,
       plAtual,
       plAnterior,
       variacaoPL,
@@ -272,12 +292,17 @@ export default function EquivalenciaPatrimonialModule({ companies = [] }) {
     };
   });
 
+  // Identificar status de espera geral
+  const investidasAtivas = apuracaoMEP.filter(r => r.isAtivo);
+  const allAguardando = investidasAtivas.length > 0 && investidasAtivas.every(r => r.isAguardando);
+  const anyAguardando = investidasAtivas.some(r => r.isAguardando);
+
   // Totais Gerais
-  const totalPLInvestidas = apuracaoMEP.reduce((sum, r) => sum + r.plAtual, 0);
+  const totalPLInvestidas = apuracaoMEP.reduce((sum, r) => sum + (r.hasDataAtual ? r.plAtual : r.plAnterior), 0);
   const totalPLEquivalente = apuracaoMEP.reduce((sum, r) => sum + r.plEquivalente, 0);
-  const totalResultadoMEP = apuracaoMEP.reduce((sum, r) => sum + r.resultadoMEP, 0);
-  const totalNacionalMEP = apuracaoMEP.filter(r => r.tipo === 'nacional').reduce((sum, r) => sum + r.resultadoMEP, 0);
-  const totalExteriorMEP = apuracaoMEP.filter(r => r.tipo === 'exterior').reduce((sum, r) => sum + r.resultadoMEP, 0);
+  const totalResultadoMEP = apuracaoMEP.reduce((sum, r) => sum + (r.isAguardando ? 0 : r.resultadoMEP), 0);
+  const totalNacionalMEP = apuracaoMEP.filter(r => r.tipo === 'nacional').reduce((sum, r) => sum + (r.isAguardando ? 0 : r.resultadoMEP), 0);
+  const totalExteriorMEP = apuracaoMEP.filter(r => r.tipo === 'exterior').reduce((sum, r) => sum + (r.isAguardando ? 0 : r.resultadoMEP), 0);
 
   // Formatação de Moeda
   const formatCurrency = (v) => (v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -289,7 +314,14 @@ export default function EquivalenciaPatrimonialModule({ companies = [] }) {
       return;
     }
 
-    const confirmed = await window.$confirm(`Confirma a gravação dos lançamentos de Equivalência Patrimonial para a Holding no período ${meses[selectedMes - 1]}/${selectedAno}?\n\nTotal de MEP Líquido: ${formatCurrency(totalResultadoMEP)}`, { title: 'Gravar Equivalência Patrimonial' });
+    const investidasProntas = apuracaoMEP.filter(r => r.isAtivo && !r.isAguardando && Math.abs(r.resultadoMEP) > 0);
+
+    if (investidasProntas.length === 0) {
+      window.$alert(`Não há balancetes com variação de MEP apurada em ${meses[selectedMes - 1]}/${selectedAno}. Importe os balancetes das investidas antes de gravar.`, { type: 'warning' });
+      return;
+    }
+
+    const confirmed = await window.$confirm(`Confirma a gravação dos lançamentos de Equivalência Patrimonial para a Holding no período ${meses[selectedMes - 1]}/${selectedAno}?\n\nTotal de MEP Líquido: ${formatCurrency(totalResultadoMEP)}${anyAguardando ? '\n(Atenção: empresas aguardando balancete não serão incluídas)' : ''}`, { title: 'Gravar Equivalência Patrimonial' });
     if (!confirmed) return;
 
     setIsProcessing(true);
@@ -298,7 +330,7 @@ export default function EquivalenciaPatrimonialModule({ companies = [] }) {
       const balancoHolding = data.balanco.filter(r => r.empresaId === selectedHolding);
       const dreHolding = data.dre.filter(r => r.empresaId === selectedHolding);
 
-      for (const item of apuracaoMEP) {
+      for (const item of investidasProntas) {
         if (!item.ativo || Math.abs(item.resultadoMEP) === 0) continue;
 
         // 1. Atualizar ou Criar conta de Equivalência Patrimonial no Ativo da Holding
@@ -524,11 +556,23 @@ export default function EquivalenciaPatrimonialModule({ companies = [] }) {
           <div style={{ fontSize: '0.82rem', color: '#FFD54F', textTransform: 'uppercase', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span>📈</span> Resultado de MEP ({meses[selectedMes - 1]}/{selectedAno})
           </div>
-          <div style={{ fontSize: '1.8rem', fontWeight: 'bold', color: totalResultadoMEP >= 0 ? '#81C784' : '#FF8A80', marginTop: '6px' }}>
-            {formatCurrency(totalResultadoMEP)}
+          <div style={{ 
+            fontSize: allAguardando ? '1.4rem' : '1.8rem', 
+            fontWeight: 'bold', 
+            color: allAguardando ? '#FFB74D' : (totalResultadoMEP >= 0 ? '#81C784' : '#FF8A80'), 
+            marginTop: '6px' 
+          }}>
+            {allAguardando ? '- Aguardando Balancete' : formatCurrency(totalResultadoMEP)}
           </div>
           <div style={{ fontSize: '0.8rem', color: '#aaa', marginTop: '4px' }}>
-            Nacional: <b style={{ color: '#fff' }}>{formatCurrency(totalNacionalMEP)}</b> | Exterior: <b style={{ color: '#fff' }}>{formatCurrency(totalExteriorMEP)}</b>
+            {allAguardando ? (
+              <span style={{ color: '#FFB74D' }}>Aguardando importação dos balancetes de {meses[selectedMes - 1]}/{selectedAno}</span>
+            ) : (
+              <>
+                Nacional: <b style={{ color: '#fff' }}>{formatCurrency(totalNacionalMEP)}</b> | Exterior: <b style={{ color: '#fff' }}>{formatCurrency(totalExteriorMEP)}</b>
+                {anyAguardando && <span style={{ color: '#FFB74D', marginLeft: '6px' }}>(algumas investidas aguardando)</span>}
+              </>
+            )}
           </div>
         </div>
 
@@ -546,7 +590,7 @@ export default function EquivalenciaPatrimonialModule({ companies = [] }) {
             {formatCurrency(totalPLEquivalente)}
           </div>
           <div style={{ fontSize: '0.8rem', color: '#aaa', marginTop: '4px' }}>
-            Participação no capital próprio das investidas
+            {allAguardando ? `Base apurada em ${meses[prevMes - 1]}/${prevAno} • Aguardando ${meses[selectedMes - 1]}` : 'Participação no capital próprio das investidas'}
           </div>
         </div>
 
@@ -564,7 +608,7 @@ export default function EquivalenciaPatrimonialModule({ companies = [] }) {
             {formatCurrency(totalPLInvestidas)}
           </div>
           <div style={{ fontSize: '0.8rem', color: '#aaa', marginTop: '4px' }}>
-            Patrimônio Líquido base apurado em {meses[selectedMes - 1]}/{selectedAno}
+            {allAguardando ? `Base apurada em ${meses[prevMes - 1]}/${prevAno} (Aguardando ${meses[selectedMes - 1]})` : `Patrimônio Líquido base apurado em ${meses[selectedMes - 1]}/${selectedAno}`}
           </div>
         </div>
 
@@ -662,33 +706,54 @@ export default function EquivalenciaPatrimonialModule({ companies = [] }) {
                   </td>
 
                   <td style={{ textAlign: 'right', color: isAtivo ? '#bbb' : '#555' }}>
-                    {isAtivo ? formatCurrency(item.plAnterior) : '-'}
+                    {isAtivo ? (item.hasDataAnterior ? formatCurrency(item.plAnterior) : 'R$ 0,00') : '-'}
                   </td>
 
                   <td style={{ textAlign: 'right', color: isAtivo ? '#fff' : '#555', fontWeight: isAtivo ? '500' : 'normal' }}>
-                    {isAtivo ? formatCurrency(item.plAtual) : '-'}
+                    {!isAtivo ? '-' : (item.isAguardando ? (
+                      <span style={{ 
+                        color: '#FFB74D', 
+                        fontStyle: 'italic', 
+                        fontSize: '0.82rem',
+                        background: 'rgba(255, 152, 0, 0.1)',
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        border: '1px solid rgba(255, 152, 0, 0.25)',
+                        display: 'inline-block'
+                      }}>
+                        - Aguardando Balancete
+                      </span>
+                    ) : formatCurrency(item.plAtual))}
                   </td>
 
-                  <td style={{ textAlign: 'right', color: !isAtivo ? '#555' : (item.variacaoPL >= 0 ? '#81C784' : '#FF8A80'), fontWeight: 'bold' }}>
-                    {isAtivo ? `${item.variacaoPL >= 0 ? '+' : ''}${formatCurrency(item.variacaoPL)}` : '-'}
+                  <td style={{ textAlign: 'right', color: !isAtivo || item.isAguardando ? '#888' : (item.variacaoPL >= 0 ? '#81C784' : '#FF8A80'), fontWeight: 'bold' }}>
+                    {!isAtivo ? '-' : (item.isAguardando ? '-' : `${item.variacaoPL >= 0 ? '+' : ''}${formatCurrency(item.variacaoPL)}`)}
                   </td>
 
-                  <td style={{ textAlign: 'right', background: !isAtivo ? 'transparent' : (isPositive ? 'rgba(76, 175, 80, 0.08)' : 'rgba(244, 67, 54, 0.08)') }}>
-                    <strong style={{ color: !isAtivo ? '#555' : (isPositive ? '#81C784' : '#FF8A80'), fontSize: '0.95rem' }}>
-                      {isAtivo ? `${isPositive ? '+' : ''}${formatCurrency(item.resultadoMEP)}` : 'R$ 0,00'}
+                  <td style={{ textAlign: 'right', background: !isAtivo || item.isAguardando ? 'transparent' : (isPositive ? 'rgba(76, 175, 80, 0.08)' : 'rgba(244, 67, 54, 0.08)') }}>
+                    <strong style={{ color: !isAtivo ? '#555' : (item.isAguardando ? '#FFB74D' : (isPositive ? '#81C784' : '#FF8A80')), fontSize: '0.95rem' }}>
+                      {!isAtivo ? 'R$ 0,00' : (item.isAguardando ? (
+                        <span style={{ fontSize: '0.82rem', fontStyle: 'italic', fontWeight: 'normal' }}>- Aguardando Balancete</span>
+                      ) : `${isPositive ? '+' : ''}${formatCurrency(item.resultadoMEP)}`)}
                     </strong>
                   </td>
 
                   <td style={{ textAlign: 'left', fontSize: '0.78rem' }}>
                     {isAtivo ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                        <div style={{ color: '#90CAF9' }}>
-                          <b>D:</b> [{item.contaDebito}] {item.descDebito}
+                      item.isAguardando ? (
+                        <span style={{ color: '#888', fontStyle: 'italic' }}>
+                          ⏳ Aguardando balancete de {meses[selectedMes - 1]}/{selectedAno}
+                        </span>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          <div style={{ color: '#90CAF9' }}>
+                            <b>D:</b> [{item.contaDebito}] {item.descDebito}
+                          </div>
+                          <div style={{ color: '#CE93D8' }}>
+                            <b>C:</b> [{item.contaCredito}] {item.descCredito}
+                          </div>
                         </div>
-                        <div style={{ color: '#CE93D8' }}>
-                          <b>C:</b> [{item.contaCredito}] {item.descCredito}
-                        </div>
-                      </div>
+                      )
                     ) : (
                       <span style={{ color: '#666', fontStyle: 'italic' }}>Sem cálculo (0% de participação)</span>
                     )}
@@ -703,13 +768,21 @@ export default function EquivalenciaPatrimonialModule({ companies = [] }) {
               <td></td>
               <td></td>
               <td style={{ textAlign: 'right', color: '#aaa' }}>{formatCurrency(apuracaoMEP.reduce((s, r) => s + r.plAnterior, 0))}</td>
-              <td style={{ textAlign: 'right', color: '#fff' }}>{formatCurrency(totalPLInvestidas)}</td>
-              <td style={{ textAlign: 'right', color: '#fff' }}>{formatCurrency(apuracaoMEP.reduce((s, r) => s + r.variacaoPL, 0))}</td>
-              <td style={{ textAlign: 'right', color: totalResultadoMEP >= 0 ? '#81C784' : '#FF8A80', fontSize: '1.1rem' }}>
-                {formatCurrency(totalResultadoMEP)}
+              <td style={{ textAlign: 'right', color: '#fff' }}>
+                {allAguardando ? (
+                  <span style={{ color: '#FFB74D', fontSize: '0.82rem', fontStyle: 'italic' }}>- Aguardando Balancetes</span>
+                ) : formatCurrency(totalPLInvestidas)}
+              </td>
+              <td style={{ textAlign: 'right', color: '#fff' }}>
+                {allAguardando ? '-' : formatCurrency(apuracaoMEP.reduce((s, r) => s + (r.isAguardando ? 0 : r.variacaoPL), 0))}
+              </td>
+              <td style={{ textAlign: 'right', color: allAguardando ? '#FFB74D' : (totalResultadoMEP >= 0 ? '#81C784' : '#FF8A80'), fontSize: '1.1rem' }}>
+                {allAguardando ? (
+                  <span style={{ fontSize: '0.88rem', fontStyle: 'italic' }}>- Aguardando Balancetes</span>
+                ) : formatCurrency(totalResultadoMEP)}
               </td>
               <td style={{ textAlign: 'left', color: '#aaa', fontSize: '0.8rem' }}>
-                Reflete o Ganho/Perda líquido de MEP na DRE da Holding
+                {allAguardando ? 'Aguardando balancetes das investidas' : 'Reflete o Ganho/Perda líquido de MEP na DRE da Holding'}
               </td>
             </tr>
           </tfoot>
@@ -730,9 +803,9 @@ export default function EquivalenciaPatrimonialModule({ companies = [] }) {
 
           <button
             onClick={() => {
-              const csvContent = "data:text/csv;charset=utf-8," + 
-                "EMPRESA,TIPO,PARTICIPACAO_PCT,PL_ANTERIOR,PL_ATUAL,VARIACAO_PL,RESULTADO_MEP,CONTA_DEBITO,CONTA_CREDITO\n" +
-                apuracaoMEP.map(r => `"${r.nome}","${r.tipo}",${r.participacao},${r.plAnterior},${r.plAtual},${r.variacaoPL},${r.resultadoMEP},"${r.contaDebito}","${r.contaCredito}"`).join("\n");
+              const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + 
+                "EMPRESA;TIPO;PARTICIPACAO_PCT;PL_ANTERIOR;PL_ATUAL;VARIACAO_PL;RESULTADO_MEP;CONTA_DEBITO;CONTA_CREDITO\n" +
+                apuracaoMEP.map(r => `"${r.nome}";"${r.tipo}";${r.participacao};${r.plAnterior};${r.isAguardando ? 'Aguardando Balancete' : r.plAtual};${r.isAguardando ? '-' : r.variacaoPL};${r.isAguardando ? 'Aguardando Balancete' : r.resultadoMEP};"${r.contaDebito}";"${r.contaCredito}"`).join("\n");
               const encodedUri = encodeURI(csvContent);
               const link = document.createElement("a");
               link.setAttribute("href", encodedUri);
@@ -786,8 +859,10 @@ export default function EquivalenciaPatrimonialModule({ companies = [] }) {
           ))}
 
           {apuracaoMEP.filter(r => r.ativo && Math.abs(r.resultadoMEP) > 0).length === 0 && (
-            <p style={{ color: '#666', textAlign: 'center', margin: '1rem 0' }}>
-              Nenhuma variação de PL apurada nas investidas para o período selecionado.
+            <p style={{ color: '#aaa', textAlign: 'center', margin: '1rem 0' }}>
+              {allAguardando 
+                ? `⏳ Aguardando importação dos balancetes de ${meses[selectedMes - 1]}/${selectedAno} para geração dos lançamentos contábeis de MEP.` 
+                : 'Nenhuma variação de PL apurada nas investidas para o período selecionado.'}
             </p>
           )}
         </div>
