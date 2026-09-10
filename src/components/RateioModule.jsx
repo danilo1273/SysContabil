@@ -94,6 +94,7 @@ export default function RateioModule({ companies }) {
   const [companyMetadata, setCompanyMetadata] = useState(DEFAULT_COMPANY_METADATA);
   const [showMetadataEditor, setShowMetadataEditor] = useState(false);
   const [editingMetadata, setEditingMetadata] = useState(DEFAULT_COMPANY_METADATA);
+  const [activeMetadataTab, setActiveMetadataTab] = useState('holding');
 
   const [includeProvisions, setIncludeProvisions] = useState(true);
   const [expensePercents, setExpensePercents] = useState({});
@@ -1083,6 +1084,28 @@ export default function RateioModule({ companies }) {
                 >
                   <span>📑</span> Relatório Analítico (Anexo Interno)
                 </button>
+                <button 
+                  onClick={() => {
+                    setEditingMetadata({ ...companyMetadata });
+                    setShowMetadataEditor(true);
+                  }}
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.08)',
+                    border: '1px solid #475569',
+                    color: '#cbd5e1',
+                    borderRadius: '6px',
+                    padding: '0.35rem 0.8rem',
+                    fontSize: '0.82rem',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                  title="Configurar CNPJs, Inscrições Estaduais e Endereços das Empresas"
+                >
+                  <span>⚙️</span> Cadastros
+                </button>
               </div>
             </div>
             
@@ -1763,9 +1786,12 @@ export default function RateioModule({ companies }) {
                 </div>
 
                 <button
-                  onClick={() => setShowMetadataEditor(!showMetadataEditor)}
+                  onClick={() => {
+                    setEditingMetadata({ ...companyMetadata });
+                    setShowMetadataEditor(true);
+                  }}
                   style={{
-                    background: showMetadataEditor ? '#3b82f6' : 'rgba(255,255,255,0.08)',
+                    background: 'rgba(255,255,255,0.08)',
                     color: '#fff',
                     border: '1px solid #475569',
                     padding: '0.4rem 0.7rem',
@@ -1773,7 +1799,7 @@ export default function RateioModule({ companies }) {
                     fontSize: '0.82rem',
                     cursor: 'pointer'
                   }}
-                  title="Editar CNPJ, Inscrição Estadual e Endereço das empresas"
+                  title="Configurar CNPJ, Inscrição Estadual e Endereço das empresas"
                 >
                   ⚙️ Cadastros
                 </button>
@@ -1815,171 +1841,25 @@ export default function RateioModule({ companies }) {
               </div>
             </div>
 
-            {/* Painel de Edição de Cadastros (Oculto na Impressão) */}
-            {showMetadataEditor && (
-              <div className="print-hide" style={{
-                background: '#1e293b',
-                borderBottom: '1px solid #334155',
-                padding: '1rem 1.5rem',
-                maxHeight: '230px',
-                overflowY: 'auto'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
-                  <strong style={{ color: '#38bdf8', fontSize: '0.9rem' }}>⚙️ Dados Cadastrais para Nota de Débito (Persistidos no Sistema)</strong>
-                  <button
-                    onClick={() => {
-                      handleSaveCompanyMetadata(editingMetadata);
-                      setShowMetadataEditor(false);
-                    }}
-                    style={{
-                      background: '#0284c7',
-                      color: '#fff',
-                      border: 'none',
-                      padding: '0.35rem 0.8rem',
-                      borderRadius: '4px',
-                      fontSize: '0.8rem',
-                      cursor: 'pointer',
-                      fontWeight: '600'
-                    }}
-                  >
-                    💾 Salvar Dados
-                  </button>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '12px' }}>
-                  {/* Holding */}
-                  <div style={{ background: 'rgba(15, 23, 42, 0.6)', padding: '10px', borderRadius: '6px', border: '1px solid #475569' }}>
-                    <div style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#fbbf24', marginBottom: '6px' }}>REMETENTE (Holding / Emissora)</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.75rem' }}>
-                      <input 
-                        type="text" 
-                        placeholder="Razão Social" 
-                        value={editingMetadata.holding?.razaoSocial || ''} 
-                        onChange={e => setEditingMetadata(prev => ({ ...prev, holding: { ...(prev.holding || {}), razaoSocial: e.target.value } }))}
-                        style={{ padding: '3px 6px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '3px' }}
-                      />
-                      <div style={{ display: 'flex', gap: '6px' }}>
-                        <input 
-                          type="text" 
-                          placeholder="CNPJ" 
-                          value={editingMetadata.holding?.cnpj || ''} 
-                          onChange={e => setEditingMetadata(prev => ({ ...prev, holding: { ...(prev.holding || {}), cnpj: e.target.value } }))}
-                          style={{ flex: 1, padding: '3px 6px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '3px' }}
-                        />
-                        <input 
-                          type="text" 
-                          placeholder="Inscr. Estadual" 
-                          value={editingMetadata.holding?.ie || ''} 
-                          onChange={e => setEditingMetadata(prev => ({ ...prev, holding: { ...(prev.holding || {}), ie: e.target.value } }))}
-                          style={{ flex: 1, padding: '3px 6px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '3px' }}
-                        />
-                      </div>
-                      <input 
-                        type="text" 
-                        placeholder="Endereço" 
-                        value={editingMetadata.holding?.endereco || ''} 
-                        onChange={e => setEditingMetadata(prev => ({ ...prev, holding: { ...(prev.holding || {}), endereco: e.target.value } }))}
-                        style={{ padding: '3px 6px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '3px' }}
-                      />
-                      <div style={{ display: 'flex', gap: '6px' }}>
-                        <input 
-                          type="text" 
-                          placeholder="Município" 
-                          value={editingMetadata.holding?.municipio || ''} 
-                          onChange={e => setEditingMetadata(prev => ({ ...prev, holding: { ...(prev.holding || {}), municipio: e.target.value } }))}
-                          style={{ flex: 2, padding: '3px 6px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '3px' }}
-                        />
-                        <input 
-                          type="text" 
-                          placeholder="UF" 
-                          value={editingMetadata.holding?.uf || ''} 
-                          onChange={e => setEditingMetadata(prev => ({ ...prev, holding: { ...(prev.holding || {}), uf: e.target.value } }))}
-                          style={{ flex: 1, padding: '3px 6px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '3px' }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Operacionais */}
-                  {operacionais.map(c => {
-                    const cur = editingMetadata[c.id] || {};
-                    return (
-                      <div key={c.id} style={{ background: 'rgba(15, 23, 42, 0.6)', padding: '10px', borderRadius: '6px', border: '1px solid #475569' }}>
-                        <div style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#60a5fa', marginBottom: '6px' }}>DESTINATÁRIO: {c.name}</div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.75rem' }}>
-                          <input 
-                            type="text" 
-                            placeholder="Razão Social" 
-                            value={cur.razaoSocial || ''} 
-                            onChange={e => setEditingMetadata(prev => ({ ...prev, [c.id]: { ...(prev[c.id] || {}), razaoSocial: e.target.value } }))}
-                            style={{ padding: '3px 6px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '3px' }}
-                          />
-                          <div style={{ display: 'flex', gap: '6px' }}>
-                            <input 
-                              type="text" 
-                              placeholder="CNPJ" 
-                              value={cur.cnpj || ''} 
-                              onChange={e => setEditingMetadata(prev => ({ ...prev, [c.id]: { ...(prev[c.id] || {}), cnpj: e.target.value } }))}
-                              style={{ flex: 1, padding: '3px 6px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '3px' }}
-                            />
-                            <input 
-                              type="text" 
-                              placeholder="Inscr. Estadual" 
-                              value={cur.ie || ''} 
-                              onChange={e => setEditingMetadata(prev => ({ ...prev, [c.id]: { ...(prev[c.id] || {}), ie: e.target.value } }))}
-                              style={{ flex: 1, padding: '3px 6px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '3px' }}
-                            />
-                          </div>
-                          <input 
-                            type="text" 
-                            placeholder="Endereço" 
-                            value={cur.endereco || ''} 
-                            onChange={e => setEditingMetadata(prev => ({ ...prev, [c.id]: { ...(prev[c.id] || {}), endereco: e.target.value } }))}
-                            style={{ padding: '3px 6px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '3px' }}
-                          />
-                          <div style={{ display: 'flex', gap: '6px' }}>
-                            <input 
-                              type="text" 
-                              placeholder="Município" 
-                              value={cur.municipio || ''} 
-                              onChange={e => setEditingMetadata(prev => ({ ...prev, [c.id]: { ...(prev[c.id] || {}), municipio: e.target.value } }))}
-                              style={{ flex: 2, padding: '3px 6px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '3px' }}
-                            />
-                            <input 
-                              type="text" 
-                              placeholder="UF" 
-                              value={cur.uf || ''} 
-                              onChange={e => setEditingMetadata(prev => ({ ...prev, [c.id]: { ...(prev[c.id] || {}), uf: e.target.value } }))}
-                              style={{ flex: 1, padding: '3px 6px', background: '#0f172a', border: '1px solid #334155', color: '#fff', borderRadius: '3px' }}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
             {/* Discriminação Editável Rápida (Oculta na Impressão) */}
             <div className="print-hide" style={{ padding: '0.8rem 1.5rem', background: 'rgba(0,0,0,0.2)', borderBottom: '1px solid #2d3748' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>Texto da Discriminação da Nota de Débito (editável):</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: '600', color: '#94a3b8' }}>Texto da Discriminação da Nota de Débito (editável):</span>
                 {invoiceCustomText && (
                   <button 
                     onClick={() => setInvoiceCustomText('')}
-                    style={{ background: 'transparent', border: 'none', color: '#f87171', fontSize: '0.72rem', cursor: 'pointer' }}
+                    style={{ background: 'transparent', border: 'none', color: '#f87171', fontSize: '0.75rem', cursor: 'pointer', textDecoration: 'underline' }}
                   >
                     Restaurar texto padrão
                   </button>
                 )}
               </div>
-              <input 
-                type="text" 
+              <textarea 
+                rows={2}
                 value={invoiceCustomText} 
                 onChange={e => setInvoiceCustomText(e.target.value)}
                 placeholder={`RESSARCIMENTO / REEMBOLSO DE DESPESAS ADMINISTRATIVAS E OPERACIONAIS COMPARTILHADAS (RATEIO DE CUSTOS - MANAGEMENT FEE) REFERENTE À COMPETÊNCIA DE ${NOMES_MESES[selectedMes].toUpperCase()} / ${selectedAno}, CONFORME CONTRATO DE COMPARTILHAMENTO DE CUSTOS E ANEXO DEMONSTRATIVO INTERNO.`}
-                style={{ width: '100%', padding: '6px 10px', fontSize: '0.8rem', background: '#0f172a', border: '1px solid #334155', color: '#cbd5e1', borderRadius: '4px' }}
+                style={{ width: '100%', padding: '8px 12px', fontSize: '0.82rem', background: '#0f172a', border: '1px solid #334155', color: '#cbd5e1', borderRadius: '6px', resize: 'vertical', lineHeight: '1.4', fontFamily: 'inherit', boxSizing: 'border-box' }}
               />
             </div>
 
@@ -2132,6 +2012,440 @@ export default function RateioModule({ companies }) {
                   );
                 })}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DEDICADO DE CADASTRO DAS EMPRESAS (DADOS DA NOTA DE DÉBITO) */}
+      {showMetadataEditor && (
+        <div 
+          className="rateio-modal-backdrop print-hide"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+            zIndex: 10001,
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            padding: '20px',
+            backdropFilter: 'blur(6px)'
+          }}
+        >
+          <div 
+            style={{
+              background: '#13141a',
+              border: '1px solid #334155',
+              borderRadius: '12px',
+              width: '100%',
+              maxWidth: '820px',
+              maxHeight: '92vh',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.9)',
+              overflow: 'hidden'
+            }}
+          >
+            {/* Header do Modal */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'flex-start',
+              padding: '1.2rem 1.5rem',
+              borderBottom: '1px solid #334155',
+              background: '#1a1d26'
+            }}>
+              <div>
+                <h3 style={{ margin: 0, color: '#f8fafc', fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>⚙️</span> Cadastro das Empresas para Nota de Débito
+                </h3>
+                <p style={{ margin: '4px 0 0 0', fontSize: '0.82rem', color: '#94a3b8' }}>
+                  Configure os dados cadastrais (Razão Social, CNPJ, IE e Endereço) para o cabeçalho das Notas de Débito.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowMetadataEditor(false)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#94a3b8',
+                  fontSize: '1.3rem',
+                  cursor: 'pointer',
+                  padding: '4px 8px',
+                  borderRadius: '4px'
+                }}
+                title="Fechar"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Abas de Navegação das Empresas */}
+            <div style={{
+              display: 'flex',
+              gap: '6px',
+              padding: '0.8rem 1.5rem',
+              background: '#161922',
+              borderBottom: '1px solid #2d3748',
+              overflowX: 'auto'
+            }}>
+              <button
+                onClick={() => setActiveMetadataTab('holding')}
+                style={{
+                  padding: '0.5rem 1rem',
+                  borderRadius: '6px',
+                  fontSize: '0.82rem',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  border: activeMetadataTab === 'holding' ? '1px solid #38bdf8' : '1px solid #334155',
+                  background: activeMetadataTab === 'holding' ? '#0284c7' : 'rgba(255, 255, 255, 0.04)',
+                  color: activeMetadataTab === 'holding' ? '#ffffff' : '#94a3b8',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  whiteSpace: 'nowrap',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <span>🏛️</span> Remetente (Holding)
+              </button>
+
+              {operacionais.map(c => {
+                const isActive = activeMetadataTab === c.id;
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => setActiveMetadataTab(c.id)}
+                    style={{
+                      padding: '0.5rem 1rem',
+                      borderRadius: '6px',
+                      fontSize: '0.82rem',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      border: isActive ? '1px solid #38bdf8' : '1px solid #334155',
+                      background: isActive ? '#0284c7' : 'rgba(255, 255, 255, 0.04)',
+                      color: isActive ? '#ffffff' : '#94a3b8',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      whiteSpace: 'nowrap',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <span>🏢</span> {c.name}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Formulário com a Empresa Selecionada */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem' }}>
+              {(() => {
+                const isHolding = activeMetadataTab === 'holding';
+                const currentData = isHolding 
+                  ? (editingMetadata.holding || DEFAULT_COMPANY_METADATA.holding)
+                  : (editingMetadata[activeMetadataTab] || getCompanyMeta(activeMetadataTab));
+
+                const handleFieldChange = (field, val) => {
+                  setEditingMetadata(prev => {
+                    const existing = prev[activeMetadataTab] || (isHolding ? DEFAULT_COMPANY_METADATA.holding : getCompanyMeta(activeMetadataTab));
+                    return {
+                      ...prev,
+                      [activeMetadataTab]: {
+                        ...existing,
+                        [field]: val
+                      }
+                    };
+                  });
+                };
+
+                return (
+                  <div>
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      marginBottom: '1.2rem',
+                      paddingBottom: '0.8rem',
+                      borderBottom: '1px solid #2d3748'
+                    }}>
+                      <div style={{
+                        width: '36px',
+                        height: '36px',
+                        borderRadius: '8px',
+                        background: isHolding ? 'rgba(245, 158, 11, 0.15)' : 'rgba(59, 130, 246, 0.15)',
+                        border: isHolding ? '1px solid #f59e0b' : '1px solid #3b82f6',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '1.2rem'
+                      }}>
+                        {isHolding ? '🏛️' : '🏢'}
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '1rem', fontWeight: 'bold', color: '#f8fafc' }}>
+                          {isHolding ? 'Holding / Emissora da Fatura' : (companies.find(c => c.id === activeMetadataTab)?.name || 'Empresa Operacional')}
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: isHolding ? '#fbbf24' : '#60a5fa' }}>
+                          {isHolding ? 'REMETENTE (Prestadora dos serviços de rateio)' : 'DESTINATÁRIO (Tomador cobrado na Nota de Débito)'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '14px' }}>
+                      <div style={{ gridColumn: 'span 2' }}>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '600', color: '#94a3b8', marginBottom: '5px', textTransform: 'uppercase' }}>
+                          Razão Social Completa
+                        </label>
+                        <input
+                          type="text"
+                          value={currentData.razaoSocial || ''}
+                          onChange={e => handleFieldChange('razaoSocial', e.target.value)}
+                          placeholder="Ex: RAZÃO SOCIAL DA EMPRESA LTDA"
+                          style={{
+                            width: '100%',
+                            padding: '8px 12px',
+                            background: '#0f172a',
+                            border: '1px solid #334155',
+                            borderRadius: '6px',
+                            color: '#ffffff',
+                            fontSize: '0.85rem',
+                            boxSizing: 'border-box'
+                          }}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '600', color: '#94a3b8', marginBottom: '5px', textTransform: 'uppercase' }}>
+                          CNPJ
+                        </label>
+                        <input
+                          type="text"
+                          value={currentData.cnpj || ''}
+                          onChange={e => handleFieldChange('cnpj', e.target.value)}
+                          placeholder="00.000.000/0000-00"
+                          style={{
+                            width: '100%',
+                            padding: '8px 12px',
+                            background: '#0f172a',
+                            border: '1px solid #334155',
+                            borderRadius: '6px',
+                            color: '#ffffff',
+                            fontSize: '0.85rem',
+                            boxSizing: 'border-box'
+                          }}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '600', color: '#94a3b8', marginBottom: '5px', textTransform: 'uppercase' }}>
+                          Inscrição Estadual
+                        </label>
+                        <input
+                          type="text"
+                          value={currentData.ie || ''}
+                          onChange={e => handleFieldChange('ie', e.target.value)}
+                          placeholder="Ex: Isento ou número da IE"
+                          style={{
+                            width: '100%',
+                            padding: '8px 12px',
+                            background: '#0f172a',
+                            border: '1px solid #334155',
+                            borderRadius: '6px',
+                            color: '#ffffff',
+                            fontSize: '0.85rem',
+                            boxSizing: 'border-box'
+                          }}
+                        />
+                      </div>
+
+                      <div style={{ gridColumn: 'span 2' }}>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '600', color: '#94a3b8', marginBottom: '5px', textTransform: 'uppercase' }}>
+                          Endereço Completo (Logradouro, Número, Bairro, CEP)
+                        </label>
+                        <input
+                          type="text"
+                          value={currentData.endereco || ''}
+                          onChange={e => handleFieldChange('endereco', e.target.value)}
+                          placeholder="Ex: Rod. SP 346, Km 202,5 - Distrito Industrial - CEP: 13990-000"
+                          style={{
+                            width: '100%',
+                            padding: '8px 12px',
+                            background: '#0f172a',
+                            border: '1px solid #334155',
+                            borderRadius: '6px',
+                            color: '#ffffff',
+                            fontSize: '0.85rem',
+                            boxSizing: 'border-box'
+                          }}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '600', color: '#94a3b8', marginBottom: '5px', textTransform: 'uppercase' }}>
+                          Município
+                        </label>
+                        <input
+                          type="text"
+                          value={currentData.municipio || ''}
+                          onChange={e => handleFieldChange('municipio', e.target.value)}
+                          placeholder="Ex: Espírito Santo do Pinhal"
+                          style={{
+                            width: '100%',
+                            padding: '8px 12px',
+                            background: '#0f172a',
+                            border: '1px solid #334155',
+                            borderRadius: '6px',
+                            color: '#ffffff',
+                            fontSize: '0.85rem',
+                            boxSizing: 'border-box'
+                          }}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '600', color: '#94a3b8', marginBottom: '5px', textTransform: 'uppercase' }}>
+                          UF (Estado)
+                        </label>
+                        <input
+                          type="text"
+                          value={currentData.uf || ''}
+                          onChange={e => handleFieldChange('uf', e.target.value)}
+                          placeholder="SP"
+                          maxLength={2}
+                          style={{
+                            width: '100%',
+                            padding: '8px 12px',
+                            background: '#0f172a',
+                            border: '1px solid #334155',
+                            borderRadius: '6px',
+                            color: '#ffffff',
+                            fontSize: '0.85rem',
+                            textTransform: 'uppercase',
+                            boxSizing: 'border-box'
+                          }}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '600', color: '#94a3b8', marginBottom: '5px', textTransform: 'uppercase' }}>
+                          Telefone (Opcional)
+                        </label>
+                        <input
+                          type="text"
+                          value={currentData.telefone || ''}
+                          onChange={e => handleFieldChange('telefone', e.target.value)}
+                          placeholder="(19) 3888-5800"
+                          style={{
+                            width: '100%',
+                            padding: '8px 12px',
+                            background: '#0f172a',
+                            border: '1px solid #334155',
+                            borderRadius: '6px',
+                            color: '#ffffff',
+                            fontSize: '0.85rem',
+                            boxSizing: 'border-box'
+                          }}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '600', color: '#94a3b8', marginBottom: '5px', textTransform: 'uppercase' }}>
+                          Website ou E-mail (Opcional)
+                        </label>
+                        <input
+                          type="text"
+                          value={currentData.site || ''}
+                          onChange={e => handleFieldChange('site', e.target.value)}
+                          placeholder="www.exemplo.com.br"
+                          style={{
+                            width: '100%',
+                            padding: '8px 12px',
+                            background: '#0f172a',
+                            border: '1px solid #334155',
+                            borderRadius: '6px',
+                            color: '#ffffff',
+                            fontSize: '0.85rem',
+                            boxSizing: 'border-box'
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{
+                      marginTop: '1.5rem',
+                      padding: '0.85rem 1rem',
+                      background: 'rgba(59, 130, 246, 0.08)',
+                      border: '1px solid rgba(59, 130, 246, 0.25)',
+                      borderRadius: '8px',
+                      fontSize: '0.78rem',
+                      color: '#93c5fd',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px'
+                    }}>
+                      <span>💡</span>
+                      <span>
+                        Dica: As alterações feitas em qualquer aba serão gravadas permanentemente ao clicar em <b>Salvar Cadastros</b> abaixo.
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Rodapé do Modal com Ações */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'flex-end',
+              alignItems: 'center',
+              gap: '10px',
+              padding: '1rem 1.5rem',
+              borderTop: '1px solid #334155',
+              background: '#1a1d26'
+            }}>
+              <button
+                onClick={() => setShowMetadataEditor(false)}
+                style={{
+                  background: 'transparent',
+                  color: '#94a3b8',
+                  border: '1px solid #475569',
+                  padding: '0.5rem 1.2rem',
+                  borderRadius: '6px',
+                  fontSize: '0.85rem',
+                  cursor: 'pointer',
+                  fontWeight: '500'
+                }}
+              >
+                Cancelar
+              </button>
+
+              <button
+                onClick={async () => {
+                  await handleSaveCompanyMetadata(editingMetadata);
+                  setShowMetadataEditor(false);
+                }}
+                style={{
+                  background: '#0284c7',
+                  color: '#ffffff',
+                  border: 'none',
+                  padding: '0.5rem 1.4rem',
+                  borderRadius: '6px',
+                  fontSize: '0.85rem',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.3)'
+                }}
+              >
+                <span>💾</span> Salvar Cadastros
+              </button>
             </div>
           </div>
         </div>
