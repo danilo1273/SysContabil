@@ -182,8 +182,8 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
 
   const availableYears = useMemo(() => {
     const current = new Date().getFullYear();
-    const dbYears = (availableRecords || []).map(r => r.ano);
-    const set = new Set([...dbYears, current, current - 1, current + 1]);
+    const dbYears = (availableRecords || []).map(r => parseInt(r.ano, 10));
+    const set = new Set([...dbYears, current, current - 1, current - 2, current - 3, current + 1]);
     return Array.from(set).sort((a, b) => b - a);
   }, [availableRecords]);
 
@@ -1569,6 +1569,16 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
 
           {(!moduleMode || moduleMode === 'contabil') && (userPermissions?.includes('contabil') || (['danilo', 'ryan.santos'].includes(username)) || userRole === 'superadmin' || userRole === 'admin') && (
             <>
+              <button
+                className={`tab-btn ${activeTab === 'resultados' ? 'active' : ''}`}
+                onClick={() => {
+                  setActiveTab('resultados');
+                  loadPanelData();
+                }}
+              >
+                <FileText size={20} /> Dashboard Contábil
+              </button>
+
               <button
                 className={`tab-btn ${activeTab === 'apuracao' ? 'active' : ''}`}
                 onClick={() => setActiveTab('apuracao')}

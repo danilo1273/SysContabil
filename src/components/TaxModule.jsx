@@ -314,8 +314,19 @@ export default function TaxModule({ companies }) {
     const irpjAdicional = Math.max(0, baseIrpj - limiteAdicional) * 0.10;
     const csll = baseCsll * 0.09;
 
-    const irpjTotal = irpjNormal + irpjAdicional - parseFloat(inputs.retencoesIR || 0) + parseFloat(inputs.ajusteIrpj || 0);
-    const csllTotal = csll - parseFloat(inputs.retencoesCS || 0) + parseFloat(inputs.ajusteCsll || 0);
+    let irpjTotal = irpjNormal + irpjAdicional - parseFloat(inputs.retencoesIR || 0);
+    if (inputs.ajusteIrpj !== undefined && inputs.ajusteIrpj !== null && inputs.ajusteIrpj.toString().trim() !== '') {
+        irpjTotal = parseFloat(inputs.ajusteIrpj);
+    } else {
+        irpjTotal += parseFloat(inputs.ajusteIrpj || 0);
+    }
+
+    let csllTotal = csll - parseFloat(inputs.retencoesCS || 0);
+    if (inputs.ajusteCsll !== undefined && inputs.ajusteCsll !== null && inputs.ajusteCsll.toString().trim() !== '') {
+        csllTotal = parseFloat(inputs.ajusteCsll);
+    } else {
+        csllTotal += parseFloat(inputs.ajusteCsll || 0);
+    }
 
     return { retencoesIR: parseFloat(inputs.retencoesIR || 0), retencoesCS: parseFloat(inputs.retencoesCS || 0), impostosDevolucaoManual: parseFloat(inputs.impostosDevolucao || 0), outrasReceitasManual: parseFloat(inputs.outrasReceitas || 0), ajusteIrpj: parseFloat(inputs.ajusteIrpj || 0), ajusteCsll: parseFloat(inputs.ajusteCsll || 0), recRevenda, recRevendaLiquida, devolucoes, impostosDevolucaoAuto: ipiDevolucao + icmsStDevolucao, ipi, icmsSt, recServico, baseIrpj, baseCsll, irpjNormal, irpjAdicional, irpjTotal, csll, csllTotal, variacaoCambial, outrasReceitasDre: Math.max(0, outrasReceitasDre), outrasReceitasDreBreakdown, devolucoesBreakdown, ipiIcmsDevolucaoBreakdown, ipiVendasBreakdown, icmsStVendasBreakdown, recRevendaBreakdown, recServicoBreakdown };
   };
@@ -926,9 +937,9 @@ export default function TaxModule({ companies }) {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.6rem', marginBottom: '0.6rem', background: 'rgba(255, 193, 7, 0.08)', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid rgba(255, 193, 7, 0.25)' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '0.84rem', color: '#FFD54F', fontWeight: 'bold' }}>
-                  ✏️ Ajuste Manual / Centavos no IRPJ (R$):
+                  ✅ Valor Exato da Apuração IRPJ (R$):
                 </label>
-                <span style={{ fontSize: '0.74rem', color: '#aaa' }}>Insira valor positivo (+) ou negativo (-) para ajuste fino de DARF</span>
+                <span style={{ fontSize: '0.74rem', color: '#aaa' }}>Se preenchido, este valor substituirá o cálculo automático</span>
               </div>
               <input 
                 type="number" 
@@ -968,9 +979,9 @@ export default function TaxModule({ companies }) {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.6rem', marginBottom: '0.6rem', background: 'rgba(255, 193, 7, 0.08)', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid rgba(255, 193, 7, 0.25)' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '0.84rem', color: '#FFD54F', fontWeight: 'bold' }}>
-                  ✏️ Ajuste Manual / Centavos na CSLL (R$):
+                  ✅ Valor Exato da Apuração CSLL (R$):
                 </label>
-                <span style={{ fontSize: '0.74rem', color: '#aaa' }}>Insira valor positivo (+) ou negativo (-) para ajuste fino de DARF</span>
+                <span style={{ fontSize: '0.74rem', color: '#aaa' }}>Se preenchido, este valor substituirá o cálculo automático</span>
               </div>
               <input 
                 type="number" 
@@ -1077,12 +1088,12 @@ export default function TaxModule({ companies }) {
               <tr><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>IRPJ Normal (15%)</td><td style={{ border: "1px solid #444" }}>{fmt(c1.irpjNormal)}</td><td style={{ border: "1px solid #444" }}>{fmt(c2.irpjNormal)}</td><td style={{ border: "1px solid #444" }}>{fmt(c3.irpjNormal)}</td><td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.irpjNormal)}</td></tr>
               <tr><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>IRPJ Adicional (10%)</td><td style={{ border: "1px solid #444" }}>{fmt(c1.irpjAdicional)}</td><td style={{ border: "1px solid #444" }}>{fmt(c2.irpjAdicional)}</td><td style={{ border: "1px solid #444" }}>{fmt(c3.irpjAdicional)}</td><td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.irpjAdicional)}</td></tr>
               <tr><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>(-) IRRF Retido (Serviços/Aplicações)</td><td style={{ border: "1px solid #444" }}>{fmt(c1.retencoesIR)}</td><td style={{ border: "1px solid #444" }}>{fmt(c2.retencoesIR)}</td><td style={{ border: "1px solid #444" }}>{fmt(c3.retencoesIR)}</td><td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.retencoesIR)}</td></tr>
-              <tr><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>(+/-) Ajuste Manual IRPJ</td><td style={{ border: "1px solid #444" }}>{fmt(c1.ajusteIrpj)}</td><td style={{ border: "1px solid #444" }}>{fmt(c2.ajusteIrpj)}</td><td style={{ border: "1px solid #444" }}>{fmt(c3.ajusteIrpj)}</td><td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.ajusteIrpj)}</td></tr>
+              <tr><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left", color: "#FFD54F" }}>Valor Exato IRPJ (Manual)</td><td style={{ border: "1px solid #444" }}>{fmt(c1.ajusteIrpj)}</td><td style={{ border: "1px solid #444" }}>{fmt(c2.ajusteIrpj)}</td><td style={{ border: "1px solid #444" }}>{fmt(c3.ajusteIrpj)}</td><td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.ajusteIrpj)}</td></tr>
               <tr style={{ background: "rgba(0,255,0,0.05)" }}><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>IRPJ DEVIDO LÍQUIDO</td><td style={{ border: "1px solid #444" }}>{fmt(Math.max(0, c1.irpjTotal))}</td><td style={{ border: "1px solid #444" }}>{fmt(Math.max(0, c2.irpjTotal))}</td><td style={{ border: "1px solid #444" }}>{fmt(Math.max(0, c3.irpjTotal))}</td><td style={{ border: "1px solid #444", fontWeight: "bold", color: "#81C784" }}>{fmt(Math.max(0, cTotal.irpjTotal))}</td></tr>
               <tr><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>Base de Cálculo CSLL</td><td style={{ border: "1px solid #444" }}>{fmt(c1.baseCsll)}</td><td style={{ border: "1px solid #444" }}>{fmt(c2.baseCsll)}</td><td style={{ border: "1px solid #444" }}>{fmt(c3.baseCsll)}</td><td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.baseCsll)}</td></tr>
               <tr><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>CSLL Normal (9%)</td><td style={{ border: "1px solid #444" }}>{fmt(c1.csll)}</td><td style={{ border: "1px solid #444" }}>{fmt(c2.csll)}</td><td style={{ border: "1px solid #444" }}>{fmt(c3.csll)}</td><td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.csll)}</td></tr>
               <tr><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>(-) CSLL Retida</td><td style={{ border: "1px solid #444" }}>{fmt(c1.retencoesCS)}</td><td style={{ border: "1px solid #444" }}>{fmt(c2.retencoesCS)}</td><td style={{ border: "1px solid #444" }}>{fmt(c3.retencoesCS)}</td><td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.retencoesCS)}</td></tr>
-              <tr><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>(+/-) Ajuste Manual CSLL</td><td style={{ border: "1px solid #444" }}>{fmt(c1.ajusteCsll)}</td><td style={{ border: "1px solid #444" }}>{fmt(c2.ajusteCsll)}</td><td style={{ border: "1px solid #444" }}>{fmt(c3.ajusteCsll)}</td><td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.ajusteCsll)}</td></tr>
+              <tr><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left", color: "#FFD54F" }}>Valor Exato CSLL (Manual)</td><td style={{ border: "1px solid #444" }}>{fmt(c1.ajusteCsll)}</td><td style={{ border: "1px solid #444" }}>{fmt(c2.ajusteCsll)}</td><td style={{ border: "1px solid #444" }}>{fmt(c3.ajusteCsll)}</td><td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.ajusteCsll)}</td></tr>
               <tr style={{ background: "rgba(0,255,0,0.05)" }}><td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>CSLL DEVIDA LÍQUIDA</td><td style={{ border: "1px solid #444" }}>{fmt(Math.max(0, c1.csllTotal))}</td><td style={{ border: "1px solid #444" }}>{fmt(Math.max(0, c2.csllTotal))}</td><td style={{ border: "1px solid #444" }}>{fmt(Math.max(0, c3.csllTotal))}</td><td style={{ border: "1px solid #444", fontWeight: "bold", color: "#81C784" }}>{fmt(Math.max(0, cTotal.csllTotal))}</td></tr>
             </tbody>
           </table>
