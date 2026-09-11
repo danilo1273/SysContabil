@@ -450,8 +450,15 @@ export default function TaxModule({ companies }) {
       csll = baseAjustada * 0.09;
     }
 
-    const irpjTotal = irpjNormal + irpjAdicional - parseFloat(lalurRetencoesIR || 0) - parseFloat(lalurRetencoesIR_AppFin || 0);
-    const csllTotal = csll - parseFloat(lalurRetencoesCS || 0);
+    let irpjTotal = irpjNormal + irpjAdicional - parseFloat(lalurRetencoesIR || 0) - parseFloat(lalurRetencoesIR_AppFin || 0);
+    let csllTotal = csll - parseFloat(lalurRetencoesCS || 0);
+
+    if (lalurAjusteIrpj !== undefined && lalurAjusteIrpj !== '') {
+      irpjTotal = parseFloat(lalurAjusteIrpj);
+    }
+    if (lalurAjusteCsll !== undefined && lalurAjusteCsll !== '') {
+      csllTotal = parseFloat(lalurAjusteCsll);
+    }
 
     return { lair, baseCalculo, compensacao, baseAjustada, irpjNormal, irpjAdicional, irpjTotal, csll, csllTotal, variacaoCambial, equivalenciaPatrimonial, adicoesAuto, exclusoesAuto, adicoes, exclusoes };
   };
@@ -1187,9 +1194,32 @@ const renderReal = () => {
              <div style={{ marginBottom: '1rem', marginTop: '0.5rem' }}>
                <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(-) IRRF s/ Serviços</label>
                <input type="number" className="text-input" value={lalurRetencoesIR} onChange={e => setLalurRetencoesIR(e.target.value)} style={{ width: '100%' }} />
-            <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginTop: '1rem', marginBottom: '0.3rem' }}>(-) IRRF s/ Aplicações</label>
-            <input type="number" className="text-input" value={lalurRetencoesIR_AppFin} onChange={e => setLalurRetencoesIR_AppFin(e.target.value)} style={{ width: '100%' }} />
+               <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginTop: '1rem', marginBottom: '0.3rem' }}>(-) IRRF s/ Aplicações</label>
+               <input type="number" className="text-input" value={lalurRetencoesIR_AppFin} onChange={e => setLalurRetencoesIR_AppFin(e.target.value)} style={{ width: '100%' }} />
              </div>
+
+             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.8rem', marginBottom: '0.8rem', background: 'rgba(255, 193, 7, 0.08)', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid rgba(255, 193, 7, 0.25)' }}>
+               <div>
+                 <label style={{ display: 'block', fontSize: '0.84rem', color: '#FFD54F', fontWeight: 'bold' }}>
+                   ✅ Valor Exato da Apuração IRPJ (R$):
+                 </label>
+                 <span style={{ fontSize: '0.74rem', color: '#aaa' }}>Se preenchido, este valor substituirá o cálculo automático</span>
+               </div>
+               <input 
+                 type="number" 
+                 step="0.01" 
+                 className="text-input" 
+                 value={lalurAjusteIrpj} 
+                 onChange={e => {
+                   const val = e.target.value;
+                   setLalurAjusteIrpj(val);
+                   persistTaxData(selectedComp, selectedAno, selectedMes, { lalurAjusteIrpj: val });
+                 }} 
+                 placeholder="0.00" 
+                 style={{ width: '130px', textAlign: 'right', borderColor: '#FFD54F', color: '#FFD54F', fontWeight: 'bold', background: '#1c1c24' }} 
+               />
+             </div>
+
              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1rem', borderTop: '1px solid #444', paddingTop: '1rem', color: '#81C784', fontSize: '1.1rem', fontWeight: 'bold' }}>
                 <span>IRPJ Devido no Mês:</span>
                 <span>{Math.max(0, calc.irpjTotal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
@@ -1209,6 +1239,29 @@ const renderReal = () => {
                <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(-) CSLL Retida</label>
                <input type="number" className="text-input" value={lalurRetencoesCS} onChange={e => setLalurRetencoesCS(e.target.value)} style={{ width: '100%' }} />
              </div>
+
+             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.8rem', marginBottom: '0.8rem', background: 'rgba(255, 193, 7, 0.08)', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid rgba(255, 193, 7, 0.25)' }}>
+               <div>
+                 <label style={{ display: 'block', fontSize: '0.84rem', color: '#FFD54F', fontWeight: 'bold' }}>
+                   ✅ Valor Exato da Apuração CSLL (R$):
+                 </label>
+                 <span style={{ fontSize: '0.74rem', color: '#aaa' }}>Se preenchido, este valor substituirá o cálculo automático</span>
+               </div>
+               <input 
+                 type="number" 
+                 step="0.01" 
+                 className="text-input" 
+                 value={lalurAjusteCsll} 
+                 onChange={e => {
+                   const val = e.target.value;
+                   setLalurAjusteCsll(val);
+                   persistTaxData(selectedComp, selectedAno, selectedMes, { lalurAjusteCsll: val });
+                 }} 
+                 placeholder="0.00" 
+                 style={{ width: '130px', textAlign: 'right', borderColor: '#FFD54F', color: '#FFD54F', fontWeight: 'bold', background: '#1c1c24' }} 
+               />
+             </div>
+
              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1rem', borderTop: '1px solid #444', paddingTop: '1rem', color: '#81C784', fontSize: '1.1rem', fontWeight: 'bold' }}>
                 <span>CSLL Devida no Mês:</span>
                 <span>{Math.max(0, calc.csllTotal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
