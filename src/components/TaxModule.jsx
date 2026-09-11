@@ -953,11 +953,8 @@ export default function TaxModule({ companies }) {
                 step="0.01" 
                 className="text-input" 
                 value={presumidoAjusteIrpj} 
-                onChange={e => {
-                  const val = e.target.value;
-                  setPresumidoAjusteIrpj(val);
-                  persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoAjusteIrpj: val });
-                }} 
+                onChange={e => setPresumidoAjusteIrpj(e.target.value)} 
+                onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoAjusteIrpj: e.target.value })}
                 placeholder="0.00" 
                 style={{ width: '130px', textAlign: 'right', borderColor: '#FFD54F', color: '#FFD54F', fontWeight: 'bold', background: '#1c1c24' }} 
               />
@@ -995,11 +992,8 @@ export default function TaxModule({ companies }) {
                 step="0.01" 
                 className="text-input" 
                 value={presumidoAjusteCsll} 
-                onChange={e => {
-                  const val = e.target.value;
-                  setPresumidoAjusteCsll(val);
-                  persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoAjusteCsll: val });
-                }} 
+                onChange={e => setPresumidoAjusteCsll(e.target.value)} 
+                onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoAjusteCsll: e.target.value })}
                 placeholder="0.00" 
                 style={{ width: '130px', textAlign: 'right', borderColor: '#FFD54F', color: '#FFD54F', fontWeight: 'bold', background: '#1c1c24' }} 
               />
@@ -1210,11 +1204,8 @@ const renderReal = () => {
                  step="0.01" 
                  className="text-input" 
                  value={lalurAjusteIrpj} 
-                 onChange={e => {
-                   const val = e.target.value;
-                   setLalurAjusteIrpj(val);
-                   persistTaxData(selectedComp, selectedAno, selectedMes, { lalurAjusteIrpj: val });
-                 }} 
+                 onChange={e => setLalurAjusteIrpj(e.target.value)} 
+                 onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { lalurAjusteIrpj: e.target.value })}
                  placeholder="0.00" 
                  style={{ width: '130px', textAlign: 'right', borderColor: '#FFD54F', color: '#FFD54F', fontWeight: 'bold', background: '#1c1c24' }} 
                />
@@ -1252,11 +1243,8 @@ const renderReal = () => {
                  step="0.01" 
                  className="text-input" 
                  value={lalurAjusteCsll} 
-                 onChange={e => {
-                   const val = e.target.value;
-                   setLalurAjusteCsll(val);
-                   persistTaxData(selectedComp, selectedAno, selectedMes, { lalurAjusteCsll: val });
-                 }} 
+                 onChange={e => setLalurAjusteCsll(e.target.value)} 
+                 onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { lalurAjusteCsll: e.target.value })}
                  placeholder="0.00" 
                  style={{ width: '130px', textAlign: 'right', borderColor: '#FFD54F', color: '#FFD54F', fontWeight: 'bold', background: '#1c1c24' }} 
                />
