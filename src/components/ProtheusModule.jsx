@@ -1068,46 +1068,52 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
       const dreResult = buildDRE();
 
       // 4.6. Matemática do Passivo Dinâmica (Lucro calculado YTD)
-      for (const comp of consolidated.companies) {
-         let lucroYTD = 0;
-         if (pPeriod === 'acumulado') {
-            lucroYTD = dreResult.subtotals.lucroLiq[comp.id] || 0;
-         } else {
-            const dreYTD = await getDREFromDB(comp.id, pAno, pMes, 'acumulado');
-            const dreMappedYTD = applyMapping(dreYTD, mergedMapping.dre, 1, 'valor');
-            const getT = (group) => dreMappedYTD[group] ? dreMappedYTD[group]['TOTAL'].total : 0;
-            const lucroBruto = getT('RECEITA OPERACIONAL BRUTA') + getT('DEDUÇÕES DA RECEITA') + getT('CUSTOS');
-            const despOp = getT('DESPESAS COM VENDAS') + getT('DESPESAS ADMINISTRATIVAS') + getT('DESPESAS TRIBUTÁRIAS') + getT('DOAÇÕES / INCENTIVOS FISCAIS');
-            const ebit = lucroBruto + despOp + getT('DEPRECIAÇÕES / AMORTIZAÇÕES');
-            const finLiquido = getT('RECEITAS FINANCEIRAS') + getT('DESPESAS FINANCEIRAS') + getT('VARIAÇÕES MONETÁRIAS / CAMBIAIS LÍQUIDAS') + getT('AJUSTES FINANCEIROS') + getT('REVERSÃO JUROS S/ CAPITAL PROPRIO');
-            const resAntesIr = ebit + finLiquido + getT('RESULTADO COM PARTICIP. SOCIETÁRIA') + getT('OUTRAS RECEITAS E DESPESAS');
-            lucroYTD = resAntesIr + getT('PROVISÃO IRPJ') + getT('PROVISÃO CSLL');
-         }
-         
-         let hasAnyBalanco = false;
-         if (consolidated.ativo[comp.id]) {
-            for (const g in consolidated.ativo[comp.id]) {
-                if (Math.abs(consolidated.ativo[comp.id][g]?.['TOTAL']?.total || 0) > 0.01) hasAnyBalanco = true;
-            }
-         }
-         if (consolidated.passivo[comp.id]) {
-            for (const g in consolidated.passivo[comp.id]) {
-                if (Math.abs(consolidated.passivo[comp.id][g]?.['TOTAL']?.total || 0) > 0.01) hasAnyBalanco = true;
-            }
-         }
+      // Regra de Encerramento: No mês de Dezembro (12), o exercício é formalmente encerrado no Protheus
+      // e o resultado já vem incorporado no arquivo do balancete (em Lucros Acumulados / Reserva de Lucros).
+      // Portanto, em Dezembro NÃO lançamos o Lucro do Exercício para não duplicar o Patrimônio Líquido.
+      const isDezembro = parseInt(pMes, 10) === 12;
 
-         if (hasAnyBalanco && consolidated.passivo[comp.id] && consolidated.passivo[comp.id]['PATRIMONIO LIQUIDO']) {
-           const grp = consolidated.passivo[comp.id]['PATRIMONIO LIQUIDO'];
-           if (!grp['Lucro do Exercício']) grp['Lucro do Exercício'] = { total: 0, details: [] };
-           
-           grp['Lucro do Exercício'].total += lucroYTD;
-           
-           if (grp['TOTAL']) {
-              grp['TOTAL'].total += lucroYTD;
+      if (!isDezembro) {
+        for (const comp of consolidated.companies) {
+           let lucroYTD = 0;
+           if (pPeriod === 'acumulado') {
+              lucroYTD = dreResult.subtotals.lucroLiq[comp.id] || 0;
+           } else {
+              const dreYTD = await getDREFromDB(comp.id, pAno, pMes, 'acumulado');
+              const dreMappedYTD = applyMapping(dreYTD, mergedMapping.dre, 1, 'valor');
+              const getT = (group) => dreMappedYTD[group] ? dreMappedYTD[group]['TOTAL'].total : 0;
+              const lucroBruto = getT('RECEITA OPERACIONAL BRUTA') + getT('DEDUÇÕES DA RECEITA') + getT('CUSTOS');
+              const despOp = getT('DESPESAS COM VENDAS') + getT('DESPESAS ADMINISTRATIVAS') + getT('DESPESAS TRIBUTÁRIAS') + getT('DOAÇÕES / INCENTIVOS FISCAIS');
+              const ebit = lucroBruto + despOp + getT('DEPRECIAÇÕES / AMORTIZAÇÕES');
+              const finLiquido = getT('RECEITAS FINANCEIRAS') + getT('DESPESAS FINANCEIRAS') + getT('VARIAÇÕES MONETÁRIAS / CAMBIAIS LÍQUIDAS') + getT('AJUSTES FINANCEIROS') + getT('REVERSÃO JUROS S/ CAPITAL PROPRIO');
+              const resAntesIr = ebit + finLiquido + getT('RESULTADO COM PARTICIP. SOCIETÁRIA') + getT('OUTRAS RECEITAS E DESPESAS');
+              lucroYTD = resAntesIr + getT('PROVISÃO IRPJ') + getT('PROVISÃO CSLL');
            }
-         }
-
+           
+           let hasAnyBalanco = false;
+           if (consolidated.ativo[comp.id]) {
+              for (const g in consolidated.ativo[comp.id]) {
+                  if (Math.abs(consolidated.ativo[comp.id][g]?.['TOTAL']?.total || 0) > 0.01) hasAnyBalanco = true;
               }
+           }
+           if (consolidated.passivo[comp.id]) {
+              for (const g in consolidated.passivo[comp.id]) {
+                  if (Math.abs(consolidated.passivo[comp.id][g]?.['TOTAL']?.total || 0) > 0.01) hasAnyBalanco = true;
+              }
+           }
+
+           if (hasAnyBalanco && consolidated.passivo[comp.id] && consolidated.passivo[comp.id]['PATRIMONIO LIQUIDO']) {
+             const grp = consolidated.passivo[comp.id]['PATRIMONIO LIQUIDO'];
+             if (!grp['Lucro do Exercício']) grp['Lucro do Exercício'] = { total: 0, details: [] };
+             
+             grp['Lucro do Exercício'].total += lucroYTD;
+             
+             if (grp['TOTAL']) {
+                grp['TOTAL'].total += lucroYTD;
+             }
+           }
+        }
+      }
 
       // Construir DFC
       const buildDFC = () => {
