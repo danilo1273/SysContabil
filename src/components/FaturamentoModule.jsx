@@ -73,19 +73,37 @@ function FaturamentoModule({ companies = [], selectedCompany, selectedAno, selec
   const [isEditing, setIsEditing] = useState(false);
   const [overrides, setOverrides] = useState({});
   const [saveStatus, setSaveStatus] = useState('');
+  const [customHeaderNome, setCustomHeaderNome] = useState('');
+  const [customHeaderCnpj, setCustomHeaderCnpj] = useState('');
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
 
-  // Carrega overrides salvos no banco
+  // Carrega overrides e razão social salvos no banco
   useEffect(() => {
     async function loadOverrides() {
       try {
-        const saved = await getSettings(`agf_faturamento_overrides_${selectedCompany}`);
-        if (saved && typeof saved === 'object') {
-          setOverrides(saved);
+        const [savedOverrides, savedHeader] = await Promise.all([
+          getSettings(`agf_faturamento_overrides_${selectedCompany}`),
+          getSettings(`agf_razao_social_${selectedCompany}`)
+        ]);
+
+        if (savedOverrides && typeof savedOverrides === 'object') {
+          setOverrides(savedOverrides);
         } else {
           setOverrides({});
         }
+
+        if (savedHeader && typeof savedHeader === 'object') {
+          setCustomHeaderNome(savedHeader.nome !== undefined ? savedHeader.nome : '');
+          setCustomHeaderCnpj(savedHeader.cnpj !== undefined ? savedHeader.cnpj : '');
+        } else if (typeof savedHeader === 'string') {
+          setCustomHeaderNome(savedHeader);
+          setCustomHeaderCnpj('');
+        } else {
+          setCustomHeaderNome('');
+          setCustomHeaderCnpj('');
+        }
       } catch (e) {
-        console.error('Erro ao carregar overrides de faturamento:', e);
+        console.error('Erro ao carregar configurações de faturamento:', e);
       }
     }
     loadOverrides();
@@ -196,11 +214,23 @@ function FaturamentoModule({ companies = [], selectedCompany, selectedAno, selec
     }));
   };
 
+  const handleSaveTitleDirectly = async (nome, cnpj) => {
+    try {
+      await saveSettings(`agf_razao_social_${selectedCompany}`, { nome, cnpj });
+    } catch (e) {
+      console.error('Erro ao salvar razão social:', e);
+    }
+  };
+
   const handleSaveOverrides = async () => {
     setSaveStatus('saving');
     try {
-      await saveSettings(`agf_faturamento_overrides_${selectedCompany}`, overrides);
+      await Promise.all([
+        saveSettings(`agf_faturamento_overrides_${selectedCompany}`, overrides),
+        saveSettings(`agf_razao_social_${selectedCompany}`, { nome: headerNome, cnpj: headerCnpj })
+      ]);
       setSaveStatus('success');
+      setIsEditingTitle(false);
       setTimeout(() => setSaveStatus(''), 3000);
     } catch (e) {
       console.error(e);
@@ -236,13 +266,13 @@ function FaturamentoModule({ companies = [], selectedCompany, selectedAno, selec
 
   const compData = selectedCompany !== 'consolidado' ? companies.find(c => c.id === selectedCompany) : null;
   
-  const currentHeader = companyHeaders[selectedCompany] || { 
+  const defaultHeader = companyHeaders[selectedCompany] || { 
     nome: compData ? compData.name.toUpperCase() : 'AGF GROUP', 
     cnpj: '' 
   };
 
-  const headerNome = currentHeader.nome;
-  const headerCnpj = currentHeader.cnpj ? `CNPJ: ${currentHeader.cnpj}` : '';
+  const headerNome = (customHeaderNome && customHeaderNome.trim() !== '') ? customHeaderNome : defaultHeader.nome;
+  const headerCnpj = (customHeaderCnpj && customHeaderCnpj.trim() !== '') ? customHeaderCnpj : defaultHeader.cnpj;
 
   const dataAtual = new Date();
   const dataFormatada = `${dataAtual.getDate()} ${monthNames[dataAtual.getMonth()]} ${dataAtual.getFullYear()}`;
@@ -330,11 +360,80 @@ function FaturamentoModule({ companies = [], selectedCompany, selectedAno, selec
 
       <div id="printable-faturamento" style={{ fontFamily: 'Arial, sans-serif', maxWidth: '900px', margin: '0 auto', color: '#000' }}>
         
-        {/* Header da Empresa */}
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '2.5rem' }}>
-          <div style={{ textAlign: 'center', flex: 1 }}>
-            <h2 style={{ fontSize: '1.1rem', margin: '0 0 0.25rem 0', fontWeight: 'bold' }}>{headerNome}</h2>
-            {headerCnpj && <p style={{ fontSize: '0.9rem', margin: 0 }}>{headerCnpj}</p>}
+        {/* Header da Empresa com Edição de Razão Social */}
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '2rem', justifyContent: 'center' }}>
+          <div style={{ textAlign: 'center', width: '100%', maxWidth: '750px' }}>
+            {isEditing || isEditingTitle ? (
+              <div style={{ background: '#f8fafc', padding: '0.8rem 1rem', borderRadius: '8px', border: '1px dashed #00B0FF', margin: '0 auto' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0288D1', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    ✏️ Editar Razão Social do Relatório (Fica salva permanentemente)
+                  </span>
+                  {!isEditing && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleSaveTitleDirectly(headerNome, headerCnpj);
+                        setIsEditingTitle(false);
+                      }}
+                      style={{ background: '#4CAF50', color: '#fff', border: 'none', borderRadius: '4px', padding: '3px 10px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}
+                    >
+                      ✓ Salvar Razão Social
+                    </button>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  value={headerNome}
+                  onChange={(e) => setCustomHeaderNome(e.target.value)}
+                  onBlur={(e) => handleSaveTitleDirectly(e.target.value, headerCnpj)}
+                  placeholder="Nome / Razão Social da Empresa..."
+                  style={{
+                    width: '100%',
+                    textAlign: 'center',
+                    fontSize: '1.15rem',
+                    fontWeight: 'bold',
+                    padding: '6px 10px',
+                    border: '1px solid #00B0FF',
+                    borderRadius: '4px',
+                    outline: 'none',
+                    background: '#fff',
+                    color: '#000',
+                    marginBottom: '6px'
+                  }}
+                />
+                <input
+                  type="text"
+                  value={headerCnpj}
+                  onChange={(e) => setCustomHeaderCnpj(e.target.value)}
+                  onBlur={(e) => handleSaveTitleDirectly(headerNome, e.target.value)}
+                  placeholder="CNPJ / Inscrição Estadual (Opcional)..."
+                  style={{
+                    width: '70%',
+                    textAlign: 'center',
+                    fontSize: '0.85rem',
+                    padding: '4px 8px',
+                    border: '1px solid #ccc',
+                    borderRadius: '4px',
+                    outline: 'none',
+                    background: '#fff',
+                    color: '#444'
+                  }}
+                />
+              </div>
+            ) : (
+              <div 
+                style={{ cursor: 'pointer', padding: '4px 8px', borderRadius: '6px', transition: 'background 0.2s', display: 'inline-block' }}
+                onClick={() => setIsEditingTitle(true)}
+                title="Clique aqui para alterar a Razão Social deste relatório"
+              >
+                <h2 style={{ fontSize: '1.1rem', margin: '0 0 0.25rem 0', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                  <span>{headerNome}</span>
+                  <span style={{ fontSize: '0.8rem', opacity: 0.6 }} title="Editar Razão Social">✏️</span>
+                </h2>
+                {headerCnpj && <p style={{ fontSize: '0.9rem', margin: 0, color: '#333' }}>{headerCnpj}</p>}
+              </div>
+            )}
           </div>
         </div>
 
