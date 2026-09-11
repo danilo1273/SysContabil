@@ -65,6 +65,11 @@ export const parseProtheusExcel = async (fileBlob) => {
           // Descarta: 'Pergunta 01', 'Data Inicial ?', textos, etc.
           if (!conta || !(/^\d[\d.a-zA-Z_-]+$/.test(conta)) || !conta.includes('.')) continue;
 
+          // Desconsiderar conta de encerramento de exercício solicitada pelo usuário
+          if (conta === '2.9.9.1.01.00900' || conta.startsWith('2.9.9.1.01.00900') || descricao.toUpperCase().includes('ENCERRAMENTO DO EXERCICIO') || descricao.toUpperCase().includes('ENCERRAMENTO DO EXERCÍCIO')) {
+            continue;
+          }
+
           let valorMensal = 0;
           let valorAcumulado = 0;
 
