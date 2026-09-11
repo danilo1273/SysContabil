@@ -26,18 +26,16 @@ function PendencyWidget({ companies, ano, onSelectAno, availableYears = [] }) {
   React.useEffect(() => {
     setLoading(true);
     Promise.all(companies.map(async c => {
-      const { data } = await supabase.from("dre_history").select("id, mes").eq("empresaId", c.id).eq("ano", ano).lte("mes", 12);
-      let lastImport = 0;
-      let lastTax = 0;
-      if (Array.isArray(data)) {
-        data.forEach(r => {
-          if (r.id && r.id.startsWith("tax-dre-irpj")) {
-            if (r.mes > lastTax) lastTax = r.mes;
-          } else {
-            if (r.mes > lastImport) lastImport = r.mes;
-          }
-        });
-      }
+      const [dreLastRes, balLastRes, taxLastRes] = await Promise.all([
+        supabase.from("dre_history").select("mes").eq("empresaId", c.id).eq("ano", ano).lte("mes", 12).not("id", "like", "tax-%").order("mes", { ascending: false }).limit(1),
+        supabase.from("balanco_history").select("mes").eq("empresaId", c.id).eq("ano", ano).lte("mes", 12).not("id", "like", "tax-%").order("mes", { ascending: false }).limit(1),
+        supabase.from("dre_history").select("mes").eq("empresaId", c.id).eq("ano", ano).lte("mes", 12).like("id", "tax-dre-irpj%").order("mes", { ascending: false }).limit(1)
+      ]);
+
+      const maxDre = dreLastRes.data?.[0]?.mes || 0;
+      const maxBal = balLastRes.data?.[0]?.mes || 0;
+      const lastImport = Math.max(maxDre, maxBal);
+      const lastTax = taxLastRes.data?.[0]?.mes || 0;
       
       let isUnbalanced = false;
       let diffValue = 0;
