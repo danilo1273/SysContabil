@@ -61,23 +61,40 @@ window.fetch = async (...args) => {
       if (url.includes("/gestao/pendencias")) {
         const parts = url.split("/");
         const lastPart = parts[parts.length - 1].split("?")[0];
+        const isPut = config.method === "PUT" && lastPart && lastPart !== "pendencias";
         const targetId = (lastPart && lastPart !== "pendencias") ? lastPart : body.id;
         
-        const cleanPayload = {
-          id: targetId || ('pend-' + Date.now()),
-          documento: body.documento || '',
-          motivo: body.motivo || '',
-          responsavel: body.responsavel || '',
-          criador: body.criador || body.criado_por || 'Sistema',
-          status: body.status || 'pendente',
-          data_criacao: body.data_criacao || new Date().toISOString(),
-          data_correcao: body.data_correcao || null,
-          historico: typeof body.historico === 'string' ? body.historico : JSON.stringify(body.historico || [])
-        };
+        if (isPut && targetId) {
+          const updateData = {};
+          if (body.documento !== undefined) updateData.documento = body.documento;
+          if (body.motivo !== undefined) updateData.motivo = body.motivo;
+          if (body.responsavel !== undefined) updateData.responsavel = body.responsavel;
+          if (body.criador !== undefined) updateData.criador = body.criador;
+          if (body.status !== undefined) updateData.status = body.status;
+          if (body.data_criacao !== undefined) updateData.data_criacao = body.data_criacao;
+          if (body.data_correcao !== undefined) updateData.data_correcao = body.data_correcao;
+          if (body.historico !== undefined) updateData.historico = typeof body.historico === 'string' ? body.historico : JSON.stringify(body.historico || []);
 
-        const { error } = await supabase.from("agf_pendencias").upsert(cleanPayload);
-        if (error) console.error("Error upserting agf_pendencias:", error);
-        return { ok: !error, json: async () => ({ success: !error, error }) };
+          const { error } = await supabase.from("agf_pendencias").update(updateData).eq("id", targetId);
+          if (error) console.error("Error updating agf_pendencias:", error);
+          return { ok: !error, json: async () => ({ success: !error, error }) };
+        } else {
+          const cleanPayload = {
+            id: targetId || ('pend-' + Date.now()),
+            documento: body.documento || '',
+            motivo: body.motivo || '',
+            responsavel: body.responsavel || '',
+            criador: body.criador || body.criado_por || 'Sistema',
+            status: body.status || 'pendente',
+            data_criacao: body.data_criacao || new Date().toISOString(),
+            data_correcao: body.data_correcao || null,
+            historico: typeof body.historico === 'string' ? body.historico : JSON.stringify(body.historico || [])
+          };
+
+          const { error } = await supabase.from("agf_pendencias").upsert(cleanPayload);
+          if (error) console.error("Error upserting agf_pendencias:", error);
+          return { ok: !error, json: async () => ({ success: !error, error }) };
+        }
       }
       if (url.includes("/settings/agf_obrigacoes_tipos")) {
         await supabase.from("settings").upsert({ key: "agf_obrigacoes_tipos", value: JSON.stringify(body.value || body) });

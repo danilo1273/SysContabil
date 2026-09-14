@@ -295,6 +295,7 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                    ...p,
                     status: 'pendente',
                     data_correcao: null,
                     historico: JSON.stringify(hist)
@@ -319,6 +320,7 @@ function GestaoContabilModule({ userRole, userName, companies }) {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+                ...resolvingPendencia,
                 status: 'corrigido',
                 data_correcao: new Date().toISOString(),
                 historico: JSON.stringify(hist)
