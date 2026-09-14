@@ -241,9 +241,12 @@ app.post('/api/gestao/pendencias', (req, res) => {
 });
 
 app.put('/api/gestao/pendencias/:id', (req, res) => {
-    const { status, data_correcao, historico } = req.body;
-    db.run('UPDATE agf_pendencias SET status = ?, data_correcao = ?, historico = ? WHERE id = ?', 
-        [status, data_correcao, historico, req.params.id], () => res.json({ success: true }));
+    const { documento, motivo, responsavel, criador, status, data_criacao, data_correcao, historico } = req.body;
+    db.run(
+        'UPDATE agf_pendencias SET documento = COALESCE(?, documento), motivo = COALESCE(?, motivo), responsavel = COALESCE(?, responsavel), criador = COALESCE(?, criador), status = COALESCE(?, status), data_criacao = COALESCE(?, data_criacao), data_correcao = ?, historico = COALESCE(?, historico) WHERE id = ?', 
+        [documento, motivo, responsavel, criador, status, data_criacao, data_correcao, historico, req.params.id], 
+        () => res.json({ success: true })
+    );
 });
 
 app.delete('/api/gestao/pendencias/:id', (req, res) => {
