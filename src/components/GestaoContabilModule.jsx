@@ -55,7 +55,7 @@ function GestaoContabilModule({ userRole, userName, companies }) {
     const [rotinaViewMode, setRotinaViewMode] = useState('pipeline'); // 'pipeline' | 'table'
     const [showNewRotinaModal, setShowNewRotinaModal] = useState(false);
     const [showSmtpModal, setShowSmtpModal] = useState(false);
-    const [smtpConfig, setSmtpConfig] = useState({ host: '', port: 587, user: '', pass: '', from: '', secure: false });
+    const [smtpConfig, setSmtpConfig] = useState({ host: '', port: 587, user: '', pass: '', from: '', secure: false, resendApiKey: '', provider: 'resend' });
     const [isTestingSmtp, setIsTestingSmtp] = useState(false);
     const [editingRotina, setEditingRotina] = useState(null);
     const [newRotinaForm, setNewRotinaForm] = useState({
@@ -3007,89 +3007,159 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                         </div>
 
                         <form onSubmit={handleSaveSmtpConfig} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                            <div style={{ background: 'rgba(33, 150, 243, 0.1)', border: '1px solid rgba(33, 150, 243, 0.3)', borderRadius: '8px', padding: '0.8rem 1rem', fontSize: '0.78rem', color: '#90CAF9' }}>
-                                💡 Configure as credenciais SMTP do e-mail da AGF (ou Office 365, Gmail corporativo, etc.) para que as mensagens de liberação de rotinas cheguem diretamente na caixa de entrada dos responsáveis.
+                            {/* SELETOR DE MÉTODO DE ENVIO */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                                <button
+                                    type="button"
+                                    onClick={() => setSmtpConfig({ ...smtpConfig, provider: 'resend' })}
+                                    style={{
+                                        padding: '10px',
+                                        borderRadius: '8px',
+                                        border: (smtpConfig.provider || 'resend') === 'resend' ? '1px solid #4CAF50' : '1px solid rgba(255,255,255,0.1)',
+                                        background: (smtpConfig.provider || 'resend') === 'resend' ? 'rgba(76, 175, 80, 0.15)' : 'rgba(0,0,0,0.2)',
+                                        color: (smtpConfig.provider || 'resend') === 'resend' ? '#81C784' : '#888',
+                                        cursor: 'pointer',
+                                        fontWeight: 'bold',
+                                        fontSize: '0.82rem',
+                                        textAlign: 'center'
+                                    }}
+                                >
+                                    ⚡ Resend / Vercel (Sem Senha)
+                                    <div style={{ fontSize: '0.7rem', fontWeight: 'normal', marginTop: '2px' }}>Recomendado • Grátis 3.000/mês</div>
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setSmtpConfig({ ...smtpConfig, provider: 'smtp' })}
+                                    style={{
+                                        padding: '10px',
+                                        borderRadius: '8px',
+                                        border: smtpConfig.provider === 'smtp' ? '1px solid #FF9800' : '1px solid rgba(255,255,255,0.1)',
+                                        background: smtpConfig.provider === 'smtp' ? 'rgba(255, 152, 0, 0.15)' : 'rgba(0,0,0,0.2)',
+                                        color: smtpConfig.provider === 'smtp' ? '#FFB74D' : '#888',
+                                        cursor: 'pointer',
+                                        fontWeight: 'bold',
+                                        fontSize: '0.82rem',
+                                        textAlign: 'center'
+                                    }}
+                                >
+                                    🏢 SMTP Próprio (Outlook/Gmail)
+                                    <div style={{ fontSize: '0.7rem', fontWeight: 'normal', marginTop: '2px' }}>Servidor tradicional com senha</div>
+                                </button>
                             </div>
 
-                            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem' }}>
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '0.8rem', color: '#ccc', marginBottom: '4px', fontWeight: 'bold' }}>
-                                        Servidor SMTP (Host):
-                                    </label>
-                                    <input
-                                        type="text"
-                                        placeholder="ex: smtp.office365.com ou smtp.gmail.com"
-                                        value={smtpConfig.host || ''}
-                                        onChange={(e) => setSmtpConfig({ ...smtpConfig, host: e.target.value })}
-                                        className="text-input"
-                                        style={{ width: '100%', padding: '0.55rem' }}
-                                    />
+                            {/* PAINEL RESEND (SEM SENHA) */}
+                            {(smtpConfig.provider || 'resend') === 'resend' ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem', background: 'rgba(76, 175, 80, 0.05)', border: '1px solid rgba(76, 175, 80, 0.25)', borderRadius: '8px', padding: '1rem' }}>
+                                    <div style={{ fontSize: '0.8rem', color: '#ccc', lineHeight: '1.4' }}>
+                                        🔒 <strong>100% Seguro:</strong> Não precisa colocar sua senha pessoal de e-mail! O <strong>Resend</strong> é o serviço padrão da Vercel. Você só cria uma conta gratuita no site <a href="https://resend.com" target="_blank" rel="noreferrer" style={{ color: '#81C784', textDecoration: 'underline' }}>resend.com</a> e cola a chave aqui:
+                                    </div>
+
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.8rem', color: '#fff', marginBottom: '4px', fontWeight: 'bold' }}>
+                                            Chave de API do Resend (API Key):
+                                        </label>
+                                        <input
+                                            type="password"
+                                            placeholder="ex: re_123456789abcdef..."
+                                            value={smtpConfig.resendApiKey || ''}
+                                            onChange={(e) => setSmtpConfig({ ...smtpConfig, resendApiKey: e.target.value })}
+                                            className="text-input"
+                                            style={{ width: '100%', padding: '0.55rem' }}
+                                        />
+                                        <span style={{ fontSize: '0.72rem', color: '#888', marginTop: '3px', display: 'block' }}>
+                                            Obtenha em resend.com/api-keys (gratuito até 3.000 e-mails/mês). Ou adicione RESEND_API_KEY no painel da Vercel.
+                                        </span>
+                                    </div>
+
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.8rem', color: '#ccc', marginBottom: '4px', fontWeight: 'bold' }}>
+                                            Nome / Endereço de Exibição (Opcional):
+                                        </label>
+                                        <input
+                                            type="text"
+                                            placeholder="SysContábil AGF <onboarding@resend.dev>"
+                                            value={smtpConfig.from || ''}
+                                            onChange={(e) => setSmtpConfig({ ...smtpConfig, from: e.target.value })}
+                                            className="text-input"
+                                            style={{ width: '100%', padding: '0.55rem' }}
+                                        />
+                                    </div>
                                 </div>
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '0.8rem', color: '#ccc', marginBottom: '4px', fontWeight: 'bold' }}>
-                                        Porta:
+                            ) : (
+                                /* PAINEL SMTP TRADICIONAL */
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
+                                    <div style={{ background: 'rgba(255, 152, 0, 0.08)', border: '1px solid rgba(255, 152, 0, 0.25)', borderRadius: '8px', padding: '0.8rem', fontSize: '0.76rem', color: '#FFB74D' }}>
+                                        ℹ️ Para e-mails corporativos Microsoft/Google, recomendamos criar uma <strong>Senha de Aplicativo</strong> em vez da senha principal da sua conta.
+                                    </div>
+
+                                    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem' }}>
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.8rem', color: '#ccc', marginBottom: '4px', fontWeight: 'bold' }}>
+                                                Servidor SMTP (Host):
+                                            </label>
+                                            <input
+                                                type="text"
+                                                placeholder="ex: smtp.office365.com ou smtp.gmail.com"
+                                                value={smtpConfig.host || ''}
+                                                onChange={(e) => setSmtpConfig({ ...smtpConfig, host: e.target.value })}
+                                                className="text-input"
+                                                style={{ width: '100%', padding: '0.55rem' }}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.8rem', color: '#ccc', marginBottom: '4px', fontWeight: 'bold' }}>
+                                                Porta:
+                                            </label>
+                                            <input
+                                                type="number"
+                                                placeholder="587 ou 465"
+                                                value={smtpConfig.port || 587}
+                                                onChange={(e) => setSmtpConfig({ ...smtpConfig, port: parseInt(e.target.value) || 587 })}
+                                                className="text-input"
+                                                style={{ width: '100%', padding: '0.55rem' }}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.8rem', color: '#ccc', marginBottom: '4px', fontWeight: 'bold' }}>
+                                            Usuário / E-mail de Autenticação:
+                                        </label>
+                                        <input
+                                            type="text"
+                                            placeholder="ex: notificacoes@agfequipamentos.com.br"
+                                            value={smtpConfig.user || ''}
+                                            onChange={(e) => setSmtpConfig({ ...smtpConfig, user: e.target.value })}
+                                            className="text-input"
+                                            style={{ width: '100%', padding: '0.55rem' }}
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.8rem', color: '#ccc', marginBottom: '4px', fontWeight: 'bold' }}>
+                                            Senha / Token de Aplicativo:
+                                        </label>
+                                        <input
+                                            type="password"
+                                            placeholder="••••••••••••"
+                                            value={smtpConfig.pass || ''}
+                                            onChange={(e) => setSmtpConfig({ ...smtpConfig, pass: e.target.value })}
+                                            className="text-input"
+                                            style={{ width: '100%', padding: '0.55rem' }}
+                                        />
+                                    </div>
+
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.82rem', color: '#ccc' }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={Boolean(smtpConfig.secure)}
+                                            onChange={(e) => setSmtpConfig({ ...smtpConfig, secure: e.target.checked })}
+                                        />
+                                        Conexão Segura SSL/TLS (marcar se porta for 465)
                                     </label>
-                                    <input
-                                        type="number"
-                                        placeholder="587 ou 465"
-                                        value={smtpConfig.port || 587}
-                                        onChange={(e) => setSmtpConfig({ ...smtpConfig, port: parseInt(e.target.value) || 587 })}
-                                        className="text-input"
-                                        style={{ width: '100%', padding: '0.55rem' }}
-                                    />
                                 </div>
-                            </div>
-
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.8rem', color: '#ccc', marginBottom: '4px', fontWeight: 'bold' }}>
-                                    Usuário / E-mail de Autenticação:
-                                </label>
-                                <input
-                                    type="text"
-                                    placeholder="ex: notificacoes@agfequipamentos.com.br"
-                                    value={smtpConfig.user || ''}
-                                    onChange={(e) => setSmtpConfig({ ...smtpConfig, user: e.target.value })}
-                                    className="text-input"
-                                    style={{ width: '100%', padding: '0.55rem' }}
-                                />
-                            </div>
-
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.8rem', color: '#ccc', marginBottom: '4px', fontWeight: 'bold' }}>
-                                    Senha / Token de Aplicativo:
-                                </label>
-                                <input
-                                    type="password"
-                                    placeholder="••••••••••••"
-                                    value={smtpConfig.pass || ''}
-                                    onChange={(e) => setSmtpConfig({ ...smtpConfig, pass: e.target.value })}
-                                    className="text-input"
-                                    style={{ width: '100%', padding: '0.55rem' }}
-                                />
-                            </div>
-
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.8rem', color: '#ccc', marginBottom: '4px', fontWeight: 'bold' }}>
-                                    Nome / Endereço do Remetente (From):
-                                </label>
-                                <input
-                                    type="text"
-                                    placeholder='ex: "SysContábil AGF" <notificacoes@agfequipamentos.com.br>'
-                                    value={smtpConfig.from || ''}
-                                    onChange={(e) => setSmtpConfig({ ...smtpConfig, from: e.target.value })}
-                                    className="text-input"
-                                    style={{ width: '100%', padding: '0.55rem' }}
-                                />
-                            </div>
-
-                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.82rem', color: '#ccc' }}>
-                                <input
-                                    type="checkbox"
-                                    checked={Boolean(smtpConfig.secure)}
-                                    onChange={(e) => setSmtpConfig({ ...smtpConfig, secure: e.target.checked })}
-                                />
-                                Conexão Segura SSL/TLS (marcar se porta for 465)
-                            </label>
+                            )}
 
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem', paddingTop: '0.8rem', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                                 <button

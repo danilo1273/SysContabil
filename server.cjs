@@ -522,6 +522,36 @@ app.post("/api/send-email", (req, res) => {
       } catch (e) {}
     }
 
+    // Suporte a envio direto por API Resend (sem senha pessoal)
+    const resendKey = process.env.RESEND_API_KEY || smtpConfig?.resendApiKey;
+    if (resendKey) {
+      try {
+        const fromEmail = process.env.RESEND_FROM || smtpConfig?.from || 'SysContábil AGF <onboarding@resend.dev>';
+        const rRes = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${resendKey}`
+          },
+          body: JSON.stringify({
+            from: fromEmail,
+            to: [to],
+            subject: subject || 'Notificação SysContábil',
+            text: text || '',
+            html: html || text || ''
+          })
+        });
+        const rData = await rRes.json();
+        if (rRes.ok) {
+          return res.json({ success: true, mode: 'resend_api', id: rData.id });
+        } else {
+          return res.json({ success: false, error: rData.message || 'Falha Resend API' });
+        }
+      } catch (rErr) {
+        return res.json({ success: false, error: rErr.message });
+      }
+    }
+
     if (nodemailer && smtpConfig && smtpConfig.host && smtpConfig.user && smtpConfig.pass) {
       try {
         const transporter = nodemailer.createTransport({

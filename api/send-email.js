@@ -55,6 +55,36 @@ export default async function handler(req, res) {
       }
     }
 
+    // 2.1 Envio via API do Resend (Sem necessidade de senha de e-mail!)
+    const resendKey = process.env.RESEND_API_KEY || smtpConfig?.resendApiKey;
+    if (resendKey) {
+      const fromEmail = process.env.RESEND_FROM || smtpConfig?.from || 'SysContábil AGF <onboarding@resend.dev>';
+      const rRes = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${resendKey}`
+        },
+        body: JSON.stringify({
+          from: fromEmail,
+          to: [to],
+          subject: subject || 'Notificação SysContábil',
+          text: text || '',
+          html: html || `<p>${text || ''}</p>`
+        })
+      });
+      const rData = await rRes.json();
+      if (rRes.ok) {
+        return res.status(200).json({
+          success: true,
+          mode: 'resend_api',
+          id: rData.id
+        });
+      } else {
+        throw new Error(rData.message || 'Falha ao enviar via Resend API');
+      }
+    }
+
     // 3. Enviar via Nodemailer SMTP (Office 365, Gmail, Locaweb, etc.)
     if (smtpConfig && smtpConfig.host && smtpConfig.user && smtpConfig.pass) {
       const transporter = nodemailer.createTransport({
