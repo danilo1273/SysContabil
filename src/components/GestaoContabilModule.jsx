@@ -60,10 +60,11 @@ function GestaoContabilModule({ userRole, userName, companies }) {
     const [editingRotina, setEditingRotina] = useState(null);
     const [newRotinaForm, setNewRotinaForm] = useState({
         titulo: '',
+        abrangencia: 'consolidado', // 'filial' | 'consolidado'
         empresaId: 'equipamentos',
         filialCode: '0101',
         categoria: 'fiscal',
-        tipo: 'personalizado',
+        tipo: 'declaracao_consolidada',
         responsavel: '',
         responsavelEmail: '',
         data_limite: '',
@@ -477,27 +478,33 @@ function GestaoContabilModule({ userRole, userName, companies }) {
         window.$toast(`Sucesso! ${createdCount} novas rotinas geradas para o mês ${selectedMes}/${selectedAno}.`, { type: 'success' });
     };
 
-    // Criar Nova Rotina Personalizada
+    // Criar Nova Rotina / Declaração (Por Filial ou Consolidada da Empresa)
     const handleSaveNewCustomRotina = async (e) => {
         e.preventDefault();
         if (!newRotinaForm.titulo.trim()) {
-            window.$alert('Por favor, informe o título da rotina.');
+            window.$alert('Por favor, informe o título da rotina ou declaração.');
             return;
         }
 
-        const selectedFilialObj = filiaisList.find(f => f.code === newRotinaForm.filialCode) || { code: newRotinaForm.filialCode, name: `Filial ${newRotinaForm.filialCode}` };
-        const newId = `rot-${selectedAno}-${selectedMes}-${newRotinaForm.filialCode}-${Date.now().toString(36)}`;
+        const isConsolidado = newRotinaForm.abrangencia === 'consolidado';
+        const targetEmpresaConfig = EMPRESAS_CONFIG.find(e => e.id === newRotinaForm.empresaId);
+        const selectedFilialObj = isConsolidado
+            ? { code: 'consolidado', name: `Consolidado (${targetEmpresaConfig?.name || 'Empresa'})` }
+            : (filiaisList.find(f => f.code === newRotinaForm.filialCode) || { code: newRotinaForm.filialCode, name: `Filial ${newRotinaForm.filialCode}` });
+        
+        const newId = `rot-${selectedAno}-${selectedMes}-${selectedFilialObj.code}-${Date.now().toString(36)}`;
         
         const newRoutine = {
             id: newId,
             ano: selectedAno,
             mes: selectedMes,
             empresaId: newRotinaForm.empresaId,
-            filialCode: newRotinaForm.filialCode,
+            filialCode: selectedFilialObj.code,
             filialNome: selectedFilialObj.name,
             titulo: newRotinaForm.titulo.trim(),
             categoria: newRotinaForm.categoria,
-            tipo: newRotinaForm.tipo || 'personalizado',
+            tipo: isConsolidado ? 'declaracao_consolidada' : (newRotinaForm.tipo || 'personalizado'),
+            abrangencia: isConsolidado ? 'consolidado' : 'filial',
             dia_atual: 0,
             status: (newRotinaForm.dependencias && newRotinaForm.dependencias.length > 0) ? 'bloqueada' : 'em_andamento',
             responsavel: newRotinaForm.responsavel,
@@ -515,16 +522,17 @@ function GestaoContabilModule({ userRole, userName, companies }) {
         setShowNewRotinaModal(false);
         setNewRotinaForm({
             titulo: '',
+            abrangencia: 'consolidado',
             empresaId: 'equipamentos',
             filialCode: '0101',
             categoria: 'fiscal',
-            tipo: 'personalizado',
+            tipo: 'declaracao_consolidada',
             responsavel: '',
             responsavelEmail: '',
             data_limite: '',
             dependencias: []
         });
-        window.$toast(`Rotina "${newRoutine.titulo}" cadastrada com sucesso!`, { type: 'success' });
+        window.$toast(`${isConsolidado ? 'Declaração Consolidada' : 'Rotina'} "${newRoutine.titulo}" cadastrada com sucesso!`, { type: 'success' });
     };
 
     // Atualizar Dia da Integração (0 a 31)
@@ -1085,6 +1093,14 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                 const totalApuracoesConcluidas = totalApuracoes.filter(r => r.status === 'concluida').length;
                 const pctGeral = totalIntegracoes.length > 0 ? Math.round((totalIntegracoesConcluidas / totalIntegracoes.length) * 100) : 0;
 
+                // Declarações e Obrigações Consolidadas (não restritas a uma única filial)
+                const rotinasConsolidadas = rotinas.filter(r => {
+                    const isConsol = r.abrangencia === 'consolidado' || r.filialCode === 'consolidado' || r.tipo === 'declaracao_consolidada';
+                    if (!isConsol) return false;
+                    if (rotinaEmpresaFilter !== 'todas' && r.empresaId !== rotinaEmpresaFilter) return false;
+                    return true;
+                });
+
                 return (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
                         
@@ -1224,6 +1240,195 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                 >
                                     <Sparkles size={15} /> Gerar Rotinas Padrão do Mês
                                 </button>
+                            </div>
+                        )}
+
+                        {/* OBRIGAÇÕES E DECLARAÇÕES CONSOLIDADAS (EFD, DCTF, SPED, ETC.) */}
+                        {rotinasConsolidadas.length > 0 && (
+                            <div style={{
+                                background: 'rgba(33, 150, 243, 0.04)',
+                                border: '1px solid rgba(33, 150, 243, 0.25)',
+                                borderRadius: '12px',
+                                padding: '1.2rem',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '1rem'
+                            }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <Layers size={18} style={{ color: '#64B5F6' }} />
+                                        <h4 style={{ margin: 0, color: '#fff', fontSize: '1rem', fontWeight: 'bold' }}>
+                                            Declarações & Obrigações Consolidadas da Empresa
+                                        </h4>
+                                        <span style={{ fontSize: '0.74rem', background: 'rgba(33, 150, 243, 0.2)', color: '#90CAF9', padding: '2px 8px', borderRadius: '12px', fontWeight: 'bold' }}>
+                                            {rotinasConsolidadas.length} {rotinasConsolidadas.length === 1 ? 'declaração' : 'declarações'}
+                                        </span>
+                                    </div>
+                                    <span style={{ fontSize: '0.76rem', color: '#aaa' }}>
+                                        Obrigações centralizadas que dependem do fechamento das integrações de todas as filiais
+                                    </span>
+                                </div>
+
+                                <div style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))',
+                                    gap: '1rem'
+                                }}>
+                                    {rotinasConsolidadas.map(decl => {
+                                        const empConfig = EMPRESAS_CONFIG.find(e => e.id === decl.empresaId) || { name: decl.empresaId, color: '#2196F3' };
+                                        const isDone = decl.status === 'concluida';
+                                        const isLiberada = decl.status === 'liberada';
+
+                                        const totalDeps = (decl.dependencias || []).length;
+                                        let doneDeps = 0;
+                                        const pendingDeps = [];
+
+                                        (decl.dependencias || []).forEach(depId => {
+                                            const r = rotinas.find(x => x.id === depId);
+                                            if (r && (r.status === 'concluida' || (r.dia_atual !== undefined && r.dia_atual >= 31))) {
+                                                doneDeps++;
+                                            } else if (r) {
+                                                pendingDeps.push(r);
+                                            }
+                                        });
+
+                                        const depPct = totalDeps > 0 ? Math.round((doneDeps / totalDeps) * 100) : (isDone ? 100 : 0);
+
+                                        return (
+                                            <div
+                                                key={decl.id}
+                                                style={{
+                                                    background: isDone 
+                                                        ? 'rgba(76, 175, 80, 0.05)' 
+                                                        : isLiberada 
+                                                        ? 'rgba(76, 175, 80, 0.1)' 
+                                                        : 'rgba(0,0,0,0.3)',
+                                                    border: `1px solid ${
+                                                        isDone 
+                                                            ? 'rgba(76, 175, 80, 0.3)' 
+                                                            : isLiberada 
+                                                            ? '#4CAF50' 
+                                                            : 'rgba(255,255,255,0.08)'
+                                                    }`,
+                                                    borderLeft: `4px solid ${empConfig.color}`,
+                                                    borderRadius: '10px',
+                                                    padding: '1rem',
+                                                    display: 'flex',
+                                                    flexDirection: 'column',
+                                                    gap: '0.8rem'
+                                                }}
+                                            >
+                                                {/* Header da Declaração */}
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                                                    <div>
+                                                        <h4 style={{ margin: 0, color: '#fff', fontSize: '1rem', fontWeight: 'bold' }}>
+                                                            {decl.titulo}
+                                                        </h4>
+                                                        <div style={{ fontSize: '0.74rem', color: '#888', marginTop: '2px' }}>
+                                                            🏢 {empConfig.name} • Consolidado
+                                                        </div>
+                                                    </div>
+
+                                                    <div>
+                                                        {isDone ? (
+                                                            <span style={{ background: 'rgba(76, 175, 80, 0.18)', color: '#81C784', border: '1px solid rgba(76, 175, 80, 0.4)', padding: '2px 8px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 'bold' }}>
+                                                                ✅ Concluída
+                                                            </span>
+                                                        ) : isLiberada ? (
+                                                            <span style={{ background: 'rgba(76, 175, 80, 0.25)', color: '#4CAF50', border: '1px solid #4CAF50', padding: '2px 8px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 'bold' }}>
+                                                                🟢 Pronta p/ Envio
+                                                            </span>
+                                                        ) : (
+                                                            <span style={{ background: 'rgba(255, 152, 0, 0.12)', color: '#FFB74D', border: '1px solid rgba(255, 152, 0, 0.25)', padding: '2px 8px', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 'bold' }}>
+                                                                🔒 Bloqueada
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                {/* Barra de Progresso das Integrações Pré-Requisito */}
+                                                <div style={{ background: 'rgba(0,0,0,0.2)', padding: '8px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '4px' }}>
+                                                        <span style={{ color: '#aaa' }}>Integrações Pré-Requisito:</span>
+                                                        <span style={{ color: depPct === 100 ? '#81C784' : '#FFB74D', fontWeight: 'bold' }}>
+                                                            {doneDeps}/{totalDeps} ({depPct}%)
+                                                        </span>
+                                                    </div>
+                                                    <div style={{ background: 'rgba(255,255,255,0.06)', height: '4px', borderRadius: '2px', overflow: 'hidden' }}>
+                                                        <div style={{ width: `${depPct}%`, height: '100%', background: depPct === 100 ? '#4CAF50' : '#FF9800', transition: 'width 0.3s' }}></div>
+                                                    </div>
+                                                    {pendingDeps.length > 0 && !isDone && (
+                                                        <div style={{ fontSize: '0.7rem', color: '#E57373', marginTop: '6px', lineHeight: '1.3' }}>
+                                                            Pendente: {pendingDeps.slice(0, 3).map(p => `${p.filialCode} (${p.tipo || p.titulo})`).join(', ')}
+                                                            {pendingDeps.length > 3 ? ` e mais ${pendingDeps.length - 3}...` : ''}
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* Responsável e Prazo */}
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', color: '#888' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                        <User size={13} style={{ color: '#777' }} />
+                                                        <span>{decl.responsavel || 'Sem responsável'}</span>
+                                                    </div>
+                                                    {decl.data_limite && (
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#FFB74D' }}>
+                                                            <Clock size={12} /> Prazo: {decl.data_limite.split('-').reverse().join('/')}
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* Ações */}
+                                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px', paddingTop: '6px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                                                    {isDone ? (
+                                                        <button
+                                                            onClick={() => handleToggleRotinaStatus(decl)}
+                                                            style={{ background: 'rgba(255,255,255,0.06)', color: '#aaa', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '4px', padding: '3px 8px', cursor: 'pointer', fontSize: '0.72rem' }}
+                                                        >
+                                                            Reabrir
+                                                        </button>
+                                                    ) : (
+                                                        <button
+                                                            onClick={() => handleToggleRotinaStatus(decl)}
+                                                            disabled={!isLiberada}
+                                                            style={{
+                                                                background: isLiberada ? '#4CAF50' : 'rgba(255,255,255,0.05)',
+                                                                color: isLiberada ? '#fff' : '#666',
+                                                                border: 'none',
+                                                                borderRadius: '4px',
+                                                                padding: '4px 10px',
+                                                                cursor: isLiberada ? 'pointer' : 'not-allowed',
+                                                                fontSize: '0.75rem',
+                                                                fontWeight: 'bold',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: '4px'
+                                                            }}
+                                                        >
+                                                            <Check size={13} /> Concluir Transmissão
+                                                        </button>
+                                                    )}
+
+                                                    <button
+                                                        onClick={() => handleOpenManualEmail(decl)}
+                                                        style={{ background: 'rgba(33, 150, 243, 0.15)', color: '#64B5F6', border: '1px solid rgba(33, 150, 243, 0.3)', borderRadius: '4px', padding: '3px 8px', cursor: 'pointer', fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                                                        title="Notificar por e-mail"
+                                                    >
+                                                        <Mail size={12} /> E-mail
+                                                    </button>
+
+                                                    <button
+                                                        onClick={() => handleDeleteRotina(decl)}
+                                                        style={{ background: 'rgba(239, 83, 80, 0.15)', color: '#E57373', border: '1px solid rgba(239, 83, 80, 0.3)', borderRadius: '4px', padding: '3px 6px', cursor: 'pointer' }}
+                                                        title="Excluir rotina"
+                                                    >
+                                                        <Trash2 size={12} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
                             </div>
                         )}
 
@@ -2402,17 +2607,72 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                         <form onSubmit={handleSaveNewCustomRotina} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                             <div>
                                 <label style={{ display: 'block', fontSize: '0.8rem', color: '#ccc', marginBottom: '4px', fontWeight: 'bold' }}>
-                                    Título da Rotina / Operação: *
+                                    Título da Rotina / Declaração: *
                                 </label>
                                 <input
                                     type="text"
-                                    placeholder="Ex: Apuração Fiscal - Filial 0101 ou Conciliação Bancária"
+                                    placeholder="Ex: EFD CONTRIBUIÇÕES, DCTF WEB, SPED ECF, Apuração Fiscal..."
                                     value={newRotinaForm.titulo}
                                     onChange={(e) => setNewRotinaForm({ ...newRotinaForm, titulo: e.target.value })}
                                     className="text-input"
                                     style={{ width: '100%', padding: '0.55rem' }}
                                     required
                                 />
+                            </div>
+
+                            {/* SELETOR DE ABRANGÊNCIA: POR FILIAL OU CONSOLIDADA */}
+                            <div>
+                                <label style={{ display: 'block', fontSize: '0.8rem', color: '#ccc', marginBottom: '6px', fontWeight: 'bold' }}>
+                                    Abrangência / Nível:
+                                </label>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setNewRotinaForm({ ...newRotinaForm, abrangencia: 'consolidado' })}
+                                        style={{
+                                            padding: '8px 12px',
+                                            borderRadius: '8px',
+                                            border: newRotinaForm.abrangencia === 'consolidado' ? '1px solid #2196F3' : '1px solid rgba(255,255,255,0.1)',
+                                            background: newRotinaForm.abrangencia === 'consolidado' ? 'rgba(33, 150, 243, 0.2)' : 'rgba(0,0,0,0.2)',
+                                            color: newRotinaForm.abrangencia === 'consolidado' ? '#64B5F6' : '#888',
+                                            cursor: 'pointer',
+                                            fontWeight: 'bold',
+                                            fontSize: '0.82rem',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '6px'
+                                        }}
+                                    >
+                                        <Layers size={16} /> 🌐 Consolidada da Empresa
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setNewRotinaForm({ ...newRotinaForm, abrangencia: 'filial' })}
+                                        style={{
+                                            padding: '8px 12px',
+                                            borderRadius: '8px',
+                                            border: newRotinaForm.abrangencia === 'filial' ? '1px solid #FF9800' : '1px solid rgba(255,255,255,0.1)',
+                                            background: newRotinaForm.abrangencia === 'filial' ? 'rgba(255, 152, 0, 0.15)' : 'rgba(0,0,0,0.2)',
+                                            color: newRotinaForm.abrangencia === 'filial' ? '#FFB74D' : '#888',
+                                            cursor: 'pointer',
+                                            fontWeight: 'bold',
+                                            fontSize: '0.82rem',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: '6px'
+                                        }}
+                                    >
+                                        <Building2 size={16} /> 🏢 Por Filial Específica
+                                    </button>
+                                </div>
+                                <div style={{ fontSize: '0.73rem', color: '#888', marginTop: '4px' }}>
+                                    {newRotinaForm.abrangencia === 'consolidado' 
+                                        ? '💡 Declarações como EFD Contribuições, DCTF e SPED ECF englobam todas as filiais e dependem do fechamento geral.'
+                                        : '💡 Rotinas operacionais exclusivas de uma filial específica.'
+                                    }
+                                </div>
                             </div>
 
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
@@ -2425,7 +2685,7 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                         onChange={(e) => {
                                             const empId = e.target.value;
                                             const firstFilial = filiaisList.find(f => f.empresaId === empId)?.code || '0101';
-                                            setNewRotinaForm({ ...newRotinaForm, empresaId: empId, filialCode: firstFilial });
+                                            setNewRotinaForm({ ...newRotinaForm, empresaId: empId, filialCode: firstFilial, dependencias: [] });
                                         }}
                                         className="select-input"
                                         style={{ width: '100%', padding: '0.55rem' }}
@@ -2440,19 +2700,35 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                     <label style={{ display: 'block', fontSize: '0.8rem', color: '#ccc', marginBottom: '4px', fontWeight: 'bold' }}>
                                         Filial:
                                     </label>
-                                    <select
-                                        value={newRotinaForm.filialCode}
-                                        onChange={(e) => setNewRotinaForm({ ...newRotinaForm, filialCode: e.target.value })}
-                                        className="select-input"
-                                        style={{ width: '100%', padding: '0.55rem' }}
-                                    >
-                                        {filiaisList
-                                            .filter(f => f.empresaId === newRotinaForm.empresaId)
-                                            .map(f => (
-                                                <option key={f.code} value={f.code}>{f.name}</option>
-                                            ))
-                                        }
-                                    </select>
+                                    {newRotinaForm.abrangencia === 'consolidado' ? (
+                                        <div style={{
+                                            background: 'rgba(33, 150, 243, 0.1)',
+                                            border: '1px solid rgba(33, 150, 243, 0.3)',
+                                            borderRadius: '6px',
+                                            padding: '0.55rem',
+                                            fontSize: '0.8rem',
+                                            color: '#90CAF9',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px'
+                                        }}>
+                                            <Layers size={14} /> Consolidado (Todas as Filiais)
+                                        </div>
+                                    ) : (
+                                        <select
+                                            value={newRotinaForm.filialCode}
+                                            onChange={(e) => setNewRotinaForm({ ...newRotinaForm, filialCode: e.target.value, dependencias: [] })}
+                                            className="select-input"
+                                            style={{ width: '100%', padding: '0.55rem' }}
+                                        >
+                                            {filiaisList
+                                                .filter(f => f.empresaId === newRotinaForm.empresaId)
+                                                .map(f => (
+                                                    <option key={f.code} value={f.code}>{f.name}</option>
+                                                ))
+                                            }
+                                        </select>
+                                    )}
                                 </div>
                             </div>
 
@@ -2532,41 +2808,153 @@ function GestaoContabilModule({ userRole, userName, companies }) {
 
                             {/* AMARRAÇÃO DE DEPENDÊNCIAS */}
                             <div style={{ background: 'rgba(255,255,255,0.03)', padding: '1rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
-                                <label style={{ display: 'block', fontSize: '0.82rem', color: '#FFB74D', marginBottom: '6px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <Lock size={15} /> Amarração de Dependências (Predecessoras):
-                                </label>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px', marginBottom: '6px' }}>
+                                    <label style={{ fontSize: '0.82rem', color: '#FFB74D', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <Lock size={15} /> Amarração de Dependências (Predecessoras):
+                                    </label>
+                                    <span style={{ fontSize: '0.74rem', color: '#888' }}>
+                                        {(newRotinaForm.dependencias || []).length} selecionada(s)
+                                    </span>
+                                </div>
                                 <p style={{ fontSize: '0.75rem', color: '#888', margin: '0 0 10px 0' }}>
-                                    Selecione quais rotinas precisam ser finalizadas (dia 31) antes que esta operação seja liberada e envie e-mail ao responsável:
+                                    {newRotinaForm.abrangencia === 'consolidado' 
+                                        ? 'Selecione as integrações de todas as filiais que precisam estar no dia 31 antes de liberar esta declaração:'
+                                        : 'Selecione quais rotinas precisam ser finalizadas antes que esta operação seja liberada:'
+                                    }
                                 </p>
 
-                                <div style={{ maxHeight: '160px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                    {rotinas
-                                        .filter(r => r.filialCode === newRotinaForm.filialCode)
-                                        .map(r => {
-                                            const isChecked = (newRotinaForm.dependencias || []).includes(r.id);
-                                            return (
-                                                <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#ddd', cursor: 'pointer', background: isChecked ? 'rgba(255, 152, 0, 0.12)' : 'rgba(0,0,0,0.2)', padding: '6px 10px', borderRadius: '6px', border: `1px solid ${isChecked ? 'rgba(255, 152, 0, 0.3)' : 'transparent'}` }}>
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={isChecked}
-                                                        onChange={(e) => {
-                                                            const newDeps = e.target.checked
-                                                                ? [...(newRotinaForm.dependencias || []), r.id]
-                                                                : (newRotinaForm.dependencias || []).filter(id => id !== r.id);
-                                                            setNewRotinaForm({ ...newRotinaForm, dependencias: newDeps });
-                                                        }}
-                                                    />
-                                                    <span style={{ fontWeight: isChecked ? 'bold' : 'normal' }}>{r.titulo}</span>
-                                                    <span style={{ color: '#888', fontSize: '0.72rem', marginLeft: 'auto' }}>
-                                                        {r.status === 'concluida' ? '✅ Concluída' : `Dia ${r.dia_atual || 0}/31`}
-                                                    </span>
-                                                </label>
-                                            );
-                                        })
-                                    }
-                                    {rotinas.filter(r => r.filialCode === newRotinaForm.filialCode).length === 0 && (
+                                {/* BOTÕES DE ATALHO RÁPIDO PARA MARCAÇÃO EM MASSA */}
+                                {newRotinaForm.abrangencia === 'consolidado' && (
+                                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const allCompanyIntegracoes = rotinas
+                                                    .filter(r => r.empresaId === newRotinaForm.empresaId && r.categoria === 'integracao')
+                                                    .map(r => r.id);
+                                                setNewRotinaForm({ ...newRotinaForm, dependencias: allCompanyIntegracoes });
+                                            }}
+                                            style={{
+                                                background: 'rgba(33, 150, 243, 0.18)',
+                                                color: '#64B5F6',
+                                                border: '1px solid rgba(33, 150, 243, 0.4)',
+                                                borderRadius: '5px',
+                                                padding: '4px 8px',
+                                                fontSize: '0.72rem',
+                                                fontWeight: 'bold',
+                                                cursor: 'pointer'
+                                            }}
+                                        >
+                                            ⚡ Marcar Todas as Integrações da Empresa
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const allCompanyApuracoes = rotinas
+                                                    .filter(r => r.empresaId === newRotinaForm.empresaId && r.tipo === 'apuracao_fiscal')
+                                                    .map(r => r.id);
+                                                setNewRotinaForm({ ...newRotinaForm, dependencias: allCompanyApuracoes });
+                                            }}
+                                            style={{
+                                                background: 'rgba(76, 175, 80, 0.18)',
+                                                color: '#81C784',
+                                                border: '1px solid rgba(76, 175, 80, 0.4)',
+                                                borderRadius: '5px',
+                                                padding: '4px 8px',
+                                                fontSize: '0.72rem',
+                                                fontWeight: 'bold',
+                                                cursor: 'pointer'
+                                            }}
+                                        >
+                                            ⚡ Marcar Todas as Apurações Fiscais
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setNewRotinaForm({ ...newRotinaForm, dependencias: [] })}
+                                            style={{
+                                                background: 'rgba(255, 255, 255, 0.05)',
+                                                color: '#aaa',
+                                                border: '1px solid rgba(255, 255, 255, 0.1)',
+                                                borderRadius: '5px',
+                                                padding: '4px 8px',
+                                                fontSize: '0.72rem',
+                                                cursor: 'pointer'
+                                            }}
+                                        >
+                                            Limpar
+                                        </button>
+                                    </div>
+                                )}
+
+                                <div style={{ maxHeight: '220px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                    {newRotinaForm.abrangencia === 'consolidado' ? (
+                                        // LISTA AGRUPADA POR FILIAL PARA A DECLARAÇÃO CONSOLIDADA
+                                        filiaisList
+                                            .filter(f => f.empresaId === newRotinaForm.empresaId)
+                                            .map(f => {
+                                                const fRots = rotinas.filter(r => r.filialCode === f.code);
+                                                if (fRots.length === 0) return null;
+                                                return (
+                                                    <div key={f.code} style={{ background: 'rgba(0,0,0,0.25)', borderRadius: '6px', padding: '6px 8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                                        <div style={{ fontSize: '0.74rem', color: '#FFB74D', fontWeight: 'bold', marginBottom: '4px' }}>
+                                                            🏢 {f.name}
+                                                        </div>
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                            {fRots.map(r => {
+                                                                const isChecked = (newRotinaForm.dependencias || []).includes(r.id);
+                                                                return (
+                                                                    <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', color: '#ddd', cursor: 'pointer', background: isChecked ? 'rgba(33, 150, 243, 0.15)' : 'rgba(255,255,255,0.02)', padding: '4px 8px', borderRadius: '4px', border: `1px solid ${isChecked ? 'rgba(33, 150, 243, 0.35)' : 'transparent'}` }}>
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={isChecked}
+                                                                            onChange={(e) => {
+                                                                                const newDeps = e.target.checked
+                                                                                    ? [...(newRotinaForm.dependencias || []), r.id]
+                                                                                    : (newRotinaForm.dependencias || []).filter(id => id !== r.id);
+                                                                                setNewRotinaForm({ ...newRotinaForm, dependencias: newDeps });
+                                                                            }}
+                                                                        />
+                                                                        <span style={{ fontWeight: isChecked ? 'bold' : 'normal' }}>{r.titulo}</span>
+                                                                        <span style={{ color: '#888', fontSize: '0.7rem', marginLeft: 'auto' }}>
+                                                                            {r.status === 'concluida' ? '✅ Concluída' : `Dia ${r.dia_atual || 0}/31`}
+                                                                        </span>
+                                                                    </label>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })
+                                    ) : (
+                                        // LISTA DA FILIAL ESPECÍFICA
+                                        rotinas
+                                            .filter(r => r.filialCode === newRotinaForm.filialCode)
+                                            .map(r => {
+                                                const isChecked = (newRotinaForm.dependencias || []).includes(r.id);
+                                                return (
+                                                    <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem', color: '#ddd', cursor: 'pointer', background: isChecked ? 'rgba(255, 152, 0, 0.12)' : 'rgba(0,0,0,0.2)', padding: '6px 10px', borderRadius: '6px', border: `1px solid ${isChecked ? 'rgba(255, 152, 0, 0.3)' : 'transparent'}` }}>
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={isChecked}
+                                                            onChange={(e) => {
+                                                                const newDeps = e.target.checked
+                                                                    ? [...(newRotinaForm.dependencias || []), r.id]
+                                                                    : (newRotinaForm.dependencias || []).filter(id => id !== r.id);
+                                                                setNewRotinaForm({ ...newRotinaForm, dependencias: newDeps });
+                                                            }}
+                                                        />
+                                                        <span style={{ fontWeight: isChecked ? 'bold' : 'normal' }}>{r.titulo}</span>
+                                                        <span style={{ color: '#888', fontSize: '0.72rem', marginLeft: 'auto' }}>
+                                                            {r.status === 'concluida' ? '✅ Concluída' : `Dia ${r.dia_atual || 0}/31`}
+                                                        </span>
+                                                    </label>
+                                                );
+                                            })
+                                    )}
+
+                                    {rotinas.length === 0 && (
                                         <span style={{ color: '#777', fontSize: '0.78rem' }}>
-                                            Nenhuma outra rotina cadastrada para esta filial ainda.
+                                            Nenhuma rotina pré-requisito cadastrada no mês ainda. Gere as rotinas padrão primeiro.
                                         </span>
                                     )}
                                 </div>
