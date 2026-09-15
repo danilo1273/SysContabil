@@ -1077,209 +1077,164 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                     return true;
                 });
 
-                const totalFiliaisCount = filteredFiliais.length;
+                const displayUsers = users.length > 0 ? users : [{ username: 'admin' }, { username: 'contabil' }];
                 const totalIntegracoes = rotinas.filter(r => r.categoria === 'integracao');
                 const totalIntegracoesConcluidas = totalIntegracoes.filter(r => r.status === 'concluida' || (r.dia_atual !== undefined && r.dia_atual >= 31)).length;
                 const totalApuracoes = rotinas.filter(r => r.tipo === 'apuracao_fiscal');
                 const totalApuracoesLiberadas = totalApuracoes.filter(r => r.status === 'liberada').length;
                 const totalApuracoesConcluidas = totalApuracoes.filter(r => r.status === 'concluida').length;
+                const pctGeral = totalIntegracoes.length > 0 ? Math.round((totalIntegracoesConcluidas / totalIntegracoes.length) * 100) : 0;
 
                 return (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
                         
-                        {/* BARRA DE CABEÇALHO, FILTROS E AÇÕES DO WORKFLOW */}
+                        {/* BARRA SUPERIOR ENXUTA: FILTROS + AÇÕES */}
                         <div style={{
                             background: 'rgba(255, 255, 255, 0.03)',
                             border: '1px solid rgba(255, 255, 255, 0.08)',
                             borderRadius: '12px',
-                            padding: '1.2rem 1.5rem',
+                            padding: '0.9rem 1.2rem',
                             display: 'flex',
                             justifyContent: 'space-between',
                             alignItems: 'center',
                             flexWrap: 'wrap',
-                            gap: '1rem'
+                            gap: '0.8rem'
                         }}>
-                            <div>
-                                <h3 style={{ margin: 0, color: '#fff', fontSize: '1.15rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <Building2 size={20} style={{ color: '#FF9800' }} />
-                                    Workflow Contábil & Amarração de Dependências por Filial
-                                </h3>
-                                <p style={{ margin: '4px 0 0 0', color: '#aaa', fontSize: '0.82rem' }}>
-                                    As integrações (Entrada, Saída e Financeiro) liberam automaticamente a <strong>Apuração Fiscal</strong> da respectiva filial e disparam e-mail ao responsável.
-                                </p>
+                            {/* Filtro por Empresa (Pills Rápidos) */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: '0.75rem', color: '#888', fontWeight: 'bold', textTransform: 'uppercase', marginRight: '4px' }}>
+                                    Empresa:
+                                </span>
+                                <button
+                                    onClick={() => { setRotinaEmpresaFilter('todas'); setRotinaFilialFilter('todas'); }}
+                                    style={{
+                                        background: rotinaEmpresaFilter === 'todas' ? '#FF9800' : 'rgba(255,255,255,0.06)',
+                                        color: rotinaEmpresaFilter === 'todas' ? '#000' : '#ddd',
+                                        border: '1px solid ' + (rotinaEmpresaFilter === 'todas' ? '#FF9800' : 'rgba(255,255,255,0.12)'),
+                                        borderRadius: '6px',
+                                        padding: '5px 10px',
+                                        fontSize: '0.78rem',
+                                        fontWeight: rotinaEmpresaFilter === 'todas' ? 'bold' : '500',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.2s'
+                                    }}
+                                >
+                                    Todas ({filiaisList.length})
+                                </button>
+                                {EMPRESAS_CONFIG.map(emp => {
+                                    const isSelected = rotinaEmpresaFilter === emp.id;
+                                    const count = filiaisList.filter(f => f.empresaId === emp.id).length;
+                                    return (
+                                        <button
+                                            key={emp.id}
+                                            onClick={() => { setRotinaEmpresaFilter(emp.id); setRotinaFilialFilter('todas'); }}
+                                            style={{
+                                                background: isSelected ? emp.color : 'rgba(255,255,255,0.06)',
+                                                color: isSelected ? '#fff' : '#ddd',
+                                                border: '1px solid ' + (isSelected ? emp.color : 'rgba(255,255,255,0.12)'),
+                                                borderRadius: '6px',
+                                                padding: '5px 10px',
+                                                fontSize: '0.78rem',
+                                                fontWeight: isSelected ? 'bold' : '500',
+                                                cursor: 'pointer',
+                                                transition: 'all 0.2s'
+                                            }}
+                                        >
+                                            {emp.name} ({count})
+                                        </button>
+                                    );
+                                })}
                             </div>
 
-                            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                            {/* Ações e Progresso Resumido */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                {rotinas.length > 0 && (
+                                    <div style={{
+                                        background: 'rgba(0,0,0,0.3)',
+                                        border: '1px solid rgba(255,255,255,0.08)',
+                                        borderRadius: '6px',
+                                        padding: '4px 10px',
+                                        fontSize: '0.78rem',
+                                        color: '#aaa',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px'
+                                    }}>
+                                        <span>Progresso:</span>
+                                        <span style={{ color: pctGeral === 100 ? '#81C784' : '#FFB74D', fontWeight: 'bold' }}>
+                                            {totalIntegracoesConcluidas}/{totalIntegracoes.length} ({pctGeral}%)
+                                        </span>
+                                        {totalApuracoesLiberadas > 0 && (
+                                            <span style={{ background: '#4CAF5022', color: '#81C784', padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold', fontSize: '0.74rem' }}>
+                                                {totalApuracoesLiberadas} p/ apurar
+                                            </span>
+                                        )}
+                                    </div>
+                                )}
+
                                 <button
                                     onClick={handleGenerateDefaultRoutines}
                                     className="btn-primary"
-                                    style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', padding: '0.5rem 0.9rem' }}
-                                    title="Gera automaticamente Entradas, Saídas, Financeiro e Apuração Fiscal para todas as filiais"
+                                    style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.78rem', padding: '0.45rem 0.8rem' }}
+                                    title="Gera ou atualiza as rotinas padrão (Entradas, Saídas, Financeiro e Apuração) para as filiais selecionadas"
                                 >
-                                    <Sparkles size={15} /> Gerar Rotinas Padrão ({selectedMes}/{selectedAno})
+                                    <Sparkles size={14} /> Gerar Mês ({selectedMes}/{selectedAno})
                                 </button>
 
                                 <button
                                     onClick={() => setShowNewRotinaModal(true)}
                                     className="btn-secondary"
-                                    style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', padding: '0.5rem 0.9rem' }}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.78rem', padding: '0.45rem 0.8rem' }}
                                 >
-                                    <PlusCircle size={15} /> Nova Rotina
+                                    <PlusCircle size={14} /> Nova Tarefa
                                 </button>
 
                                 <button
                                     onClick={() => setShowSmtpModal(true)}
                                     className="btn-secondary"
-                                    style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', padding: '0.5rem 0.9rem' }}
-                                    title="Configurar servidor SMTP para envio real de e-mails"
+                                    style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.78rem', padding: '0.45rem 0.8rem' }}
+                                    title="Configurações de envio de e-mail SMTP"
                                 >
-                                    <Settings size={15} /> Configurar E-mail (SMTP)
+                                    <Settings size={14} /> E-mail (SMTP)
                                 </button>
-
-                                <div style={{ display: 'flex', background: 'rgba(0,0,0,0.4)', borderRadius: '6px', padding: '2px', border: '1px solid rgba(255,255,255,0.1)' }}>
-                                    <button
-                                        onClick={() => setRotinaViewMode('pipeline')}
-                                        style={{
-                                            background: rotinaViewMode === 'pipeline' ? '#FF9800' : 'none',
-                                            color: rotinaViewMode === 'pipeline' ? '#000' : '#ccc',
-                                            border: 'none',
-                                            borderRadius: '4px',
-                                            padding: '4px 10px',
-                                            cursor: 'pointer',
-                                            fontSize: '0.78rem',
-                                            fontWeight: 'bold',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: '4px'
-                                        }}
-                                    >
-                                        <Layers size={13} /> Pipeline
-                                    </button>
-                                    <button
-                                        onClick={() => setRotinaViewMode('table')}
-                                        style={{
-                                            background: rotinaViewMode === 'table' ? '#FF9800' : 'none',
-                                            color: rotinaViewMode === 'table' ? '#000' : '#ccc',
-                                            border: 'none',
-                                            borderRadius: '4px',
-                                            padding: '4px 10px',
-                                            cursor: 'pointer',
-                                            fontSize: '0.78rem',
-                                            fontWeight: 'bold',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            gap: '4px'
-                                        }}
-                                    >
-                                        <FileText size={13} /> Tabela
-                                    </button>
-                                </div>
                             </div>
                         </div>
 
-                        {/* FILTROS E CARDS DE RESUMO / INDICADORES */}
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-                            {/* Filtro Empresa */}
-                            <div style={{ background: 'rgba(0,0,0,0.25)', padding: '0.8rem 1rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                                <label style={{ display: 'block', fontSize: '0.75rem', color: '#888', marginBottom: '4px', textTransform: 'uppercase', fontWeight: 'bold' }}>
-                                    Filtrar Empresa:
-                                </label>
-                                <select
-                                    value={rotinaEmpresaFilter}
-                                    onChange={(e) => {
-                                        setRotinaEmpresaFilter(e.target.value);
-                                        setRotinaFilialFilter('todas');
-                                    }}
-                                    className="select-input"
-                                    style={{ width: '100%', padding: '0.45rem' }}
-                                >
-                                    <option value="todas">Todas as Empresas</option>
-                                    {EMPRESAS_CONFIG.map(emp => (
-                                        <option key={emp.id} value={emp.id}>{emp.name}</option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            {/* Filtro Filial */}
-                            <div style={{ background: 'rgba(0,0,0,0.25)', padding: '0.8rem 1rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)' }}>
-                                <label style={{ display: 'block', fontSize: '0.75rem', color: '#888', marginBottom: '4px', textTransform: 'uppercase', fontWeight: 'bold' }}>
-                                    Filtrar Filial:
-                                </label>
-                                <select
-                                    value={rotinaFilialFilter}
-                                    onChange={(e) => setRotinaFilialFilter(e.target.value)}
-                                    className="select-input"
-                                    style={{ width: '100%', padding: '0.45rem' }}
-                                >
-                                    <option value="todas">Todas as Filiais ({filteredFiliais.length})</option>
-                                    {filiaisList
-                                        .filter(f => rotinaEmpresaFilter === 'todas' || f.empresaId === rotinaEmpresaFilter)
-                                        .map(f => (
-                                            <option key={f.code} value={f.code}>{f.name}</option>
-                                        ))
-                                    }
-                                </select>
-                            </div>
-
-                            {/* KPI Integrações */}
-                            <div style={{ background: 'rgba(0,0,0,0.25)', padding: '0.8rem 1rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                                <div style={{ fontSize: '0.75rem', color: '#aaa', textTransform: 'uppercase', fontWeight: 'bold' }}>Integrações Concluídas</div>
-                                <div style={{ fontSize: '1.3rem', fontWeight: 'bold', color: totalIntegracoesConcluidas === totalIntegracoes.length && totalIntegracoes.length > 0 ? '#81C784' : '#FFB74D', marginTop: '2px' }}>
-                                    {totalIntegracoesConcluidas} / {totalIntegracoes.length}
-                                    <span style={{ fontSize: '0.8rem', color: '#888', marginLeft: '6px' }}>
-                                        ({totalIntegracoes.length > 0 ? Math.round((totalIntegracoesConcluidas / totalIntegracoes.length) * 100) : 0}%)
-                                    </span>
-                                </div>
-                            </div>
-
-                            {/* KPI Apurações Liberadas */}
-                            <div style={{ background: 'rgba(0,0,0,0.25)', padding: '0.8rem 1rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                                <div style={{ fontSize: '0.75rem', color: '#aaa', textTransform: 'uppercase', fontWeight: 'bold' }}>Apurações Liberadas</div>
-                                <div style={{ fontSize: '1.3rem', fontWeight: 'bold', color: '#4CAF50', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <Unlock size={18} /> {totalApuracoesLiberadas}
-                                    <span style={{ fontSize: '0.8rem', color: '#aaa' }}>aguardando execução</span>
-                                </div>
-                            </div>
-
-                            {/* KPI Apurações Concluídas */}
-                            <div style={{ background: 'rgba(0,0,0,0.25)', padding: '0.8rem 1rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                                <div style={{ fontSize: '0.75rem', color: '#aaa', textTransform: 'uppercase', fontWeight: 'bold' }}>Apurações Finalizadas</div>
-                                <div style={{ fontSize: '1.3rem', fontWeight: 'bold', color: '#81C784', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <CheckCircle2 size={18} /> {totalApuracoesConcluidas} / {totalApuracoes.length}
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* EMPTY STATE - Se nenhuma rotina tiver sido gerada ainda */}
+                        {/* EMPTY STATE */}
                         {rotinas.length === 0 && (
                             <div style={{
-                                background: 'rgba(255, 152, 0, 0.08)',
-                                border: '1px dashed rgba(255, 152, 0, 0.35)',
+                                background: 'rgba(255, 152, 0, 0.06)',
+                                border: '1px dashed rgba(255, 152, 0, 0.3)',
                                 borderRadius: '12px',
                                 padding: '2.5rem 1.5rem',
                                 textAlign: 'center',
                                 color: '#ccc'
                             }}>
-                                <Sparkles size={38} style={{ color: '#FFB74D', marginBottom: '10px' }} />
-                                <h4 style={{ margin: '0 0 8px 0', color: '#fff', fontSize: '1.1rem' }}>
-                                    Nenhuma rotina contábil gerada para {selectedMes}/{selectedAno}
+                                <Sparkles size={36} style={{ color: '#FFB74D', marginBottom: '10px' }} />
+                                <h4 style={{ margin: '0 0 6px 0', color: '#fff', fontSize: '1.05rem' }}>
+                                    Nenhuma rotina gerada para {selectedMes}/{selectedAno}
                                 </h4>
-                                <p style={{ margin: '0 auto 16px auto', maxWidth: '600px', fontSize: '0.88rem', color: '#aaa' }}>
-                                    Clique no botão abaixo para gerar automaticamente as rotinas padrão de <strong>Entradas, Saídas, Financeiro e Apuração Fiscal</strong> para todas as filiais cadastradas.
+                                <p style={{ margin: '0 auto 16px auto', maxWidth: '500px', fontSize: '0.84rem', color: '#aaa' }}>
+                                    Gere automaticamente os fechamentos de <strong>Entradas, Saídas, Financeiro e Apuração Fiscal</strong> por filial.
                                 </p>
                                 <button
                                     onClick={handleGenerateDefaultRoutines}
                                     className="btn-primary"
-                                    style={{ padding: '0.65rem 1.4rem', fontSize: '0.9rem', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+                                    style={{ padding: '0.55rem 1.2rem', fontSize: '0.85rem', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                                 >
-                                    <Sparkles size={16} /> Gerar Rotinas Padrão do Mês ({selectedMes}/{selectedAno})
+                                    <Sparkles size={15} /> Gerar Rotinas Padrão do Mês
                                 </button>
                             </div>
                         )}
 
-                        {/* VISÃO EM PIPELINE POR FILIAL */}
-                        {rotinas.length > 0 && rotinaViewMode === 'pipeline' && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                        {/* GRID DE CARDS ENXUTOS POR FILIAL */}
+                        {rotinas.length > 0 && (
+                            <div style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))',
+                                gap: '1.2rem',
+                                alignItems: 'start'
+                            }}>
                                 {filteredFiliais.map(filial => {
                                     const empConfig = EMPRESAS_CONFIG.find(e => e.id === filial.empresaId) || { name: filial.empresaId, color: '#FF9800' };
                                     const filialRotinas = rotinas.filter(r => r.filialCode === filial.code);
@@ -1294,6 +1249,9 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                                                (fSaidas?.dia_atual >= 31 || fSaidas?.status === 'concluida') &&
                                                                (fFinanceiro?.dia_atual >= 31 || fFinanceiro?.status === 'concluida');
 
+                                    const isApuracaoDone = fApuracao?.status === 'concluida';
+                                    const isApuracaoLiberada = !isApuracaoDone && allIntegracoesDone;
+
                                     return (
                                         <div
                                             key={filial.code}
@@ -1302,86 +1260,120 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                                 border: '1px solid rgba(255, 255, 255, 0.08)',
                                                 borderTop: `4px solid ${empConfig.color}`,
                                                 borderRadius: '12px',
-                                                padding: '1.4rem',
-                                                boxShadow: '0 4px 15px rgba(0,0,0,0.3)'
+                                                padding: '1.1rem',
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                gap: '0.9rem',
+                                                boxShadow: '0 4px 15px rgba(0,0,0,0.25)'
                                             }}
                                         >
-                                            {/* Cabeçalho do Card da Filial */}
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '1.2rem', paddingBottom: '0.8rem', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                    <div style={{ background: empConfig.color + '22', color: empConfig.color, border: `1px solid ${empConfig.color}66`, padding: '6px 10px', borderRadius: '6px', fontWeight: 'bold', fontSize: '0.9rem' }}>
-                                                        {filial.code}
+                                            {/* CABEÇALHO DO CARD */}
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                                                <div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                        <span style={{
+                                                            background: empConfig.color + '22',
+                                                            color: empConfig.color,
+                                                            border: `1px solid ${empConfig.color}55`,
+                                                            padding: '2px 7px',
+                                                            borderRadius: '5px',
+                                                            fontWeight: 'bold',
+                                                            fontSize: '0.82rem'
+                                                        }}>
+                                                            {filial.code}
+                                                        </span>
+                                                        <h4 style={{ margin: 0, color: '#fff', fontSize: '0.96rem', fontWeight: '600' }}>
+                                                            {filial.name.replace(`${filial.code} - `, '')}
+                                                        </h4>
                                                     </div>
-                                                    <div>
-                                                        <h4 style={{ margin: 0, color: '#fff', fontSize: '1.05rem' }}>{filial.name}</h4>
-                                                        <span style={{ fontSize: '0.78rem', color: '#888' }}>{empConfig.name}</span>
+                                                    <div style={{ fontSize: '0.74rem', color: '#888', marginTop: '2px' }}>
+                                                        {empConfig.name}
                                                     </div>
                                                 </div>
 
+                                                {/* BADGE DE STATUS */}
                                                 <div>
-                                                    {fApuracao?.status === 'concluida' ? (
-                                                        <span style={{ background: 'rgba(76, 175, 80, 0.2)', color: '#81C784', border: '1px solid rgba(76, 175, 80, 0.4)', padding: '4px 10px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                                            <CheckCircle2 size={14} /> Fechamento da Filial Concluído
+                                                    {isApuracaoDone ? (
+                                                        <span style={{
+                                                            background: 'rgba(76, 175, 80, 0.18)',
+                                                            color: '#81C784',
+                                                            border: '1px solid rgba(76, 175, 80, 0.4)',
+                                                            padding: '3px 8px',
+                                                            borderRadius: '6px',
+                                                            fontSize: '0.72rem',
+                                                            fontWeight: 'bold',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '4px'
+                                                        }}>
+                                                            <CheckCircle2 size={12} /> Concluída
                                                         </span>
-                                                    ) : allIntegracoesDone ? (
-                                                        <span style={{ background: 'rgba(76, 175, 80, 0.15)', color: '#81C784', border: '1px solid rgba(76, 175, 80, 0.3)', padding: '4px 10px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                                            <Unlock size={14} /> Integrações 100% | Pronta para Apuração
+                                                    ) : isApuracaoLiberada ? (
+                                                        <span style={{
+                                                            background: 'rgba(76, 175, 80, 0.25)',
+                                                            color: '#4CAF50',
+                                                            border: '1px solid #4CAF50',
+                                                            padding: '3px 8px',
+                                                            borderRadius: '6px',
+                                                            fontSize: '0.72rem',
+                                                            fontWeight: 'bold',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '4px'
+                                                        }}>
+                                                            <Unlock size={12} /> Liberada p/ Apurar
                                                         </span>
                                                     ) : (
-                                                        <span style={{ background: 'rgba(255, 152, 0, 0.15)', color: '#FFB74D', border: '1px solid rgba(255, 152, 0, 0.3)', padding: '4px 10px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                                            <Clock size={14} /> Integrações em Andamento
+                                                        <span style={{
+                                                            background: 'rgba(255, 152, 0, 0.12)',
+                                                            color: '#FFB74D',
+                                                            border: '1px solid rgba(255, 152, 0, 0.25)',
+                                                            padding: '3px 8px',
+                                                            borderRadius: '6px',
+                                                            fontSize: '0.72rem',
+                                                            fontWeight: 'bold',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '4px'
+                                                        }}>
+                                                            <Clock size={12} /> Integrando...
                                                         </span>
                                                     )}
                                                 </div>
                                             </div>
 
-                                            {/* Grid do Workflow: Lado Esquerdo (Integrações) | Seta Conectora | Lado Direito (Apuração Fiscal) */}
-                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.2rem', alignItems: 'stretch' }}>
-                                                
-                                                {/* COLUNA 1: INTEGRAÇÕES PRÉ-REQUISITO */}
-                                                <div style={{ background: 'rgba(0,0,0,0.25)', padding: '1rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.05)', display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-                                                    <div style={{ fontSize: '0.8rem', color: '#aaa', textTransform: 'uppercase', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                        <Layers size={14} style={{ color: '#2196F3' }} />
-                                                        1. Integrações Pré-Requisito (Entrada, Saída e Financeiro)
-                                                    </div>
+                                            {/* LINHAS DAS 3 INTEGRAÇÕES (COMPACTO) */}
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                {[
+                                                    { rot: fEntradas, label: 'Entradas', icon: '📥' },
+                                                    { rot: fSaidas, label: 'Saídas', icon: '📤' },
+                                                    { rot: fFinanceiro, label: 'Financeiro', icon: '💰' }
+                                                ].map(({ rot, label, icon }) => {
+                                                    if (!rot) return null;
+                                                    const isDone = rot.dia_atual >= 31 || rot.status === 'concluida';
+                                                    const pct = Math.min(((rot.dia_atual || 0) / 31) * 100, 100);
 
-                                                    {[
-                                                        { rot: fEntradas, label: 'Entradas', icon: '📥' },
-                                                        { rot: fSaidas, label: 'Saídas', icon: '📤' },
-                                                        { rot: fFinanceiro, label: 'Financeiro', icon: '💰' }
-                                                    ].map(({ rot, label, icon }) => {
-                                                        if (!rot) return null;
-                                                        const isDone = rot.dia_atual >= 31 || rot.status === 'concluida';
-                                                        const pct = Math.min(((rot.dia_atual || 0) / 31) * 100, 100);
+                                                    return (
+                                                        <div
+                                                            key={rot.id}
+                                                            style={{
+                                                                background: isDone ? 'rgba(76, 175, 80, 0.06)' : 'rgba(0,0,0,0.22)',
+                                                                border: `1px solid ${isDone ? 'rgba(76, 175, 80, 0.25)' : 'rgba(255, 255, 255, 0.05)'}`,
+                                                                borderRadius: '7px',
+                                                                padding: '6px 8px',
+                                                                display: 'flex',
+                                                                flexDirection: 'column',
+                                                                gap: '4px'
+                                                            }}
+                                                        >
+                                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                                <span style={{ fontSize: '0.8rem', color: '#eee', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                                    <span>{icon}</span> {label}
+                                                                </span>
 
-                                                        return (
-                                                            <div
-                                                                key={rot.id}
-                                                                style={{
-                                                                    background: isDone ? 'rgba(76, 175, 80, 0.08)' : 'rgba(255, 255, 255, 0.03)',
-                                                                    border: `1px solid ${isDone ? 'rgba(76, 175, 80, 0.3)' : 'rgba(255, 255, 255, 0.08)'}`,
-                                                                    borderRadius: '8px',
-                                                                    padding: '0.75rem 0.9rem'
-                                                                }}
-                                                            >
-                                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                                                                    <div style={{ fontWeight: 'bold', fontSize: '0.86rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                                        <span>{icon}</span> {label}
-                                                                    </div>
-                                                                    <span style={{ fontSize: '0.78rem', color: isDone ? '#81C784' : '#FFB74D', fontWeight: 'bold' }}>
-                                                                        {isDone ? '✅ Dia 31 (Concluído)' : `Dia ${rot.dia_atual || 0} / 31`}
-                                                                    </span>
-                                                                </div>
-
-                                                                {/* Barra de Progresso */}
-                                                                <div style={{ background: 'rgba(0,0,0,0.4)', height: '6px', borderRadius: '3px', overflow: 'hidden', marginBottom: '8px' }}>
-                                                                    <div style={{ width: `${pct}%`, height: '100%', background: isDone ? '#4CAF50' : '#FF9800', transition: 'width 0.3s' }}></div>
-                                                                </div>
-
-                                                                {/* Controles de Atualização rápida */}
-                                                                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                                        <span style={{ fontSize: '0.74rem', color: '#888' }}>Dia:</span>
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                                                        <span style={{ fontSize: '0.72rem', color: '#777' }}>Dia:</span>
                                                                         <input
                                                                             type="number"
                                                                             min="0"
@@ -1389,8 +1381,9 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                                                             value={rot.dia_atual || 0}
                                                                             onChange={(e) => handleUpdateRoutineProgress(rot.id, parseInt(e.target.value) || 0)}
                                                                             className="text-input"
-                                                                            style={{ width: '60px', padding: '3px 6px', fontSize: '0.8rem', textAlign: 'center' }}
+                                                                            style={{ width: '46px', padding: '1px 4px', fontSize: '0.78rem', textAlign: 'center' }}
                                                                         />
+                                                                        <span style={{ fontSize: '0.72rem', color: '#777' }}>/31</span>
                                                                     </div>
 
                                                                     <button
@@ -1400,404 +1393,182 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                                                             color: isDone ? '#81C784' : '#FFB74D',
                                                                             border: `1px solid ${isDone ? 'rgba(76, 175, 80, 0.4)' : 'rgba(255, 152, 0, 0.3)'}`,
                                                                             borderRadius: '4px',
-                                                                            padding: '3px 8px',
+                                                                            padding: '1px 6px',
                                                                             cursor: 'pointer',
-                                                                            fontSize: '0.74rem',
+                                                                            fontSize: '0.72rem',
                                                                             fontWeight: 'bold'
                                                                         }}
                                                                         title="Marcar como integrado até dia 31"
                                                                     >
-                                                                        {isDone ? 'Concluído 31/31' : 'Marcar 31'}
+                                                                        {isDone ? '✓ 31' : '31'}
                                                                     </button>
 
-                                                                    <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                                        <User size={13} style={{ color: '#888' }} />
-                                                                        <select
-                                                                            value={rot.responsavel || ''}
-                                                                            onChange={(e) => handleUpdateRotinaResponsavel(rot.id, e.target.value)}
-                                                                            className="select-input"
-                                                                            style={{ padding: '2px 5px', fontSize: '0.74rem', maxWidth: '110px' }}
-                                                                        >
-                                                                            <option value="">Responsável...</option>
-                                                                            {displayUsers.map(u => (
-                                                                                <option key={u.username} value={u.username}>{u.username}</option>
-                                                                            ))}
-                                                                        </select>
-                                                                    </div>
+                                                                    <select
+                                                                        value={rot.responsavel || ''}
+                                                                        onChange={(e) => handleUpdateRotinaResponsavel(rot.id, e.target.value)}
+                                                                        className="select-input"
+                                                                        style={{ padding: '1px 4px', fontSize: '0.72rem', maxWidth: '90px' }}
+                                                                        title="Responsável pela integração"
+                                                                    >
+                                                                        <option value="">Resp...</option>
+                                                                        {displayUsers.map(u => (
+                                                                            <option key={u.username} value={u.username}>{u.username}</option>
+                                                                        ))}
+                                                                    </select>
                                                                 </div>
                                                             </div>
-                                                        );
-                                                    })}
-                                                </div>
 
-                                                {/* COLUNA 2: APURAÇÃO FISCAL (AMARRADA ÀS INTEGRAÇÕES) */}
+                                                            {/* Barra de progresso fina */}
+                                                            <div style={{ background: 'rgba(255,255,255,0.05)', height: '3px', borderRadius: '2px', overflow: 'hidden' }}>
+                                                                <div style={{ width: `${pct}%`, height: '100%', background: isDone ? '#4CAF50' : '#FF9800', transition: 'width 0.2s' }}></div>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+
+                                            {/* RODAPÉ: APURAÇÃO FISCAL AMARRADA */}
+                                            {fApuracao && (
                                                 <div style={{
-                                                    background: fApuracao?.status === 'concluida' 
-                                                        ? 'rgba(76, 175, 80, 0.06)' 
-                                                        : fApuracao?.status === 'liberada' 
-                                                        ? 'rgba(33, 150, 243, 0.08)' 
-                                                        : 'rgba(0,0,0,0.25)',
-                                                    padding: '1rem',
-                                                    borderRadius: '10px',
+                                                    background: isApuracaoDone 
+                                                        ? 'rgba(76, 175, 80, 0.08)' 
+                                                        : isApuracaoLiberada 
+                                                        ? 'rgba(76, 175, 80, 0.12)' 
+                                                        : 'rgba(0,0,0,0.18)',
                                                     border: `1px solid ${
-                                                        fApuracao?.status === 'concluida' 
-                                                            ? 'rgba(76, 175, 80, 0.35)' 
-                                                            : fApuracao?.status === 'liberada' 
-                                                            ? 'rgba(33, 150, 243, 0.4)' 
-                                                            : 'rgba(255,255,255,0.05)'
+                                                        isApuracaoDone 
+                                                            ? 'rgba(76, 175, 80, 0.3)' 
+                                                            : isApuracaoLiberada 
+                                                            ? '#4CAF50' 
+                                                            : 'rgba(255,255,255,0.06)'
                                                     }`,
+                                                    borderRadius: '8px',
+                                                    padding: '8px 10px',
                                                     display: 'flex',
                                                     flexDirection: 'column',
-                                                    justifyContent: 'space-between',
-                                                    gap: '1rem'
+                                                    gap: '6px'
                                                 }}>
-                                                    <div>
-                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                                            <div style={{ fontSize: '0.8rem', color: '#aaa', textTransform: 'uppercase', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                                <ShieldAlert size={14} style={{ color: '#FF9800' }} />
-                                                                2. Apuração Fiscal (Operação Amarrada)
-                                                            </div>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                        <div style={{ fontSize: '0.8rem', fontWeight: '600', color: '#fff', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                            <ShieldAlert size={14} style={{ color: isApuracaoDone || isApuracaoLiberada ? '#4CAF50' : '#888' }} />
+                                                            Apuração Fiscal
+                                                        </div>
 
-                                                            {/* Status Badge da Apuração */}
-                                                            {fApuracao?.status === 'concluida' ? (
-                                                                <span style={{ background: 'rgba(76, 175, 80, 0.2)', color: '#81C784', border: '1px solid rgba(76, 175, 80, 0.4)', padding: '2px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                                    <Check size={13} /> Concluída
-                                                                </span>
-                                                            ) : fApuracao?.status === 'liberada' ? (
-                                                                <span style={{ background: 'rgba(76, 175, 80, 0.25)', color: '#4CAF50', border: '1px solid #4CAF50', padding: '2px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px', animation: 'pulse 2s infinite' }}>
-                                                                    <Unlock size={13} /> LIBERADA
-                                                                </span>
+                                                        {/* Seletor de responsável da apuração */}
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                            <User size={12} style={{ color: '#777' }} />
+                                                            <select
+                                                                value={fApuracao.responsavel || ''}
+                                                                onChange={(e) => handleUpdateRotinaResponsavel(fApuracao.id, e.target.value)}
+                                                                className="select-input"
+                                                                style={{ padding: '1px 4px', fontSize: '0.72rem', maxWidth: '95px' }}
+                                                            >
+                                                                <option value="">Resp...</option>
+                                                                {displayUsers.map(u => (
+                                                                    <option key={u.username} value={u.username}>{u.username}</option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Mensagem de Estado & Botões de Ação */}
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                                                        <div style={{ fontSize: '0.74rem', color: isApuracaoDone ? '#81C784' : isApuracaoLiberada ? '#4CAF50' : '#888' }}>
+                                                            {isApuracaoDone ? (
+                                                                <span>✅ Concluída {fApuracao.concluido_por ? `por ${fApuracao.concluido_por}` : ''}</span>
+                                                            ) : isApuracaoLiberada ? (
+                                                                <span style={{ fontWeight: 'bold' }}>🟢 Liberada! Pronto p/ apurar</span>
                                                             ) : (
-                                                                <span style={{ background: 'rgba(239, 83, 80, 0.15)', color: '#E57373', border: '1px solid rgba(239, 83, 80, 0.3)', padding: '2px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                                    <Lock size={13} /> BLOQUEADA
-                                                                </span>
+                                                                <span>🔒 Bloqueada (aguardando dia 31)</span>
                                                             )}
                                                         </div>
 
-                                                        <h4 style={{ margin: '0 0 6px 0', color: '#fff', fontSize: '1rem' }}>
-                                                            {fApuracao ? fApuracao.titulo : `Apuração Fiscal - Filial ${filial.code}`}
-                                                        </h4>
-
-                                                        {/* Status Box Explicativo com Dependências */}
-                                                        {fApuracao?.status === 'concluida' ? (
-                                                            <div style={{ background: 'rgba(76, 175, 80, 0.15)', border: '1px solid rgba(76, 175, 80, 0.3)', borderRadius: '6px', padding: '8px 10px', fontSize: '0.78rem', color: '#81C784' }}>
-                                                                ✅ Apuração fiscal realizada e validada no mês.
-                                                                {fApuracao.concluido_por && <div style={{ color: '#bbb', fontSize: '0.72rem', marginTop: '2px' }}>Finalizado por: {fApuracao.concluido_por}</div>}
-                                                            </div>
-                                                        ) : fApuracao?.status === 'liberada' ? (
-                                                            <div style={{ background: 'rgba(76, 175, 80, 0.15)', border: '1px solid #4CAF50', borderRadius: '6px', padding: '8px 10px', fontSize: '0.8rem', color: '#81C784', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 'bold' }}>
-                                                                    <CheckCircle2 size={16} /> Integrações realizadas!
-                                                                </div>
-                                                                <div style={{ color: '#ccc', fontSize: '0.76rem' }}>
-                                                                    Pode seguir com a apuração fiscal da filial {filial.code}.
-                                                                </div>
-                                                            </div>
-                                                        ) : (
-                                                            <div style={{ background: 'rgba(239, 83, 80, 0.1)', border: '1px solid rgba(239, 83, 80, 0.25)', borderRadius: '6px', padding: '8px 10px', fontSize: '0.76rem', color: '#bbb' }}>
-                                                                <div style={{ color: '#E57373', fontWeight: 'bold', marginBottom: '3px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                                    <Lock size={13} /> Aguardando conclusão das integrações:
-                                                                </div>
-                                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', color: '#aaa', fontSize: '0.74rem' }}>
-                                                                    {fEntradas && (fEntradas.dia_atual < 31 && fEntradas.status !== 'concluida') && (
-                                                                        <div>• Entradas: dia {fEntradas.dia_atual || 0}/31 pendente</div>
-                                                                    )}
-                                                                    {fSaidas && (fSaidas.dia_atual < 31 && fSaidas.status !== 'concluida') && (
-                                                                        <div>• Saídas: dia {fSaidas.dia_atual || 0}/31 pendente</div>
-                                                                    )}
-                                                                    {fFinanceiro && (fFinanceiro.dia_atual < 31 && fFinanceiro.status !== 'concluida') && (
-                                                                        <div>• Financeiro: dia {fFinanceiro.dia_atual || 0}/31 pendente</div>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                        )}
-
-                                                        {/* Responsável da Apuração */}
-                                                        {fApuracao && (
-                                                            <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                                <User size={14} style={{ color: '#aaa' }} />
-                                                                <span style={{ fontSize: '0.75rem', color: '#888' }}>Responsável:</span>
-                                                                <select
-                                                                    value={fApuracao.responsavel || ''}
-                                                                    onChange={(e) => handleUpdateRotinaResponsavel(fApuracao.id, e.target.value)}
-                                                                    className="select-input"
-                                                                    style={{ padding: '3px 6px', fontSize: '0.78rem', flex: 1 }}
-                                                                >
-                                                                    <option value="">Selecione o responsável...</option>
-                                                                    {displayUsers.map(u => (
-                                                                        <option key={u.username} value={u.username}>
-                                                                            {u.username} {u.email ? `(${u.email})` : ''}
-                                                                        </option>
-                                                                    ))}
-                                                                </select>
-                                                            </div>
-                                                        )}
-                                                    </div>
-
-                                                    {/* Ações da Apuração Fiscal */}
-                                                    {fApuracao && (
-                                                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                                                            {fApuracao.status === 'concluida' ? (
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                            {isApuracaoDone ? (
                                                                 <button
                                                                     onClick={() => handleToggleRotinaStatus(fApuracao)}
                                                                     style={{
-                                                                        background: 'rgba(255, 255, 255, 0.08)',
-                                                                        color: '#ccc',
-                                                                        border: '1px solid rgba(255, 255, 255, 0.15)',
-                                                                        borderRadius: '6px',
-                                                                        padding: '5px 10px',
+                                                                        background: 'rgba(255,255,255,0.06)',
+                                                                        color: '#aaa',
+                                                                        border: '1px solid rgba(255,255,255,0.1)',
+                                                                        borderRadius: '4px',
+                                                                        padding: '2px 6px',
                                                                         cursor: 'pointer',
-                                                                        fontSize: '0.75rem',
+                                                                        fontSize: '0.7rem'
+                                                                    }}
+                                                                >
+                                                                    Reabrir
+                                                                </button>
+                                                            ) : (
+                                                                <button
+                                                                    onClick={() => handleToggleRotinaStatus(fApuracao)}
+                                                                    disabled={!isApuracaoLiberada}
+                                                                    style={{
+                                                                        background: isApuracaoLiberada ? '#4CAF50' : 'rgba(255,255,255,0.05)',
+                                                                        color: isApuracaoLiberada ? '#fff' : '#666',
+                                                                        border: 'none',
+                                                                        borderRadius: '4px',
+                                                                        padding: '3px 8px',
+                                                                        cursor: isApuracaoLiberada ? 'pointer' : 'not-allowed',
+                                                                        fontSize: '0.72rem',
+                                                                        fontWeight: 'bold',
                                                                         display: 'flex',
                                                                         alignItems: 'center',
                                                                         gap: '4px'
                                                                     }}
                                                                 >
-                                                                    <RefreshCw size={13} /> Reabrir Apuração
-                                                                </button>
-                                                            ) : (
-                                                                <button
-                                                                    onClick={() => handleToggleRotinaStatus(fApuracao)}
-                                                                    disabled={fApuracao.status === 'bloqueada'}
-                                                                    style={{
-                                                                        background: fApuracao.status === 'bloqueada' ? 'rgba(255, 255, 255, 0.05)' : '#4CAF50',
-                                                                        color: fApuracao.status === 'bloqueada' ? '#666' : '#fff',
-                                                                        border: 'none',
-                                                                        borderRadius: '6px',
-                                                                        padding: '6px 12px',
-                                                                        cursor: fApuracao.status === 'bloqueada' ? 'not-allowed' : 'pointer',
-                                                                        fontSize: '0.8rem',
-                                                                        fontWeight: 'bold',
-                                                                        display: 'flex',
-                                                                        alignItems: 'center',
-                                                                        gap: '5px'
-                                                                    }}
-                                                                    title={fApuracao.status === 'bloqueada' ? 'Finalize as integrações antes de concluir a apuração' : 'Concluir apuração fiscal'}
-                                                                >
-                                                                    <CheckCircle2 size={14} /> Concluir Apuração Fiscal
+                                                                    <Check size={12} /> Concluir
                                                                 </button>
                                                             )}
 
-                                                            {/* Botão de Enviar Aviso por E-mail */}
                                                             <button
                                                                 onClick={() => handleOpenManualEmail(fApuracao)}
                                                                 style={{
-                                                                    background: 'rgba(33, 150, 243, 0.15)',
+                                                                    background: 'rgba(33, 150, 243, 0.12)',
                                                                     color: '#64B5F6',
-                                                                    border: '1px solid rgba(33, 150, 243, 0.35)',
-                                                                    borderRadius: '6px',
-                                                                    padding: '5px 10px',
+                                                                    border: '1px solid rgba(33, 150, 243, 0.3)',
+                                                                    borderRadius: '4px',
+                                                                    padding: '3px 6px',
                                                                     cursor: 'pointer',
-                                                                    fontSize: '0.75rem',
+                                                                    fontSize: '0.7rem',
                                                                     display: 'flex',
                                                                     alignItems: 'center',
-                                                                    gap: '5px'
+                                                                    gap: '3px'
                                                                 }}
-                                                                title="Disparar ou visualizar mensagem de e-mail ao responsável"
+                                                                title="Notificar responsável por e-mail"
                                                             >
-                                                                <Mail size={13} /> Notificar por E-mail
+                                                                <Mail size={11} /> E-mail
                                                             </button>
                                                         </div>
-                                                    )}
-                                                </div>
-
-                                            </div>
-
-                                            {/* Outras Rotinas Personalizadas desta Filial */}
-                                            {fOutras.length > 0 && (
-                                                <div style={{ marginTop: '1rem', paddingTop: '0.8rem', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                                                    <div style={{ fontSize: '0.75rem', color: '#888', textTransform: 'uppercase', marginBottom: '6px', fontWeight: 'bold' }}>
-                                                        Outras Rotinas Vinculadas à Filial {filial.code}:
                                                     </div>
-                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                                                        {fOutras.map(r => (
-                                                            <div key={r.id} style={{ background: 'rgba(255,255,255,0.04)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem' }}>
-                                                                <span style={{ color: r.status === 'concluida' ? '#81C784' : r.status === 'liberada' ? '#64B5F6' : '#E57373' }}>
-                                                                    {r.status === 'concluida' ? '✅' : r.status === 'liberada' ? '🟢' : '🔒'}
-                                                                </span>
-                                                                <span style={{ color: '#fff', fontWeight: '500' }}>{r.titulo}</span>
-                                                                {r.responsavel && <span style={{ color: '#888', fontSize: '0.72rem' }}>({r.responsavel})</span>}
-                                                                <button onClick={() => handleToggleRotinaStatus(r)} style={{ background: 'none', border: 'none', color: '#64B5F6', cursor: 'pointer', fontSize: '0.72rem', textDecoration: 'underline' }}>
+                                                </div>
+                                            )}
+
+                                            {/* OUTRAS TAREFAS VINCULADAS À FILIAL (SE HOUVER) */}
+                                            {fOutras.length > 0 && (
+                                                <div style={{ borderTop: '1px dashed rgba(255,255,255,0.08)', paddingTop: '6px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                                    <span style={{ fontSize: '0.7rem', color: '#777', textTransform: 'uppercase' }}>Outras Tarefas:</span>
+                                                    {fOutras.map(r => (
+                                                        <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.72rem', background: 'rgba(255,255,255,0.02)', padding: '2px 6px', borderRadius: '4px' }}>
+                                                            <span style={{ color: r.status === 'concluida' ? '#81C784' : '#ddd' }}>
+                                                                {r.status === 'concluida' ? '✓ ' : '• '}{r.titulo}
+                                                            </span>
+                                                            <div style={{ display: 'flex', gap: '4px' }}>
+                                                                <button onClick={() => handleToggleRotinaStatus(r)} style={{ background: 'none', border: 'none', color: '#64B5F6', cursor: 'pointer', fontSize: '0.68rem', textDecoration: 'underline' }}>
                                                                     {r.status === 'concluida' ? 'Reabrir' : 'Concluir'}
                                                                 </button>
                                                                 <button onClick={() => handleDeleteRotina(r)} style={{ background: 'none', border: 'none', color: '#E57373', cursor: 'pointer' }}>
-                                                                    <Trash2 size={12} />
+                                                                    <Trash2 size={11} />
                                                                 </button>
                                                             </div>
-                                                        ))}
-                                                    </div>
+                                                        </div>
+                                                    ))}
                                                 </div>
                                             )}
 
                                         </div>
                                     );
                                 })}
-                            </div>
-                        )}
-
-                        {/* VISÃO EM TABELA GERAL */}
-                        {rotinas.length > 0 && rotinaViewMode === 'table' && (
-                            <div className="table-wrapper" style={{ maxHeight: '550px', overflowY: 'auto' }}>
-                                <table className="data-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Filial</th>
-                                            <th>Rotina / Tarefa</th>
-                                            <th>Categoria</th>
-                                            <th>Progresso / Dia</th>
-                                            <th>Dependências</th>
-                                            <th>Status</th>
-                                            <th>Responsável</th>
-                                            <th style={{ textAlign: 'center' }}>Ações</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {rotinas
-                                            .filter(r => {
-                                                if (rotinaEmpresaFilter !== 'todas' && r.empresaId !== rotinaEmpresaFilter) return false;
-                                                if (rotinaFilialFilter !== 'todas' && r.filialCode !== rotinaFilialFilter) return false;
-                                                return true;
-                                            })
-                                            .map(r => {
-                                                const isDone = r.status === 'concluida' || (r.dia_atual !== undefined && r.dia_atual >= 31);
-                                                return (
-                                                    <tr key={r.id}>
-                                                        <td style={{ fontWeight: 'bold', color: '#FFB74D' }}>
-                                                            {r.filialNome || r.filialCode}
-                                                        </td>
-                                                        <td style={{ color: '#fff', fontWeight: '500' }}>
-                                                            {r.titulo}
-                                                        </td>
-                                                        <td>
-                                                            <span style={{ background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem', color: '#ccc' }}>
-                                                                {r.categoria}
-                                                            </span>
-                                                        </td>
-                                                        <td>
-                                                            {r.categoria === 'integracao' ? (
-                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                                    <input
-                                                                        type="number"
-                                                                        min="0"
-                                                                        max="31"
-                                                                        value={r.dia_atual || 0}
-                                                                        onChange={(e) => handleUpdateRoutineProgress(r.id, parseInt(e.target.value) || 0)}
-                                                                        className="text-input"
-                                                                        style={{ width: '55px', padding: '2px 5px', fontSize: '0.78rem', textAlign: 'center' }}
-                                                                    />
-                                                                    <span style={{ fontSize: '0.75rem', color: '#888' }}>de 31</span>
-                                                                </div>
-                                                            ) : (
-                                                                <span style={{ color: isDone ? '#81C784' : '#888', fontSize: '0.8rem' }}>
-                                                                    {isDone ? 'Concluído' : 'Pendente'}
-                                                                </span>
-                                                            )}
-                                                        </td>
-                                                        <td>
-                                                            {r.dependencias && r.dependencias.length > 0 ? (
-                                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px' }}>
-                                                                    {r.dependencias.map(depId => {
-                                                                        const depRot = rotinas.find(d => d.id === depId);
-                                                                        const depDone = depRot && (depRot.status === 'concluida' || depRot.dia_atual >= 31);
-                                                                        return (
-                                                                            <span
-                                                                                key={depId}
-                                                                                style={{
-                                                                                    background: depDone ? 'rgba(76, 175, 80, 0.15)' : 'rgba(239, 83, 80, 0.15)',
-                                                                                    color: depDone ? '#81C784' : '#E57373',
-                                                                                    border: `1px solid ${depDone ? 'rgba(76, 175, 80, 0.3)' : 'rgba(239, 83, 80, 0.3)'}`,
-                                                                                    padding: '1px 5px',
-                                                                                    borderRadius: '3px',
-                                                                                    fontSize: '0.7rem'
-                                                                                }}
-                                                                            >
-                                                                                {depRot ? depRot.tipo || depRot.titulo : depId} {depDone ? '✓' : '✗'}
-                                                                            </span>
-                                                                        );
-                                                                    })}
-                                                                </div>
-                                                            ) : (
-                                                                <span style={{ color: '#666', fontSize: '0.75rem' }}>Nenhuma</span>
-                                                            )}
-                                                        </td>
-                                                        <td>
-                                                            {r.status === 'concluida' ? (
-                                                                <span style={{ color: '#81C784', fontWeight: 'bold', fontSize: '0.78rem' }}>✅ Concluída</span>
-                                                            ) : r.status === 'liberada' ? (
-                                                                <span style={{ color: '#4CAF50', fontWeight: 'bold', fontSize: '0.78rem' }}>🟢 Liberada</span>
-                                                            ) : r.status === 'bloqueada' ? (
-                                                                <span style={{ color: '#E57373', fontWeight: 'bold', fontSize: '0.78rem' }}>🔒 Bloqueada</span>
-                                                            ) : (
-                                                                <span style={{ color: '#FFB74D', fontSize: '0.78rem' }}>⏳ Em Andamento</span>
-                                                            )}
-                                                        </td>
-                                                        <td>
-                                                            <select
-                                                                value={r.responsavel || ''}
-                                                                onChange={(e) => handleUpdateRotinaResponsavel(r.id, e.target.value)}
-                                                                className="select-input"
-                                                                style={{ padding: '2px 5px', fontSize: '0.75rem', width: '130px' }}
-                                                            >
-                                                                <option value="">Selecione...</option>
-                                                                {displayUsers.map(u => (
-                                                                    <option key={u.username} value={u.username}>{u.username}</option>
-                                                                ))}
-                                                            </select>
-                                                        </td>
-                                                        <td style={{ textAlign: 'center' }}>
-                                                            <div style={{ display: 'flex', justifyContent: 'center', gap: '4px' }}>
-                                                                <button
-                                                                    onClick={() => handleToggleRotinaStatus(r)}
-                                                                    disabled={r.status === 'bloqueada'}
-                                                                    style={{
-                                                                        background: r.status === 'concluida' ? 'rgba(255,255,255,0.08)' : 'rgba(76, 175, 80, 0.2)',
-                                                                        color: r.status === 'concluida' ? '#aaa' : '#81C784',
-                                                                        border: '1px solid rgba(255,255,255,0.1)',
-                                                                        borderRadius: '4px',
-                                                                        padding: '3px 6px',
-                                                                        cursor: r.status === 'bloqueada' ? 'not-allowed' : 'pointer',
-                                                                        fontSize: '0.72rem',
-                                                                        fontWeight: 'bold'
-                                                                    }}
-                                                                >
-                                                                    {r.status === 'concluida' ? 'Reabrir' : 'Concluir'}
-                                                                </button>
-                                                                <button
-                                                                    onClick={() => handleOpenManualEmail(r)}
-                                                                    style={{
-                                                                        background: 'rgba(33, 150, 243, 0.15)',
-                                                                        color: '#64B5F6',
-                                                                        border: '1px solid rgba(33, 150, 243, 0.3)',
-                                                                        borderRadius: '4px',
-                                                                        padding: '3px 6px',
-                                                                        cursor: 'pointer',
-                                                                        fontSize: '0.72rem'
-                                                                    }}
-                                                                    title="Enviar e-mail"
-                                                                >
-                                                                    <Mail size={12} />
-                                                                </button>
-                                                                <button
-                                                                    onClick={() => handleDeleteRotina(r)}
-                                                                    style={{
-                                                                        background: 'rgba(239, 83, 80, 0.15)',
-                                                                        color: '#E57373',
-                                                                        border: '1px solid rgba(239, 83, 80, 0.3)',
-                                                                        borderRadius: '4px',
-                                                                        padding: '3px 6px',
-                                                                        cursor: 'pointer',
-                                                                        fontSize: '0.72rem'
-                                                                    }}
-                                                                >
-                                                                    <Trash2 size={12} />
-                                                                </button>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                    </tbody>
-                                </table>
                             </div>
                         )}
 
