@@ -4,7 +4,7 @@ import { getSettings, saveSettings as dbSaveSettings } from '../utils/db';
 const UserPanel = ({ onClose }) => {
   const [users, setUsers] = useState([]);
   const [editingUser, setEditingUser] = useState(null);
-  const [formData, setFormData] = useState({ username: '', password: '', role: 'viewer', permissions: ['dash'] });
+  const [formData, setFormData] = useState({ username: '', email: '', password: '', role: 'viewer', permissions: ['dash'] });
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -43,12 +43,12 @@ const UserPanel = ({ onClose }) => {
       saveUsers([...users, formData]);
     }
     setEditingUser(null);
-    setFormData({ username: '', password: '', role: 'viewer', permissions: ['dash'] });
+    setFormData({ username: '', email: '', password: '', role: 'viewer', permissions: ['dash'] });
   };
 
   const handleEdit = (u) => {
     setEditingUser(u);
-    setFormData({ ...u, permissions: u.permissions || ['dash'] });
+    setFormData({ ...u, email: u.email || '', permissions: u.permissions || ['dash'] });
   };
 
   const handleDelete = (username) => {
@@ -83,6 +83,16 @@ const UserPanel = ({ onClose }) => {
                   value={formData.username} 
                   onChange={e => setFormData({...formData, username: e.target.value})} 
                   disabled={editingUser && (['danilo', 'ryan.santos'].includes(formData.username))}
+                  style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', background: '#2a2a2a', border: '1px solid #444', color: '#fff' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', color: '#888', marginBottom: '0.3rem' }}>E-mail (para notificações das rotinas)</label>
+                <input 
+                  type="email" 
+                  placeholder="ex: usuario@agfequipamentos.com.br"
+                  value={formData.email || ''} 
+                  onChange={e => setFormData({...formData, email: e.target.value})} 
                   style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', background: '#2a2a2a', border: '1px solid #444', color: '#fff' }}
                 />
               </div>
@@ -154,6 +164,7 @@ const UserPanel = ({ onClose }) => {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
                   <div style={{ flex: 1, paddingRight: '0.5rem' }}>
                     <strong style={{ color: (['danilo', 'ryan.santos'].includes(u.username)) ? 'var(--color-primary)' : '#fff', wordBreak: 'break-all' }}>{u.username}</strong>
+                    {u.email && <div style={{ fontSize: '0.72rem', color: '#888', marginTop: '2px' }}>✉️ {u.email}</div>}
                     <div style={{ marginTop: '0.4rem' }}>
                       {(['danilo', 'ryan.santos'].includes(u.username)) ? (
                         <span style={{ background: 'var(--color-primary)', color: '#000', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>Super Admin</span>

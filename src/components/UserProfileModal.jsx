@@ -2,17 +2,18 @@ import React, { useState } from 'react';
 import { getSettings, saveSettings as dbSaveSettings } from '../utils/db';
 
 const UserProfileModal = ({ user, onClose }) => {
+  const [email, setEmail] = useState(user.email || '');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [message, setMessage] = useState('');
 
   const handleSave = async (e) => {
     e.preventDefault();
-    if (newPassword !== confirmPassword) {
+    if (newPassword && newPassword !== confirmPassword) {
       setMessage('As senhas não coincidem!');
       return;
     }
-    if (newPassword.length < 4) {
+    if (newPassword && newPassword.length < 4) {
       setMessage('A senha deve ter pelo menos 4 caracteres.');
       return;
     }
@@ -21,14 +22,18 @@ const UserProfileModal = ({ user, onClose }) => {
       const users = await getSettings('agf_users');
       if (users && Array.isArray(users)) {
         const updatedUsers = users.map(u => 
-          u.username === user.username ? { ...u, password: newPassword } : u
+          u.username === user.username ? { 
+            ...u, 
+            email: email.trim(), 
+            ...(newPassword ? { password: newPassword } : {}) 
+          } : u
         );
         await dbSaveSettings('agf_users', updatedUsers);
-        setMessage('Senha alterada com sucesso!');
+        setMessage('Perfil atualizado com sucesso!');
         setTimeout(() => onClose(), 1500);
       }
     } catch (err) {
-      setMessage('Erro ao salvar nova senha.');
+      setMessage('Erro ao salvar dados do perfil.');
     }
   };
 
@@ -46,12 +51,22 @@ const UserProfileModal = ({ user, onClose }) => {
             <input type="text" value={user.username} disabled style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', background: '#2a2a2a', border: '1px solid #444', color: '#888' }} />
           </div>
           <div>
-            <label style={{ display: 'block', color: '#888', marginBottom: '0.3rem' }}>Nova Senha</label>
-            <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', background: '#2a2a2a', border: '1px solid #444', color: '#fff' }} required />
+            <label style={{ display: 'block', color: '#888', marginBottom: '0.3rem' }}>E-mail (para receber alertas de rotinas)</label>
+            <input 
+              type="email" 
+              placeholder="ex: usuario@agfequipamentos.com.br"
+              value={email} 
+              onChange={e => setEmail(e.target.value)} 
+              style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', background: '#2a2a2a', border: '1px solid #444', color: '#fff' }} 
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', color: '#888', marginBottom: '0.3rem' }}>Nova Senha (deixe em branco se não quiser alterar)</label>
+            <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', background: '#2a2a2a', border: '1px solid #444', color: '#fff' }} />
           </div>
           <div>
             <label style={{ display: 'block', color: '#888', marginBottom: '0.3rem' }}>Confirmar Nova Senha</label>
-            <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', background: '#2a2a2a', border: '1px solid #444', color: '#fff' }} required />
+            <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', background: '#2a2a2a', border: '1px solid #444', color: '#fff' }} />
           </div>
           
           {message && <div style={{ color: message.includes('sucesso') ? '#4CAF50' : '#f44336', fontSize: '0.9rem', textAlign: 'center' }}>{message}</div>}

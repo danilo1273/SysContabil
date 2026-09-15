@@ -36,6 +36,23 @@ window.fetch = async (...args) => {
         const { data } = await supabase.from("agf_pendencias").select("*");
         return { ok: true, json: async () => data || [] };
       }
+      if (url.includes("/gestao/rotinas")) {
+        const params = new URL(url, window.location.origin).searchParams;
+        const ano = params.get("ano");
+        const mes = params.get("mes");
+        const empresaId = params.get("empresaId");
+        
+        const key = `agf_rotinas_${ano}_${mes}`;
+        const { data: setRow } = await supabase.from("settings").select("value").eq("key", key).single();
+        if (setRow && setRow.value) {
+          let list = typeof setRow.value === "string" ? JSON.parse(setRow.value) : setRow.value;
+          if (empresaId && empresaId !== 'todas' && empresaId !== 'consolidado') {
+            list = list.filter(r => r.empresaId === empresaId);
+          }
+          return { ok: true, json: async () => list || [] };
+        }
+        return { ok: true, json: async () => [] };
+      }
       if (url.includes("/settings/agf_obrigacoes_tipos")) {
         const { data } = await supabase.from("settings").select("value").eq("key", "agf_obrigacoes_tipos").single();
         return { ok: true, json: async () => (data ? JSON.parse(data.value) : null) };
@@ -96,6 +113,47 @@ window.fetch = async (...args) => {
           return { ok: !error, json: async () => ({ success: !error, error }) };
         }
       }
+      if (url.includes("/gestao/rotinas")) {
+        const parts = url.split("/");
+        const lastPart = parts[parts.length - 1].split("?")[0];
+        const isPut = config.method === "PUT" && lastPart && lastPart !== "rotinas";
+        
+        const items = Array.isArray(body) ? body : [body];
+        const ano = items[0]?.ano || new Date().getFullYear();
+        const mes = items[0]?.mes || (new Date().getMonth() + 1);
+        const key = `agf_rotinas_${ano}_${mes}`;
+        
+        const { data: setRow } = await supabase.from("settings").select("value").eq("key", key).single();
+        let currentList = [];
+        if (setRow && setRow.value) {
+          try { currentList = typeof setRow.value === "string" ? JSON.parse(setRow.value) : setRow.value; } catch(e) {}
+        }
+        
+        if (isPut) {
+          currentList = currentList.map(r => r.id === lastPart ? { ...r, ...body } : r);
+        } else {
+          items.forEach(newItem => {
+            const idx = currentList.findIndex(r => r.id === newItem.id);
+            if (idx >= 0) {
+              currentList[idx] = { ...currentList[idx], ...newItem };
+            } else {
+              currentList.push(newItem);
+            }
+          });
+        }
+        
+        await supabase.from("settings").upsert({ key, value: JSON.stringify(currentList) });
+        return { ok: true, json: async () => ({ success: true, count: currentList.length }) };
+      }
+      if (url.includes("/send-email")) {
+        try {
+          const res = await originalFetch(resource, config);
+          return res;
+        } catch (e) {
+          console.log("[fetchAdapter] Backend server offline for send-email, simulated:", body);
+          return { ok: true, json: async () => ({ success: true, mode: 'fallback_client' }) };
+        }
+      }
       if (url.includes("/settings/agf_obrigacoes_tipos")) {
         await supabase.from("settings").upsert({ key: "agf_obrigacoes_tipos", value: JSON.stringify(body.value || body) });
         return { ok: true, json: async () => ({ success: true }) };
@@ -112,6 +170,23 @@ window.fetch = async (...args) => {
 
     // Intercept DELETE
     if (config && config.method === "DELETE") {
+      if (url.includes("/gestao/rotinas")) {
+        const parts = url.split("/");
+        const lastPart = parts[parts.length - 1].split("?")[0];
+        const params = new URL(url, window.location.origin).searchParams;
+        const ano = params.get("ano");
+        const mes = params.get("mes");
+        if (lastPart && lastPart !== "rotinas" && ano && mes) {
+          const key = `agf_rotinas_${ano}_${mes}`;
+          const { data: setRow } = await supabase.from("settings").select("value").eq("key", key).single();
+          if (setRow && setRow.value) {
+            let currentList = typeof setRow.value === "string" ? JSON.parse(setRow.value) : setRow.value;
+            currentList = currentList.filter(r => r.id !== lastPart);
+            await supabase.from("settings").upsert({ key, value: JSON.stringify(currentList) });
+          }
+        }
+        return { ok: true, json: async () => ({ success: true }) };
+      }
       if (url.includes("/gestao/pendencias")) {
         const parts = url.split("/");
         const lastPart = parts[parts.length - 1].split("?")[0];
