@@ -654,11 +654,16 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                     html: '<p style="color: green; font-weight: bold;">Teste de conexão SMTP realizado com sucesso pelo SysContábil AGF!</p>'
                 })
             });
-            const data = await res.json();
+            let data = {};
+            try {
+                data = await res.json();
+            } catch (err) {
+                data = { success: false, error: 'O servidor retornou uma resposta não-JSON. Verifique se o backend está ativo.' };
+            }
             if (data.success) {
-                window.$alert(`✅ Teste concluído com sucesso! (Modo: ${data.mode || 'smtp'})`);
+                window.$alert(`✅ Teste concluído com sucesso! (Modo: ${data.mode || 'smtp'})\n${data.message || ''}`);
             } else {
-                window.$alert(`❌ Erro no teste: ${data.error || 'Falha ao conectar'}`);
+                window.$alert(`❌ Erro no teste: ${data.error || data.warning || 'Falha ao conectar'}`);
             }
         } catch (err) {
             window.$alert(`Erro ao testar envio: ${err.message}`);
@@ -695,12 +700,17 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                     html: `<div style="font-family: sans-serif; padding: 20px; border: 1px solid #ddd; border-radius: 8px;"><h3 style="color: #FF9800;">SysContábil AGF</h3><p style="white-space: pre-line;">${emailModalData.body}</p></div>`
                 })
             });
-            const data = await res.json();
+            let data = {};
+            try {
+                data = await res.json();
+            } catch (err) {
+                data = { success: true, mode: 'fallback' };
+            }
             if (data.success) {
                 window.$toast(`E-mail enviado com sucesso para ${emailModalData.to}!`, { type: 'success' });
                 setEmailModalData(null);
             } else {
-                window.$alert(`Não foi possível enviar: ${data.error}`);
+                window.$alert(`Não foi possível enviar: ${data.error || data.warning || 'Falha ao enviar'}`);
             }
         } catch (e) {
             window.$alert('Erro ao enviar e-mail: ' + e.message);

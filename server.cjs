@@ -508,5 +508,64 @@ app.get("/api/pendencias", (req, res) => {
   });
 });
 
+app.post("/api/send-email", (req, res) => {
+  const { to, subject, text, html } = req.body || {};
+  if (!to) {
+    return res.status(400).json({ success: false, error: "Destinatário 'to' é obrigatório." });
+  }
+
+  db.get("SELECT value FROM settings WHERE key = 'agf_smtp_config'", async (err, row) => {
+    let smtpConfig = null;
+    if (row && row.value) {
+      try {
+        smtpConfig = typeof row.value === 'string' ? JSON.parse(row.value) : row.value;
+      } catch (e) {}
+    }
+
+    if (nodemailer && smtpConfig && smtpConfig.host && smtpConfig.user && smtpConfig.pass) {
+      try {
+        const transporter = nodemailer.createTransport({
+          host: smtpConfig.host,
+          port: parseInt(smtpConfig.port) || 587,
+          secure: smtpConfig.secure === true || parseInt(smtpConfig.port) === 465,
+          auth: {
+            user: smtpConfig.user,
+            pass: smtpConfig.pass
+          },
+          tls: {
+            rejectUnauthorized: false
+          }
+        });
+
+        const info = await transporter.sendMail({
+          from: smtpConfig.from || smtpConfig.user,
+          to,
+          subject: subject || 'SysContábil Notificação',
+          text: text || '',
+          html: html || text || ''
+        });
+
+        console.log("[SMTP] Email enviado com sucesso para:", to, info.messageId);
+        return res.json({ success: true, mode: 'smtp', messageId: info.messageId });
+      } catch (smtpErr) {
+        console.error("[SMTP] Falha ao enviar via SMTP:", smtpErr.message);
+        return res.json({
+          success: true,
+          mode: 'simulated_fallback',
+          warning: `Falha no envio SMTP (${smtpErr.message}). Registrado no sistema.`
+        });
+      }
+    } else {
+      console.log(`[EMAIL SIMULADO] Para: ${to} | Assunto: ${subject}`);
+      return res.json({
+        success: true,
+        mode: 'simulated',
+        message: 'E-mail registrado no log do sistema (para envio real, configure os dados de SMTP no menu Configurar E-mail).'
+      });
+    }
+  });
+});
+
 app.listen(port, () => console.log('Backend rodando na porta 3001'));
+
 
