@@ -1227,11 +1227,11 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                             </div>
                         )}
 
-                        {/* GRID DE CARDS ENXUTOS POR FILIAL */}
+                        {/* GRID DE CARDS ENXUTOS POR FILIAL (3 POR LINHA) */}
                         {rotinas.length > 0 && (
                             <div style={{
                                 display: 'grid',
-                                gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))',
+                                gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
                                 gap: '1.2rem',
                                 alignItems: 'start'
                             }}>
@@ -1260,7 +1260,7 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                                 border: '1px solid rgba(255, 255, 255, 0.08)',
                                                 borderTop: `4px solid ${empConfig.color}`,
                                                 borderRadius: '12px',
-                                                padding: '1.1rem',
+                                                padding: '1.15rem',
                                                 display: 'flex',
                                                 flexDirection: 'column',
                                                 gap: '0.9rem',
@@ -1342,7 +1342,7 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                                 </div>
                                             </div>
 
-                                            {/* LINHAS DAS 3 INTEGRAÇÕES (COMPACTO) */}
+                                            {/* LINHAS DAS 3 INTEGRAÇÕES (COMPACTO COM MAIS RESPIRO) */}
                                             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                                 {[
                                                     { rot: fEntradas, label: 'Entradas', icon: '📥' },
@@ -1360,20 +1360,20 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                                                 background: isDone ? 'rgba(76, 175, 80, 0.06)' : 'rgba(0,0,0,0.22)',
                                                                 border: `1px solid ${isDone ? 'rgba(76, 175, 80, 0.25)' : 'rgba(255, 255, 255, 0.05)'}`,
                                                                 borderRadius: '7px',
-                                                                padding: '6px 8px',
+                                                                padding: '6px 9px',
                                                                 display: 'flex',
                                                                 flexDirection: 'column',
                                                                 gap: '4px'
                                                             }}
                                                         >
                                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                                <span style={{ fontSize: '0.8rem', color: '#eee', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                                <span style={{ fontSize: '0.82rem', color: '#eee', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '5px' }}>
                                                                     <span>{icon}</span> {label}
                                                                 </span>
 
                                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                                                     <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
-                                                                        <span style={{ fontSize: '0.72rem', color: '#777' }}>Dia:</span>
+                                                                        <span style={{ fontSize: '0.74rem', color: '#888' }}>Dia:</span>
                                                                         <input
                                                                             type="number"
                                                                             min="0"
@@ -1381,9 +1381,9 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                                                             value={rot.dia_atual || 0}
                                                                             onChange={(e) => handleUpdateRoutineProgress(rot.id, parseInt(e.target.value) || 0)}
                                                                             className="text-input"
-                                                                            style={{ width: '46px', padding: '1px 4px', fontSize: '0.78rem', textAlign: 'center' }}
+                                                                            style={{ width: '46px', padding: '2px 4px', fontSize: '0.78rem', textAlign: 'center' }}
                                                                         />
-                                                                        <span style={{ fontSize: '0.72rem', color: '#777' }}>/31</span>
+                                                                        <span style={{ fontSize: '0.74rem', color: '#888' }}>/31</span>
                                                                     </div>
 
                                                                     <button
@@ -1393,9 +1393,9 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                                                             color: isDone ? '#81C784' : '#FFB74D',
                                                                             border: `1px solid ${isDone ? 'rgba(76, 175, 80, 0.4)' : 'rgba(255, 152, 0, 0.3)'}`,
                                                                             borderRadius: '4px',
-                                                                            padding: '1px 6px',
+                                                                            padding: '2px 7px',
                                                                             cursor: 'pointer',
-                                                                            fontSize: '0.72rem',
+                                                                            fontSize: '0.74rem',
                                                                             fontWeight: 'bold'
                                                                         }}
                                                                         title="Marcar como integrado até dia 31"
@@ -1407,10 +1407,10 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                                                         value={rot.responsavel || ''}
                                                                         onChange={(e) => handleUpdateRotinaResponsavel(rot.id, e.target.value)}
                                                                         className="select-input"
-                                                                        style={{ padding: '1px 4px', fontSize: '0.72rem', maxWidth: '90px' }}
+                                                                        style={{ padding: '2px 6px', fontSize: '0.74rem', maxWidth: '125px' }}
                                                                         title="Responsável pela integração"
                                                                     >
-                                                                        <option value="">Resp...</option>
+                                                                        <option value="">Responsável...</option>
                                                                         {displayUsers.map(u => (
                                                                             <option key={u.username} value={u.username}>{u.username}</option>
                                                                         ))}
@@ -1461,9 +1461,9 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                                                 value={fApuracao.responsavel || ''}
                                                                 onChange={(e) => handleUpdateRotinaResponsavel(fApuracao.id, e.target.value)}
                                                                 className="select-input"
-                                                                style={{ padding: '1px 4px', fontSize: '0.72rem', maxWidth: '95px' }}
+                                                                style={{ padding: '2px 6px', fontSize: '0.74rem', maxWidth: '125px' }}
                                                             >
-                                                                <option value="">Resp...</option>
+                                                                <option value="">Responsável...</option>
                                                                 {displayUsers.map(u => (
                                                                     <option key={u.username} value={u.username}>{u.username}</option>
                                                                 ))}
