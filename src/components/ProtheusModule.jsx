@@ -146,6 +146,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
   const [dbTabRecords, setDbTabRecords] = useState([]);
   const [loadingDb, setLoadingDb] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const loadIdRef = useRef(0);
   const [results, setResults] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [selectedCompany, setSelectedCompany] = useState('consolidado');
@@ -727,6 +728,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
     const pPeriod = periodParam !== undefined ? periodParam : period;
     const pCompany = companyParam !== undefined ? companyParam : selectedCompany;
 
+    const currentLoadId = ++loadIdRef.current;
     setIsProcessing(true);
     try {
       const consolidated = {
@@ -754,10 +756,44 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
         });
       };
 
-      for (const comp of companies) {
-        const dreDbData = await getDREFromDB(comp.id, pAno, pMes, pPeriod);
-        const balancoDbData = await getBalancoFromDB(comp.id, pAno, pMes);
-        
+      // --- DFC Logic Períodos ---
+      let prevAno = pAno;
+      let prevMes = pMes - 1;
+      if (pPeriod === 'acumulado') {
+         prevAno = pAno - 1;
+         prevMes = 12;
+      } else if (pPeriod === 'trimestre') {
+         prevMes = pMes - 3;
+         if (prevMes <= 0) { prevMes = 12; prevAno = pAno - 1; }
+      } else {
+         if (prevMes <= 0) { prevMes = 12; prevAno = pAno - 1; }
+      }
+
+      let prevAnoExc = pAno;
+      let prevMesExc = pMes - 1;
+      if (pPeriod === 'acumulado') { prevAnoExc = pAno - 1; prevMesExc = 12; } 
+      else if (pPeriod === 'trimestre') { prevMesExc = pMes - 3; if (prevMesExc <= 0) { prevMesExc = 12; prevAnoExc = pAno - 1; } } 
+      else { if (prevMesExc <= 0) { prevMesExc = 12; prevAnoExc = pAno - 1; } }
+
+      // Disparar busca de todas as empresas e exclusões em paralelo
+      const [companyDataList, excDreDbRaw, excBalDbRaw, prevBalExcDb, excList] = await Promise.all([
+        Promise.all(companies.map(async (comp) => {
+          const [dreDbData, balancoDbData, prevBalancoDbData] = await Promise.all([
+            getDREFromDB(comp.id, pAno, pMes, pPeriod),
+            getBalancoFromDB(comp.id, pAno, pMes),
+            getBalancoFromDB(comp.id, prevAno, prevMes)
+          ]);
+          return { comp, dreDbData, balancoDbData, prevBalancoDbData };
+        })),
+        getDREFromDB('exclusoes', pAno, pMes, pPeriod),
+        getBalancoFromDB('exclusoes', pAno, pMes),
+        getBalancoFromDB('exclusoes', prevAnoExc, prevMesExc),
+        getSettings(`agf_exclusoes_lista_${pAno}_${pMes}`)
+      ]);
+
+      if (currentLoadId !== loadIdRef.current) return;
+
+      for (const { comp, dreDbData, balancoDbData, prevBalancoDbData } of companyDataList) {
         checkUnmapped(balancoDbData, mergedMapping.ativo, 'ativo', comp.id);
         checkUnmapped(balancoDbData, mergedMapping.passivo, 'passivo', comp.id);
 
@@ -765,21 +801,6 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
         const ativoMapped = applyMapping(balancoDbData, mergedMapping.ativo, 1, 'valor');
         const passivoMapped = applyMapping(balancoDbData, mergedMapping.passivo, 1, 'valor');
 
-        // --- DFC Logic ---
-        let prevAno = pAno;
-        let prevMes = pMes - 1;
-        if (pPeriod === 'acumulado') {
-           prevAno = pAno - 1;
-           prevMes = 12;
-        } else if (pPeriod === 'trimestre') {
-           prevMes = pMes - 3;
-           if (prevMes <= 0) { prevMes = 12; prevAno = pAno - 1; }
-        } else {
-           if (prevMes <= 0) { prevMes = 12; prevAno = pAno - 1; }
-        }
-        
-        const prevBalancoDbData = await getBalancoFromDB(comp.id, prevAno, prevMes);
-        
         const computeVariation = (curr, prev) => {
            const variation = {};
            const allKeys = new Set([...Object.keys(curr || {}), ...Object.keys(prev || {})]);
@@ -827,8 +848,8 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
       }
 
       // 4.5. Injetar Exclusões
-      let excDreDb = await getDREFromDB('exclusoes', pAno, pMes, pPeriod);
-      let excBalDb = await getBalancoFromDB('exclusoes', pAno, pMes);
+      let excDreDb = excDreDbRaw;
+      let excBalDb = excBalDbRaw;
 
       // Se estiver em um Consolidado Personalizado, filtrar as exclusões para considerar apenas operações entre as empresas do subgrupo
       const panelCustom = (customConsolidations || []).find(c => c.id === pCompany)
@@ -837,34 +858,29 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
       const panelCustomCompanies = panelCustom ? (panelCustom.companies || []) : [];
 
       if (isPanelCustom) {
-        try {
-          const excList = await getSettings(`agf_exclusoes_lista_${pAno}_${pMes}`);
-          if (Array.isArray(excList) && excList.length > 0) {
-            const matchingExcs = excList.filter(item => {
-              if (item.empresaOrigem === 'todas' || item.empresaDestino === 'todas') return true;
-              return panelCustomCompanies.includes(item.empresaOrigem) && panelCustomCompanies.includes(item.empresaDestino);
-            });
-            const subFat = matchingExcs.reduce((acc, i) => acc + (Number(i.faturamento) || 0), 0);
-            const subImp = matchingExcs.reduce((acc, i) => acc + (Number(i.impostos) || 0), 0);
-            const subCusto = matchingExcs.reduce((acc, i) => acc + (Number(i.custo) || 0), 0);
-            const subCli = matchingExcs.reduce((acc, i) => acc + (Number(i.clientes) || 0), 0);
-            const subForn = matchingExcs.reduce((acc, i) => acc + (Number(i.fornecedores) || 0), 0);
+        if (Array.isArray(excList) && excList.length > 0) {
+          const matchingExcs = excList.filter(item => {
+            if (item.empresaOrigem === 'todas' || item.empresaDestino === 'todas') return true;
+            return panelCustomCompanies.includes(item.empresaOrigem) && panelCustomCompanies.includes(item.empresaDestino);
+          });
+          const subFat = matchingExcs.reduce((acc, i) => acc + (Number(i.faturamento) || 0), 0);
+          const subImp = matchingExcs.reduce((acc, i) => acc + (Number(i.impostos) || 0), 0);
+          const subCusto = matchingExcs.reduce((acc, i) => acc + (Number(i.custo) || 0), 0);
+          const subCli = matchingExcs.reduce((acc, i) => acc + (Number(i.clientes) || 0), 0);
+          const subForn = matchingExcs.reduce((acc, i) => acc + (Number(i.fornecedores) || 0), 0);
 
-            excDreDb = {
-              '3.1.1.1.01.00001.EXC': { descricao: 'Exclusão Intercompany - Faturamento', valor: -Math.abs(subFat) },
-              '3.1.1.2.01.EXC': { descricao: 'Exclusão Intercompany - Impostos s/ Vendas', valor: Math.abs(subImp) },
-              '4.1.1.1.13.EXC': { descricao: 'Exclusão Intercompany - Custo (CPV/CMV)', valor: Math.abs(subCusto) }
-            };
-            excBalDb = {
-              '1.1.1.3.01.EXC': { descricao: 'Exclusão Intercompany - Clientes', valor: -Math.abs(subCli) },
-              '2.1.1.1.01.EXC': { descricao: 'Exclusão Intercompany - Fornecedores', valor: Math.abs(subForn) }
-            };
-          } else {
-            excDreDb = {};
-            excBalDb = {};
-          }
-        } catch (e) {
-          console.warn('Erro ao filtrar exclusões customizadas:', e);
+          excDreDb = {
+            '3.1.1.1.01.00001.EXC': { descricao: 'Exclusão Intercompany - Faturamento', valor: -Math.abs(subFat) },
+            '3.1.1.2.01.EXC': { descricao: 'Exclusão Intercompany - Impostos s/ Vendas', valor: Math.abs(subImp) },
+            '4.1.1.1.13.EXC': { descricao: 'Exclusão Intercompany - Custo (CPV/CMV)', valor: Math.abs(subCusto) }
+          };
+          excBalDb = {
+            '1.1.1.3.01.EXC': { descricao: 'Exclusão Intercompany - Clientes', valor: -Math.abs(subCli) },
+            '2.1.1.1.01.EXC': { descricao: 'Exclusão Intercompany - Fornecedores', valor: Math.abs(subForn) }
+          };
+        } else {
+          excDreDb = {};
+          excBalDb = {};
         }
       }
       
@@ -875,12 +891,6 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
       consolidated.ativo['exclusoes'] = applyMapping(excBalDb, mergedMapping.ativo, 1, 'valor');
       consolidated.passivo['exclusoes'] = applyMapping(excBalDb, mergedMapping.passivo, 1, 'valor');
       
-      let prevAnoExc = pAno;
-      let prevMesExc = pMes - 1;
-      if (pPeriod === 'acumulado') { prevAnoExc = pAno - 1; prevMesExc = 12; } 
-      else if (pPeriod === 'trimestre') { prevMesExc = pMes - 3; if (prevMesExc <= 0) { prevMesExc = 12; prevAnoExc = pAno - 1; } } 
-      else { if (prevMesExc <= 0) { prevMesExc = 12; prevAnoExc = pAno - 1; } }
-      const prevBalExcDb = await getBalancoFromDB('exclusoes', prevAnoExc, prevMesExc);
       const varExc = {};
       const allExcKeys = new Set([...Object.keys(excBalDb || {}), ...Object.keys(prevBalExcDb || {})]);
       for (const k of allExcKeys) {
@@ -1230,12 +1240,23 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
       const isDezembro = parseInt(pMes, 10) === 12;
 
       if (!isDezembro) {
+        // Obter DRE YTD de todas as empresas em paralelo quando necessário
+        let ytdDresByComp = {};
+        if (pPeriod !== 'acumulado') {
+          const ytdDres = await Promise.all(
+            consolidated.companies.map(comp => getDREFromDB(comp.id, pAno, pMes, 'acumulado'))
+          );
+          consolidated.companies.forEach((comp, idx) => {
+            ytdDresByComp[comp.id] = ytdDres[idx];
+          });
+        }
+
         for (const comp of consolidated.companies) {
            let lucroYTD = 0;
            if (pPeriod === 'acumulado') {
               lucroYTD = dreResult.subtotals.lucroLiq[comp.id] || 0;
            } else {
-              const dreYTD = await getDREFromDB(comp.id, pAno, pMes, 'acumulado');
+              const dreYTD = ytdDresByComp[comp.id] || [];
               const dreMappedYTD = applyMapping(dreYTD, mergedMapping.dre, 1, 'valor');
               const getT = (group) => dreMappedYTD[group] ? dreMappedYTD[group]['TOTAL'].total : 0;
               const lucroBruto = getT('RECEITA OPERACIONAL BRUTA') + getT('DEDUÇÕES DA RECEITA') + getT('CUSTOS');
@@ -1484,6 +1505,8 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
          return lines;
       };
 
+      if (currentLoadId !== loadIdRef.current) return;
+
       const finalResults = {
         dre: dreResult.lines,
         dfc: buildDFC(),
@@ -1500,7 +1523,11 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
     } catch (error) {
       console.error('Erro ao processar', error);
       window.$alert('Erro ao processar balancete: ' + error.message);
-    } finally { setIsProcessing(false); } };
+    } finally { 
+      if (currentLoadId === loadIdRef.current) {
+        setIsProcessing(false); 
+      }
+    } };
 
     const handlePrint = (reportName) => {
         const isConsol = selectedCompany === 'consolidado';
@@ -2054,11 +2081,44 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
             flexWrap: 'wrap', 
             gap: '1rem',
             boxShadow: '0 10px 30px rgba(0,0,0,0.6)',
-            transition: 'all 0.3s ease'
+            transition: 'all 0.3s ease',
+            overflow: 'hidden'
           }}>
+            {/* Barra de Progresso Neon quando carregando */}
+            {isProcessing && (
+              <div style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                height: '3px',
+                background: 'linear-gradient(90deg, #FF9800, #2196F3, #4CAF50, #FF9800)',
+                backgroundSize: '200% 100%',
+                animation: 'loadingBarMove 1.2s infinite linear',
+                boxShadow: '0 0 10px rgba(33, 150, 243, 0.8)'
+              }} />
+            )}
             <div>
-              <h2 style={{ color: 'var(--color-primary)' }}>Painel de Inteligência Consolidado</h2>
-              {latestAvailable && <p style={{ color: '#888', fontSize: '0.85rem', marginTop: '0.2rem' }}>Último balancete integrado: <strong>{latestAvailable}</strong></p>}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+                <h2 style={{ color: 'var(--color-primary)', margin: 0 }}>Painel de Inteligência Consolidado</h2>
+                {isProcessing && (
+                  <span style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '3px 10px',
+                    borderRadius: '20px',
+                    background: 'rgba(33, 150, 243, 0.15)',
+                    border: '1px solid rgba(33, 150, 243, 0.4)',
+                    color: '#64B5F6',
+                    fontSize: '0.8rem',
+                    fontWeight: 'bold'
+                  }}>
+                    <RefreshCw size={13} className="spin-animation" /> Atualizando...
+                  </span>
+                )}
+              </div>
+              {latestAvailable && <p style={{ color: '#888', fontSize: '0.85rem', marginTop: '0.2rem', marginBottom: 0 }}>Último balancete integrado: <strong>{latestAvailable}</strong></p>}
             </div>
             <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
               <select 
@@ -2179,6 +2239,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
             ))}
           </nav>
 
+          <div style={{ opacity: isProcessing ? 0.6 : 1, transition: 'opacity 0.25s ease', pointerEvents: isProcessing ? 'none' : 'auto' }}>
           {secondaryTab === 'dash' && (
             <DashboardView 
               selectedCompany={selectedCompany} 
@@ -2383,6 +2444,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
             canEdit={userPermissions?.includes('contabil') || ['danilo', 'ryan.santos'].includes(username)} 
           />
         )}
+          </div>
         </div>
       )}
 
