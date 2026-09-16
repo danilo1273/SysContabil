@@ -14,6 +14,7 @@ import CentroCustoModule from './CentroCustoModule';
 import GestaoContabilModule from './GestaoContabilModule';
 import PerdcompModule from './PerdcompModule';
 import EstoqueModule from './EstoqueModule';
+import IntercompanyExclusionsPanel from './IntercompanyExclusionsPanel';
 import { printReport } from '../utils/printHelper';
 
 const COLORS = ['#4CAF50', '#2196F3', '#f7c324', '#9C27B0', '#FF9800'];
@@ -1754,6 +1755,14 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
               </button>
             </div>
           </div>
+
+          {/* PAINEL DE EXCLUSÕES INTERCOMPANY */}
+          <IntercompanyExclusionsPanel 
+            dbAno={dbAno} 
+            dbMes={dbMes} 
+            onSaved={() => loadDbRecords(dbAno, dbMes)} 
+          />
+
           {/* INSERÇÃO MANUAL */}
           <div className="glass-panel" style={{ padding: '1rem', marginBottom: '2rem', display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
             <h4 style={{ margin: 0, color: 'var(--color-primary)', width: '100%' }}>➕ Inserir Lançamento Avulso (Exclusões, Provisões) no mês {dbMes}/{dbAno}</h4>
