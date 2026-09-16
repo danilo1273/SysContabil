@@ -2,42 +2,26 @@ import React, { useState, useEffect } from 'react';
 import { getSettings, saveSettings, fetchAll } from '../utils/db';
 import { supabase } from '../supabaseClient';
 import { 
-  Calculator, 
   Settings, 
   RefreshCw, 
   Check, 
   Save, 
-  TrendingDown, 
   Building2, 
   Plus, 
   X,
-  Edit2,
-  Trash2,
-  ArrowRight
+  CheckCircle2,
+  AlertTriangle,
+  HelpCircle,
+  ArrowRight,
+  TrendingDown
 } from 'lucide-react';
 
 export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = [], onSaved }) {
-  // Lista de empresas padrão caso não venha via prop
   const availableCompanies = companies && companies.length > 0 ? companies : [
     { id: 'equipamentos', name: 'AGF Equipamentos' },
     { id: 'rompedores', name: 'AGF Rompedores' },
     { id: 'casa', name: 'Casa da Escavadeira' }
   ];
-
-  // Estados do formulário de exclusão ativa/em edição
-  const [editingId, setEditingId] = useState(null);
-  const [empresaOrigem, setEmpresaOrigem] = useState(availableCompanies[0]?.id || 'equipamentos');
-  const [empresaDestino, setEmpresaDestino] = useState(availableCompanies[1]?.id || 'rompedores');
-  const [motivo, setMotivo] = useState('');
-
-  const [faturamento, setFaturamento] = useState('');
-  const [impostos, setImpostos] = useState('');
-  const [custo, setCusto] = useState('');
-  const [clientes, setClientes] = useState('');
-  const [fornecedores, setFornecedores] = useState('');
-  
-  // Lista de todas as exclusões cadastradas para este mês/ano
-  const [exclusionsList, setExclusionsList] = useState([]);
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -46,11 +30,16 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
   // Mapeamento de contas por empresa: { [empresaId]: { clientesContas: [], fornecedoresContas: [] } }
   const [accountMapping, setAccountMapping] = useState({});
   const [mappingCompany, setMappingCompany] = useState(availableCompanies[0]?.id || 'equipamentos');
-
-  // Sugestões de contas encontradas no balancete
   const [detectedAccounts, setDetectedAccounts] = useState({ clientes: [], fornecedores: [] });
   const [newClienteInput, setNewClienteInput] = useState('');
   const [newFornecInput, setNewFornecInput] = useState('');
+
+  // Saldos puxados automaticamente do balancete por empresa
+  // { [empresaId]: { clientes: 0, fornecedores: 0, clientesContas: [], fornecedoresContas: [] } }
+  const [pulledBalanco, setPulledBalanco] = useState({});
+
+  // Valores manuais de DRE por empresa: { [empresaId]: { faturamento: '', impostos: '', custo: '' } }
+  const [companyDRE, setCompanyDRE] = useState({});
 
   const mesNome = [
     'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
@@ -63,97 +52,97 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
     return found ? found.name : id;
   };
 
-  const getCompanyMapping = (compKey) => {
-    return accountMapping[compKey] || {
-      clientesContas: ['1.1.1.3.01.000001'],
-      fornecedoresContas: ['2.1.1.1.01.000001']
-    };
-  };
-
-  // Carregar dados salvos do mês e mapeamento de contas por empresa
-  useEffect(() => {
-    const loadInitialData = async () => {
-      setLoading(true);
-      try {
-        // 1. Carregar mapeamento de contas por empresa
-        const storedMapping = await getSettings('agf_intercompany_mapping');
-        if (storedMapping && typeof storedMapping === 'object') {
-          // Migração de formato se antes era array plano
-          if (storedMapping.clientesContas || storedMapping.fornecedoresContas) {
-            const migrated = {};
-            availableCompanies.forEach(c => {
-              migrated[c.id] = {
-                clientesContas: [...(storedMapping.clientesContas || ['1.1.1.3.01.000001'])],
-                fornecedoresContas: [...(storedMapping.fornecedoresContas || ['2.1.1.1.01.000001'])]
-              };
-            });
-            setAccountMapping(migrated);
-          } else {
-            setAccountMapping(storedMapping);
-          }
-        } else {
-          const initialMap = {};
+  // Carregar dados iniciais e consultar balancetes do mês automaticamente
+  const loadMonthData = async () => {
+    setLoading(true);
+    try {
+      // 1. Carregar mapeamento de contas por empresa
+      const storedMapping = await getSettings('agf_intercompany_mapping') || {};
+      let currentMap = {};
+      if (storedMapping && typeof storedMapping === 'object') {
+        if (storedMapping.clientesContas || storedMapping.fornecedoresContas) {
           availableCompanies.forEach(c => {
-            initialMap[c.id] = {
-              clientesContas: ['1.1.1.3.01.000001'],
-              fornecedoresContas: ['2.1.1.1.01.000001']
+            currentMap[c.id] = {
+              clientesContas: [...(storedMapping.clientesContas || ['1.1.1.3.01.000001'])],
+              fornecedoresContas: [...(storedMapping.fornecedoresContas || ['2.1.1.1.01.000001'])]
             };
           });
-          setAccountMapping(initialMap);
-        }
-
-        // 2. Carregar lista de exclusões salvas para este mês/ano
-        const storedList = await getSettings(`agf_exclusoes_lista_${dbAno}_${dbMes}`);
-        if (Array.isArray(storedList) && storedList.length > 0) {
-          setExclusionsList(storedList);
         } else {
-          // Fallback para o formato anterior (única exclusão por mês)
-          const legacyExclusoes = await getSettings(`agf_exclusoes_${dbAno}_${dbMes}`);
-          if (legacyExclusoes && typeof legacyExclusoes === 'object' && (
-            legacyExclusoes.faturamento || legacyExclusoes.impostos || legacyExclusoes.custo || legacyExclusoes.clientes || legacyExclusoes.fornecedores
-          )) {
-            const migratedItem = {
-              id: `legacy_${dbAno}_${dbMes}`,
-              empresaOrigem: 'todas',
-              empresaDestino: 'todas',
-              motivo: 'Exclusão Intercompany Geral',
-              faturamento: Number(legacyExclusoes.faturamento) || 0,
-              impostos: Number(legacyExclusoes.impostos) || 0,
-              custo: Number(legacyExclusoes.custo) || 0,
-              clientes: Number(legacyExclusoes.clientes) || 0,
-              fornecedores: Number(legacyExclusoes.fornecedores) || 0,
-              createdAt: legacyExclusoes.updated_at || new Date().toISOString()
-            };
-            setExclusionsList([migratedItem]);
-          } else {
-            setExclusionsList([]);
-          }
+          currentMap = storedMapping;
         }
-
-        resetForm();
-      } catch (err) {
-        console.error('Erro ao carregar exclusões:', err);
-      } finally {
-        setLoading(false);
       }
-    };
+      setAccountMapping(currentMap);
 
-    loadInitialData();
-  }, [dbAno, dbMes]);
+      // 2. Buscar registros do Balanço para o mês/ano selecionado
+      const balRecords = await fetchAll(
+        supabase.from('balanco_history')
+          .select('empresaId, conta, descricao, saldoAcumulado')
+          .eq('ano', dbAno)
+          .eq('mes', dbMes)
+          .neq('empresaId', 'exclusoes')
+      );
 
-  const resetForm = () => {
-    setEditingId(null);
-    setMotivo('');
-    setFaturamento('');
-    setImpostos('');
-    setCusto('');
-    setClientes('');
-    setFornecedores('');
-    setEmpresaOrigem(availableCompanies[0]?.id || 'equipamentos');
-    setEmpresaDestino(availableCompanies[1]?.id || 'rompedores');
+      // 3. Puxar automaticamente Clientes e Fornecedores por empresa usando o mapeamento
+      const pulled = {};
+      availableCompanies.forEach(c => {
+        const cMap = currentMap[c.id] || { clientesContas: [], fornecedoresContas: [] };
+        const cliMatches = (balRecords || []).filter(r => 
+          r.empresaId === c.id && (cMap.clientesContas || []).some(acc => r.conta && r.conta.startsWith(acc.trim()))
+        );
+        const fornMatches = (balRecords || []).filter(r => 
+          r.empresaId === c.id && (cMap.fornecedoresContas || []).some(acc => r.conta && r.conta.startsWith(acc.trim()))
+        );
+
+        pulled[c.id] = {
+          clientes: cliMatches.reduce((sum, r) => sum + Math.abs(r.saldoAcumulado || 0), 0),
+          fornecedores: fornMatches.reduce((sum, r) => sum + Math.abs(r.saldoAcumulado || 0), 0),
+          clientesContas: cliMatches.map(r => `${r.conta} - ${r.descricao} (R$ ${Math.abs(r.saldoAcumulado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`),
+          fornecedoresContas: fornMatches.map(r => `${r.conta} - ${r.descricao} (R$ ${Math.abs(r.saldoAcumulado || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`)
+        };
+      });
+      setPulledBalanco(pulled);
+
+      // 4. Carregar valores salvos de DRE (Faturamento, Impostos, Custos)
+      const storedDRE = await getSettings(`agf_exclusoes_empresas_${dbAno}_${dbMes}`);
+      const legacyData = await getSettings(`agf_exclusoes_${dbAno}_${dbMes}`);
+      const dreState = {};
+
+      availableCompanies.forEach(c => {
+        if (storedDRE && storedDRE[c.id]) {
+          dreState[c.id] = {
+            faturamento: storedDRE[c.id].faturamento !== undefined ? String(storedDRE[c.id].faturamento) : '',
+            impostos: storedDRE[c.id].impostos !== undefined ? String(storedDRE[c.id].impostos) : '',
+            custo: storedDRE[c.id].custo !== undefined ? String(storedDRE[c.id].custo) : ''
+          };
+        } else {
+          dreState[c.id] = { faturamento: '', impostos: '', custo: '' };
+        }
+      });
+
+      // Se não há por empresa, mas há legado consolidado, colocar na primeira empresa ou ratear
+      const hasAnyStored = Object.values(dreState).some(v => v.faturamento || v.impostos || v.custo);
+      if (!hasAnyStored && legacyData && (legacyData.faturamento || legacyData.impostos || legacyData.custo)) {
+        const firstId = availableCompanies[0]?.id || 'equipamentos';
+        dreState[firstId] = {
+          faturamento: legacyData.faturamento ? String(legacyData.faturamento) : '',
+          impostos: legacyData.impostos ? String(legacyData.impostos) : '',
+          custo: legacyData.custo ? String(legacyData.custo) : ''
+        };
+      }
+
+      setCompanyDRE(dreState);
+    } catch (e) {
+      console.error('Erro ao carregar dados de exclusão:', e);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // Buscar contas do balancete para sugerir no mapeamento da empresa selecionada
+  useEffect(() => {
+    loadMonthData();
+  }, [dbAno, dbMes]);
+
+  // Sugestões de contas no balanço para o modal de mapeamento
   const scanIntercompanyAccounts = async (targetComp = mappingCompany) => {
     try {
       let query = supabase.from('balanco_history')
@@ -165,7 +154,6 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
       }
 
       const records = await fetchAll(query);
-
       const clientesMap = new Map();
       const fornecedoresMap = new Map();
 
@@ -178,7 +166,9 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
           descUpper.includes('ROMPEDOR') || 
           descUpper.includes('PARTICIPA') || 
           descUpper.includes('LIGADA') || 
-          descUpper.includes('INTERCOMPANY');
+          descUpper.includes('INTERCOMPANY') ||
+          descUpper.includes('MUTUO') ||
+          descUpper.includes('CONTROLADA');
 
         if (isIntercompanyName) {
           if (r.conta.startsWith('1.1.1.3') || r.tipo === 'ativo') {
@@ -198,277 +188,13 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
     }
   };
 
-  // Puxar saldos de Clientes e Fornecedores do Balanço com base nas contas mapeadas por empresa
-  const handleAutoPullBalanco = async () => {
-    setLoading(true);
-    try {
-      const origemMap = getCompanyMapping(empresaOrigem);
-      const destinoMap = getCompanyMapping(empresaDestino);
-
-      const clientesContas = origemMap.clientesContas || [];
-      const fornecedoresContas = destinoMap.fornecedoresContas || [];
-
-      if (clientesContas.length === 0 && fornecedoresContas.length === 0) {
-        window.$alert(`Nenhuma conta mapeada para ${getCompanyName(empresaOrigem)} ou ${getCompanyName(empresaDestino)}! Clique no botão "Mapear Contas do Balanço" para configurar.`);
-        setLoading(false);
-        return;
-      }
-
-      let totalCli = 0;
-      let totalForn = 0;
-      let matchCliCount = 0;
-      let matchFornCount = 0;
-
-      // 1. Puxar Clientes da Empresa de Origem
-      if (clientesContas.length > 0) {
-        let cliQuery = supabase.from('balanco_history')
-          .select('conta, descricao, saldoAcumulado, empresaId')
-          .eq('ano', dbAno)
-          .eq('mes', dbMes)
-          .neq('empresaId', 'exclusoes');
-        
-        if (empresaOrigem && empresaOrigem !== 'todas') {
-          cliQuery = cliQuery.eq('empresaId', empresaOrigem);
-        }
-
-        const cliRecords = await fetchAll(cliQuery);
-        (cliRecords || []).forEach(r => {
-          if (!r.conta) return;
-          const isCli = clientesContas.some(c => r.conta.startsWith(c.trim()));
-          if (isCli) {
-            totalCli += (r.saldoAcumulado || 0);
-            matchCliCount++;
-          }
-        });
-      }
-
-      // 2. Puxar Fornecedores da Empresa de Destino
-      if (fornecedoresContas.length > 0) {
-        let fornQuery = supabase.from('balanco_history')
-          .select('conta, descricao, saldoAcumulado, empresaId')
-          .eq('ano', dbAno)
-          .eq('mes', dbMes)
-          .neq('empresaId', 'exclusoes');
-        
-        if (empresaDestino && empresaDestino !== 'todas') {
-          fornQuery = fornQuery.eq('empresaId', empresaDestino);
-        }
-
-        const fornRecords = await fetchAll(fornQuery);
-        (fornRecords || []).forEach(r => {
-          if (!r.conta) return;
-          const isForn = fornecedoresContas.some(c => r.conta.startsWith(c.trim()));
-          if (isForn) {
-            totalForn += (r.saldoAcumulado || 0);
-            matchFornCount++;
-          }
-        });
-      }
-
-      const cliFinal = Math.abs(totalCli);
-      const fornFinal = Math.abs(totalForn);
-
-      if (cliFinal > 0) setClientes(String(cliFinal));
-      if (fornFinal > 0) setFornecedores(String(fornFinal));
-
-      window.$toast(`Saldos identificados: Clientes (${getCompanyName(empresaOrigem)}) R$ ${cliFinal.toLocaleString('pt-BR')} (${matchCliCount} contas), Fornecedores (${getCompanyName(empresaDestino)}) R$ ${fornFinal.toLocaleString('pt-BR')} (${matchFornCount} contas)`, { type: 'success' });
-    } catch (err) {
-      console.error(err);
-      window.$alert('Erro ao puxar saldos do balanço: ' + err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Salvar a lista completa de exclusões e sincronizar no Banco de Dados
-  const syncWithDatabase = async (updatedList) => {
-    setSaving(true);
-    try {
-      const trimestre = Math.ceil(dbMes / 3);
-
-      const totalFat = updatedList.reduce((acc, item) => acc + (Number(item.faturamento) || 0), 0);
-      const totalImp = updatedList.reduce((acc, item) => acc + (Number(item.impostos) || 0), 0);
-      const totalCusto = updatedList.reduce((acc, item) => acc + (Number(item.custo) || 0), 0);
-      const totalCli = updatedList.reduce((acc, item) => acc + (Number(item.clientes) || 0), 0);
-      const totalForn = updatedList.reduce((acc, item) => acc + (Number(item.fornecedores) || 0), 0);
-
-      await saveSettings(`agf_exclusoes_lista_${dbAno}_${dbMes}`, updatedList);
-      await saveSettings(`agf_exclusoes_${dbAno}_${dbMes}`, {
-        faturamento: totalFat,
-        impostos: totalImp,
-        custo: totalCusto,
-        clientes: totalCli,
-        fornecedores: totalForn,
-        updated_at: new Date().toISOString()
-      });
-
-      await supabase.from('dre_history').delete().match({
-        empresaId: 'exclusoes',
-        ano: dbAno,
-        mes: dbMes
-      });
-
-      if (updatedList.length > 0) {
-        const dreEntries = [
-          {
-            id: `manual_exclusoes_${dbAno}_${dbMes}_3.1.1.1.01.00001.EXC`,
-            empresaId: 'exclusoes',
-            ano: dbAno,
-            mes: dbMes,
-            trimestre,
-            conta: '3.1.1.1.01.00001.EXC',
-            descricao: 'Exclusão Intercompany - Faturamento',
-            valorMensal: -Math.abs(totalFat)
-          },
-          {
-            id: `manual_exclusoes_${dbAno}_${dbMes}_3.1.1.2.01.EXC`,
-            empresaId: 'exclusoes',
-            ano: dbAno,
-            mes: dbMes,
-            trimestre,
-            conta: '3.1.1.2.01.EXC',
-            descricao: 'Exclusão Intercompany - Impostos s/ Vendas',
-            valorMensal: Math.abs(totalImp)
-          },
-          {
-            id: `manual_exclusoes_${dbAno}_${dbMes}_4.1.1.1.13.EXC`,
-            empresaId: 'exclusoes',
-            ano: dbAno,
-            mes: dbMes,
-            trimestre,
-            conta: '4.1.1.1.13.EXC',
-            descricao: 'Exclusão Intercompany - Custo (CPV/CMV)',
-            valorMensal: Math.abs(totalCusto)
-          }
-        ];
-
-        for (const entry of dreEntries) {
-          await supabase.from('dre_history').upsert(entry);
-        }
-
-        await supabase.from('balanco_history').delete().match({
-          empresaId: 'exclusoes',
-          ano: dbAno,
-          mes: dbMes
-        });
-
-        const balEntries = [
-          {
-            id: `manual_exclusoes_${dbAno}_${dbMes}_1.1.1.3.01.EXC`,
-            empresaId: 'exclusoes',
-            ano: dbAno,
-            mes: dbMes,
-            trimestre,
-            tipo: 'ativo',
-            conta: '1.1.1.3.01.EXC',
-            descricao: 'Exclusão Intercompany - Clientes',
-            saldoAcumulado: -Math.abs(totalCli)
-          },
-          {
-            id: `manual_exclusoes_${dbAno}_${dbMes}_2.1.1.1.01.EXC`,
-            empresaId: 'exclusoes',
-            ano: dbAno,
-            mes: dbMes,
-            trimestre,
-            tipo: 'passivo',
-            conta: '2.1.1.1.01.EXC',
-            descricao: 'Exclusão Intercompany - Fornecedores',
-            saldoAcumulado: Math.abs(totalForn)
-          }
-        ];
-
-        for (const entry of balEntries) {
-          await supabase.from('balanco_history').upsert(entry);
-        }
-      } else {
-        await supabase.from('balanco_history').delete().match({
-          empresaId: 'exclusoes',
-          ano: dbAno,
-          mes: dbMes
-        });
-      }
-
-      setExclusionsList(updatedList);
-      resetForm();
-      window.$toast(`Exclusões de ${mesNome}/${dbAno} atualizadas com sucesso!`, { type: 'success' });
-      if (onSaved) onSaved();
-    } catch (err) {
-      console.error('Erro ao sincronizar exclusões:', err);
-      window.$alert('Erro ao salvar exclusões: ' + err.message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleSubmitForm = async (e) => {
-    if (e) e.preventDefault();
-
-    const numFaturamento = parseFloat(faturamento) || 0;
-    const numImpostos = parseFloat(impostos) || 0;
-    const numCusto = parseFloat(custo) || 0;
-    const numClientes = parseFloat(clientes) || 0;
-    const numFornecedores = parseFloat(fornecedores) || 0;
-
-    if (numFaturamento === 0 && numImpostos === 0 && numCusto === 0 && numClientes === 0 && numFornecedores === 0) {
-      window.$alert('Informe ao menos um valor para registrar a exclusão.');
-      return;
-    }
-
-    if (empresaOrigem === empresaDestino && empresaOrigem !== 'todas') {
-      const confirmSame = window.confirm('A empresa de origem e destino selecionadas são as mesmas. Deseja prosseguir assim mesmo?');
-      if (!confirmSame) return;
-    }
-
-    const itemData = {
-      id: editingId || `exc_${Date.now()}`,
-      empresaOrigem,
-      empresaDestino,
-      motivo: motivo.trim() || `Operação ${getCompanyName(empresaOrigem)} -> ${getCompanyName(empresaDestino)}`,
-      faturamento: numFaturamento,
-      impostos: numImpostos,
-      custo: numCusto,
-      clientes: numClientes,
-      fornecedores: numFornecedores,
-      updated_at: new Date().toISOString()
-    };
-
-    let updated = [];
-    if (editingId) {
-      updated = exclusionsList.map(item => item.id === editingId ? itemData : item);
-    } else {
-      updated = [...exclusionsList, itemData];
-    }
-
-    await syncWithDatabase(updated);
-  };
-
-  const handleDeleteItem = async (itemId) => {
-    const confirmDelete = window.confirm('Tem certeza que deseja remover esta exclusão?');
-    if (!confirmDelete) return;
-
-    const updated = exclusionsList.filter(item => item.id !== itemId);
-    await syncWithDatabase(updated);
-  };
-
-  const handleEditItem = (item) => {
-    setEditingId(item.id);
-    setEmpresaOrigem(item.empresaOrigem || availableCompanies[0]?.id || 'equipamentos');
-    setEmpresaDestino(item.empresaDestino || availableCompanies[1]?.id || 'rompedores');
-    setMotivo(item.motivo || '');
-    setFaturamento(item.faturamento ? String(item.faturamento) : '');
-    setImpostos(item.impostos ? String(item.impostos) : '');
-    setCusto(item.custo ? String(item.custo) : '');
-    setClientes(item.clientes ? String(item.clientes) : '');
-    setFornecedores(item.fornecedores ? String(item.fornecedores) : '');
-
-    window.scrollTo({ top: 300, behavior: 'smooth' });
-  };
-
   const handleSaveMapping = async () => {
     try {
       await saveSettings('agf_intercompany_mapping', accountMapping);
       window.$toast('Mapeamento de contas por empresa salvo com sucesso!', { type: 'success' });
       setShowMappingModal(false);
+      // Recalcular saldos com o novo mapeamento
+      loadMonthData();
     } catch (e) {
       window.$alert('Erro ao salvar mapeamento: ' + e.message);
     }
@@ -528,442 +254,459 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
     }));
   };
 
-  // Totais do mês
-  const totFat = exclusionsList.reduce((acc, i) => acc + (Number(i.faturamento) || 0), 0);
-  const totImp = exclusionsList.reduce((acc, i) => acc + (Number(i.impostos) || 0), 0);
-  const totCusto = exclusionsList.reduce((acc, i) => acc + (Number(i.custo) || 0), 0);
-  const totCli = exclusionsList.reduce((acc, i) => acc + (Number(i.clientes) || 0), 0);
-  const totForn = exclusionsList.reduce((acc, i) => acc + (Number(i.fornecedores) || 0), 0);
+  // Totais Consolidados Calculados
+  const totalCliConsol = availableCompanies.reduce((acc, c) => acc + (pulledBalanco[c.id]?.clientes || 0), 0);
+  const totalFornConsol = availableCompanies.reduce((acc, c) => acc + (pulledBalanco[c.id]?.fornecedores || 0), 0);
+  const totalFatConsol = availableCompanies.reduce((acc, c) => acc + (parseFloat(companyDRE[c.id]?.faturamento) || 0), 0);
+  const totalImpConsol = availableCompanies.reduce((acc, c) => acc + (parseFloat(companyDRE[c.id]?.impostos) || 0), 0);
+  const totalCustoConsol = availableCompanies.reduce((acc, c) => acc + (parseFloat(companyDRE[c.id]?.custo) || 0), 0);
 
-  const activeMappingForCompany = getCompanyMapping(mappingCompany);
+  const diffBalanco = totalCliConsol - totalFornConsol;
+
+  // Salvar exclusões do mês
+  const handleSaveMonthExclusions = async () => {
+    setSaving(true);
+    try {
+      const trimestre = Math.ceil(dbMes / 3);
+
+      // 1. Salvar configuração por empresa
+      await saveSettings(`agf_exclusoes_empresas_${dbAno}_${dbMes}`, companyDRE);
+
+      // 2. Salvar formato de lista para compatibilidade com Consolidado Personalizado
+      const listEntries = availableCompanies.map(c => ({
+        id: `exc_${dbAno}_${dbMes}_${c.id}`,
+        empresaOrigem: c.id,
+        empresaDestino: c.id,
+        motivo: `Exclusão ${c.name}`,
+        faturamento: parseFloat(companyDRE[c.id]?.faturamento) || 0,
+        impostos: parseFloat(companyDRE[c.id]?.impostos) || 0,
+        custo: parseFloat(companyDRE[c.id]?.custo) || 0,
+        clientes: pulledBalanco[c.id]?.clientes || 0,
+        fornecedores: pulledBalanco[c.id]?.fornecedores || 0
+      }));
+      await saveSettings(`agf_exclusoes_lista_${dbAno}_${dbMes}`, listEntries);
+
+      // 3. Salvar formato consolidado padrão
+      await saveSettings(`agf_exclusoes_${dbAno}_${dbMes}`, {
+        faturamento: totalFatConsol,
+        impostos: totalImpConsol,
+        custo: totalCustoConsol,
+        clientes: totalCliConsol,
+        fornecedores: totalFornConsol,
+        updated_at: new Date().toISOString()
+      });
+
+      // 4. Gravar na tabela dre_history para a empresa virtual 'exclusoes'
+      await supabase.from('dre_history').delete().match({
+        empresaId: 'exclusoes',
+        ano: dbAno,
+        mes: dbMes
+      });
+
+      if (totalFatConsol > 0 || totalImpConsol > 0 || totalCustoConsol > 0) {
+        const dreEntries = [
+          {
+            id: `manual_exclusoes_${dbAno}_${dbMes}_3.1.1.1.01.00001.EXC`,
+            empresaId: 'exclusoes',
+            ano: dbAno,
+            mes: dbMes,
+            trimestre,
+            conta: '3.1.1.1.01.00001.EXC',
+            descricao: 'Exclusão Intercompany - Faturamento',
+            valorMensal: -Math.abs(totalFatConsol)
+          },
+          {
+            id: `manual_exclusoes_${dbAno}_${dbMes}_3.1.1.2.01.EXC`,
+            empresaId: 'exclusoes',
+            ano: dbAno,
+            mes: dbMes,
+            trimestre,
+            conta: '3.1.1.2.01.EXC',
+            descricao: 'Exclusão Intercompany - Impostos s/ Vendas',
+            valorMensal: Math.abs(totalImpConsol)
+          },
+          {
+            id: `manual_exclusoes_${dbAno}_${dbMes}_4.1.1.1.13.EXC`,
+            empresaId: 'exclusoes',
+            ano: dbAno,
+            mes: dbMes,
+            trimestre,
+            conta: '4.1.1.1.13.EXC',
+            descricao: 'Exclusão Intercompany - Custo (CPV/CMV)',
+            valorMensal: Math.abs(totalCustoConsol)
+          }
+        ];
+        for (const entry of dreEntries) {
+          await supabase.from('dre_history').upsert(entry);
+        }
+      }
+
+      // 5. Gravar na tabela balanco_history para a empresa virtual 'exclusoes'
+      await supabase.from('balanco_history').delete().match({
+        empresaId: 'exclusoes',
+        ano: dbAno,
+        mes: dbMes
+      });
+
+      if (totalCliConsol > 0 || totalFornConsol > 0) {
+        const balEntries = [
+          {
+            id: `manual_exclusoes_${dbAno}_${dbMes}_1.1.1.3.01.EXC`,
+            empresaId: 'exclusoes',
+            ano: dbAno,
+            mes: dbMes,
+            trimestre,
+            tipo: 'ativo',
+            conta: '1.1.1.3.01.EXC',
+            descricao: 'Exclusão Intercompany - Clientes',
+            saldoAcumulado: -Math.abs(totalCliConsol)
+          },
+          {
+            id: `manual_exclusoes_${dbAno}_${dbMes}_2.1.1.1.01.EXC`,
+            empresaId: 'exclusoes',
+            ano: dbAno,
+            mes: dbMes,
+            trimestre,
+            tipo: 'passivo',
+            conta: '2.1.1.1.01.EXC',
+            descricao: 'Exclusão Intercompany - Fornecedores',
+            saldoAcumulado: Math.abs(totalFornConsol)
+          }
+        ];
+        for (const entry of balEntries) {
+          await supabase.from('balanco_history').upsert(entry);
+        }
+      }
+
+      window.$toast(`Exclusões de ${mesNome}/${dbAno} salvas com sucesso!`, { type: 'success' });
+      if (onSaved) onSaved();
+    } catch (err) {
+      console.error(err);
+      window.$alert('Erro ao salvar exclusões: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const activeMappingForCompany = accountMapping[mappingCompany] || { clientesContas: [], fornecedoresContas: [] };
 
   return (
-    <div style={{
-      background: 'rgba(255, 255, 255, 0.03)',
-      border: '1px solid rgba(255, 255, 255, 0.1)',
-      borderRadius: '12px',
-      padding: '1.25rem 1.5rem',
-      marginBottom: '2rem',
-      boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
-      position: 'relative'
-    }}>
-      {/* CABEÇALHO DA SEÇÃO */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.2rem', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '0.8rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div style={{ background: 'rgba(255, 152, 0, 0.15)', color: '#FFB74D', padding: '8px', borderRadius: '8px', display: 'flex' }}>
-            <Calculator size={22} />
-          </div>
-          <div>
-            <h3 style={{ margin: 0, color: '#fff', fontSize: '1.15rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+    <div className="glass-panel" style={{ padding: '1.5rem', marginBottom: '2rem', border: '1px solid rgba(255, 152, 0, 0.3)' }}>
+      {/* CABEÇALHO */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.2rem' }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <h3 style={{ margin: 0, color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <TrendingDown size={20} style={{ color: '#FF9800' }} />
               Exclusões e Eliminações Intercompany
-              <span style={{ fontSize: '0.78rem', background: '#FF9800', color: '#000', padding: '2px 8px', borderRadius: '12px', fontWeight: 'bold' }}>
-                {mesNome}/{dbAno}
-              </span>
             </h3>
-            <p style={{ margin: '3px 0 0 0', fontSize: '0.78rem', color: '#aaa' }}>
-              Eliminação de faturamento, impostos, custos e saldos entre empresas para o Consolidado Geral e Consolidado Personalizado.
-            </p>
+            <span style={{ 
+              background: 'rgba(255, 152, 0, 0.2)', 
+              color: '#FFB74D', 
+              padding: '2px 10px', 
+              borderRadius: '12px', 
+              fontSize: '0.8rem', 
+              fontWeight: 'bold',
+              border: '1px solid rgba(255, 152, 0, 0.4)'
+            }}>
+              {mesNome}/{dbAno}
+            </span>
           </div>
+          <p style={{ margin: '6px 0 0 0', fontSize: '0.82rem', color: '#aaa' }}>
+            Mapeie as contas contábeis de cada empresa uma única vez. Os saldos de <strong>Clientes</strong> e <strong>Fornecedores</strong> são puxados sozinhos do Balanço e consolidados automaticamente.
+          </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <button
+            type="button"
+            onClick={loadMonthData}
+            disabled={loading}
+            className="btn-secondary"
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.55rem 0.9rem', fontSize: '0.82rem' }}
+            title="Recarregar saldos do balanço"
+          >
+            <RefreshCw size={14} className={loading ? 'spin-animation' : ''} />
+            {loading ? 'Puxando...' : 'Recalcular Saldos'}
+          </button>
+
           <button
             type="button"
             onClick={() => {
-              scanIntercompanyAccounts(mappingCompany);
               setShowMappingModal(true);
+              scanIntercompanyAccounts(mappingCompany);
             }}
             className="btn-secondary"
-            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', padding: '0.5rem 0.85rem' }}
-            title="Configurar contas contábeis de Clientes e Fornecedores Intercompany por Empresa"
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.55rem 0.9rem', fontSize: '0.82rem', borderColor: '#FF9800', color: '#FFB74D' }}
+            title="Definir quais contas do plano contábil pertencem a cada empresa"
           >
             <Settings size={14} /> Mapear Contas do Balanço (por Empresa)
           </button>
         </div>
       </div>
 
-      {/* FORMULÁRIO DE CADASTRO / EDIÇÃO */}
-      <form onSubmit={handleSubmitForm} style={{
-        background: 'rgba(0,0,0,0.3)',
-        border: '1px solid rgba(255, 152, 0, 0.25)',
-        borderRadius: '10px',
-        padding: '1.2rem',
+      {/* CARDS DE RESUMO DO CONSOLIDADO PUXADO */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+        gap: '1rem',
         marginBottom: '1.5rem'
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '0.5rem' }}>
-          <h4 style={{ margin: 0, color: '#FFB74D', fontSize: '0.92rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            {editingId ? <Edit2 size={16} /> : <Plus size={16} />}
-            {editingId ? 'Editar Exclusão Selecionada' : 'Cadastrar Nova Exclusão Intercompany'}
-          </h4>
-          {editingId && (
-            <button
-              type="button"
-              onClick={resetForm}
-              style={{ background: 'transparent', border: 'none', color: '#bbb', fontSize: '0.78rem', cursor: 'pointer', textDecoration: 'underline' }}
-            >
-              Cancelar Edição (Criar Nova)
-            </button>
-          )}
+        {/* Card Clientes */}
+        <div style={{ background: 'rgba(33, 150, 243, 0.08)', border: '1px solid rgba(33, 150, 243, 0.25)', borderRadius: '10px', padding: '0.9rem' }}>
+          <div style={{ fontSize: '0.72rem', color: '#90CAF9', textTransform: 'uppercase', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>🏦 Clientes (Balanço)</span>
+            <span style={{ fontSize: '0.65rem', background: 'rgba(33, 150, 243, 0.2)', padding: '1px 6px', borderRadius: '4px' }}>Auto</span>
+          </div>
+          <div style={{ fontSize: '1.15rem', color: '#fff', fontWeight: 'bold', marginTop: '6px', fontFamily: 'monospace' }}>
+            R$ {totalCliConsol.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
+          <div style={{ fontSize: '0.7rem', color: '#888', marginTop: '4px' }}>Abate no Ativo Consolidado</div>
         </div>
 
-        {/* LINHA 1: ORIGEM, DESTINO E MOTIVO */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
-          <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', color: '#ccc', marginBottom: '4px', fontWeight: 'bold' }}>
-              🏢 Empresa de Origem (Vendedora / Prestadora):
-            </label>
-            <select
-              value={empresaOrigem}
-              onChange={e => setEmpresaOrigem(e.target.value)}
-              className="select-input"
-              style={{ width: '100%', fontSize: '0.85rem' }}
-            >
-              <option value="todas">Todas as Empresas (Geral)</option>
-              {availableCompanies.map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+        {/* Card Fornecedores */}
+        <div style={{ background: 'rgba(255, 152, 0, 0.08)', border: '1px solid rgba(255, 152, 0, 0.25)', borderRadius: '10px', padding: '0.9rem' }}>
+          <div style={{ fontSize: '0.72rem', color: '#FFB74D', textTransform: 'uppercase', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>🏢 Fornecedores (Balanço)</span>
+            <span style={{ fontSize: '0.65rem', background: 'rgba(255, 152, 0, 0.2)', padding: '1px 6px', borderRadius: '4px' }}>Auto</span>
           </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', color: '#ccc', marginBottom: '4px', fontWeight: 'bold' }}>
-              🏢 Empresa de Destino (Compradora / Tomadora):
-            </label>
-            <select
-              value={empresaDestino}
-              onChange={e => setEmpresaDestino(e.target.value)}
-              className="select-input"
-              style={{ width: '100%', fontSize: '0.85rem' }}
-            >
-              <option value="todas">Todas as Empresas (Geral)</option>
-              {availableCompanies.map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+          <div style={{ fontSize: '1.15rem', color: '#fff', fontWeight: 'bold', marginTop: '6px', fontFamily: 'monospace' }}>
+            R$ {totalFornConsol.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', color: '#ccc', marginBottom: '4px', fontWeight: 'bold' }}>
-              📝 Motivo / Descrição da Operação:
-            </label>
-            <input
-              type="text"
-              placeholder="Ex: Venda de Peças, Rateio TI, Serviços..."
-              value={motivo}
-              onChange={e => setMotivo(e.target.value)}
-              className="text-input"
-              style={{ width: '100%', fontSize: '0.85rem' }}
-            />
-          </div>
+          <div style={{ fontSize: '0.7rem', color: '#888', marginTop: '4px' }}>Abate no Passivo Consolidado</div>
         </div>
 
-        {/* LINHA 2: VALORES DRE & BALANÇO */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginBottom: '1.2rem' }}>
-          {/* Faturamento */}
-          <div>
-            <label style={{ display: 'block', fontSize: '0.76rem', color: '#FFB74D', marginBottom: '4px' }}>
-              💰 Faturamento (DRE):
-            </label>
-            <div style={{ position: 'relative' }}>
-              <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#888', fontSize: '0.78rem' }}>R$</span>
-              <input
-                type="number"
-                step="0.01"
-                placeholder="0,00"
-                value={faturamento}
-                onChange={e => setFaturamento(e.target.value)}
-                className="text-input"
-                style={{ width: '100%', paddingLeft: '32px', fontSize: '0.85rem' }}
-              />
-            </div>
-            <span style={{ fontSize: '0.68rem', color: '#888', marginTop: '2px', display: 'block' }}>
-              Abate de Rec. Bruta
-            </span>
+        {/* Conciliação Clientes vs Fornecedores */}
+        <div style={{ 
+          background: Math.abs(diffBalanco) < 0.01 ? 'rgba(76, 175, 80, 0.08)' : 'rgba(239, 83, 80, 0.08)', 
+          border: Math.abs(diffBalanco) < 0.01 ? '1px solid rgba(76, 175, 80, 0.25)' : '1px solid rgba(239, 83, 80, 0.25)', 
+          borderRadius: '10px', 
+          padding: '0.9rem' 
+        }}>
+          <div style={{ fontSize: '0.72rem', color: Math.abs(diffBalanco) < 0.01 ? '#81C784' : '#E57373', textTransform: 'uppercase', fontWeight: 'bold' }}>
+            ⚖️ Conciliação Intercompany
           </div>
-
-          {/* Impostos */}
-          <div>
-            <label style={{ display: 'block', fontSize: '0.76rem', color: '#FFB74D', marginBottom: '4px' }}>
-              📑 Impostos s/ Vendas (DRE):
-            </label>
-            <div style={{ position: 'relative' }}>
-              <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#888', fontSize: '0.78rem' }}>R$</span>
-              <input
-                type="number"
-                step="0.01"
-                placeholder="0,00"
-                value={impostos}
-                onChange={e => setImpostos(e.target.value)}
-                className="text-input"
-                style={{ width: '100%', paddingLeft: '32px', fontSize: '0.85rem' }}
-              />
-            </div>
-            <span style={{ fontSize: '0.68rem', color: '#888', marginTop: '2px', display: 'block' }}>
-              Abate de Impostos
-            </span>
-          </div>
-
-          {/* Custo */}
-          <div>
-            <label style={{ display: 'block', fontSize: '0.76rem', color: '#FFB74D', marginBottom: '4px' }}>
-              📦 Custo Operações (DRE):
-            </label>
-            <div style={{ position: 'relative' }}>
-              <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#888', fontSize: '0.78rem' }}>R$</span>
-              <input
-                type="number"
-                step="0.01"
-                placeholder="0,00"
-                value={custo}
-                onChange={e => setCusto(e.target.value)}
-                className="text-input"
-                style={{ width: '100%', paddingLeft: '32px', fontSize: '0.85rem' }}
-              />
-            </div>
-            <span style={{ fontSize: '0.68rem', color: '#888', marginTop: '2px', display: 'block' }}>
-              Abate de CPV/CMV
-            </span>
-          </div>
-
-          {/* Clientes */}
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-              <label style={{ fontSize: '0.76rem', color: '#64B5F6' }}>
-                🏦 Clientes ({getCompanyName(empresaOrigem)}):
-              </label>
-              <button
-                type="button"
-                onClick={handleAutoPullBalanco}
-                disabled={loading}
-                style={{ background: 'none', border: 'none', color: '#2196F3', fontSize: '0.68rem', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
-                title={`Puxar saldos das contas mapeadas em ${getCompanyName(empresaOrigem)}`}
-              >
-                Auto-Puxar
-              </button>
-            </div>
-            <div style={{ position: 'relative' }}>
-              <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#888', fontSize: '0.78rem' }}>R$</span>
-              <input
-                type="number"
-                step="0.01"
-                placeholder="0,00"
-                value={clientes}
-                onChange={e => setClientes(e.target.value)}
-                className="text-input"
-                style={{ width: '100%', paddingLeft: '32px', fontSize: '0.85rem' }}
-              />
-            </div>
-            <span style={{ fontSize: '0.68rem', color: '#888', marginTop: '2px', display: 'block' }}>
-              Abate a Receber
-            </span>
-          </div>
-
-          {/* Fornecedores */}
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-              <label style={{ fontSize: '0.76rem', color: '#64B5F6' }}>
-                🏢 Fornecedores ({getCompanyName(empresaDestino)}):
-              </label>
-              <button
-                type="button"
-                onClick={handleAutoPullBalanco}
-                disabled={loading}
-                style={{ background: 'none', border: 'none', color: '#2196F3', fontSize: '0.68rem', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
-                title={`Puxar saldos das contas mapeadas em ${getCompanyName(empresaDestino)}`}
-              >
-                Auto-Puxar
-              </button>
-            </div>
-            <div style={{ position: 'relative' }}>
-              <span style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#888', fontSize: '0.78rem' }}>R$</span>
-              <input
-                type="number"
-                step="0.01"
-                placeholder="0,00"
-                value={fornecedores}
-                onChange={e => setFornecedores(e.target.value)}
-                className="text-input"
-                style={{ width: '100%', paddingLeft: '32px', fontSize: '0.85rem' }}
-              />
-            </div>
-            <span style={{ fontSize: '0.68rem', color: '#888', marginTop: '2px', display: 'block' }}>
-              Abate a Pagar
-            </span>
-          </div>
-        </div>
-
-        {/* BOTÃO DE AÇÃO */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-          {editingId && (
-            <button
-              type="button"
-              onClick={resetForm}
-              className="btn-secondary"
-              style={{ fontSize: '0.82rem', padding: '0.45rem 1rem' }}
-            >
-              Cancelar
-            </button>
-          )}
-          <button
-            type="submit"
-            disabled={saving}
-            className="btn-primary"
-            style={{
-              background: '#FF9800',
-              color: '#000',
-              border: 'none',
-              fontWeight: 'bold',
-              fontSize: '0.85rem',
-              padding: '0.5rem 1.4rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}
-          >
-            {saving ? (
-              <>Gravando...</>
-            ) : editingId ? (
-              <><Save size={15} /> Salvar Alterações</>
+          <div style={{ fontSize: '1.15rem', color: '#fff', fontWeight: 'bold', marginTop: '6px', fontFamily: 'monospace' }}>
+            {Math.abs(diffBalanco) < 0.01 ? (
+              <span style={{ color: '#4CAF50', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <CheckCircle2 size={18} /> R$ 0,00
+              </span>
             ) : (
-              <><Plus size={15} /> Inserir Exclusão na Lista</>
+              <span style={{ color: '#FF7043', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <AlertTriangle size={18} /> R$ {diffBalanco.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+              </span>
             )}
-          </button>
+          </div>
+          <div style={{ fontSize: '0.7rem', color: '#888', marginTop: '4px' }}>
+            {Math.abs(diffBalanco) < 0.01 ? 'Balanço 100% equilibrado' : 'Diferença entre Clientes e Fornec.'}
+          </div>
         </div>
-      </form>
 
-      {/* LISTA / TABELA DE EXCLUSÕES REGISTRADAS NO MÊS */}
-      <div style={{ marginBottom: '1.2rem' }}>
-        <h4 style={{ margin: '0 0 8px 0', fontSize: '0.92rem', color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span>📋 Exclusões Registradas para {mesNome}/{dbAno}</span>
-          <span style={{ fontSize: '0.72rem', background: 'rgba(255,255,255,0.1)', padding: '2px 8px', borderRadius: '10px' }}>
-            {exclusionsList.length} {exclusionsList.length === 1 ? 'operação' : 'operações'}
-          </span>
-        </h4>
+        {/* Card Faturamento DRE */}
+        <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '10px', padding: '0.9rem' }}>
+          <div style={{ fontSize: '0.72rem', color: '#ccc', textTransform: 'uppercase', fontWeight: 'bold' }}>
+            💰 Faturamento (DRE)
+          </div>
+          <div style={{ fontSize: '1.15rem', color: '#fff', fontWeight: 'bold', marginTop: '6px', fontFamily: 'monospace' }}>
+            R$ {totalFatConsol.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
+          <div style={{ fontSize: '0.7rem', color: '#888', marginTop: '4px' }}>Abate de Receita Bruta</div>
+        </div>
 
-        {exclusionsList.length === 0 ? (
-          <div style={{ padding: '1.5rem', textAlign: 'center', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', color: '#888', fontSize: '0.85rem', border: '1px dashed rgba(255,255,255,0.1)' }}>
-            Nenhuma exclusão cadastrada para {mesNome}/{dbAno}. Utilize o formulário acima para registrar operações entre as empresas do grupo.
+        {/* Card Custo DRE */}
+        <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '10px', padding: '0.9rem' }}>
+          <div style={{ fontSize: '0.72rem', color: '#ccc', textTransform: 'uppercase', fontWeight: 'bold' }}>
+            📉 Custo CPV/CMV (DRE)
           </div>
-        ) : (
-          <div style={{ overflowX: 'auto', background: 'rgba(0,0,0,0.25)', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', textAlign: 'left' }}>
-              <thead>
-                <tr style={{ background: 'rgba(255,255,255,0.05)', borderBottom: '1px solid rgba(255,255,255,0.1)', color: '#ccc' }}>
-                  <th style={{ padding: '8px 12px' }}>Origem ➡️ Destino</th>
-                  <th style={{ padding: '8px 12px' }}>Motivo / Descrição</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'right' }}>Faturamento</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'right' }}>Impostos</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'right' }}>Custo</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'right' }}>Clientes</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'right' }}>Fornecedores</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'center' }}>Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {exclusionsList.map((item, idx) => (
-                  <tr key={item.id || idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', background: editingId === item.id ? 'rgba(255, 152, 0, 0.1)' : 'transparent' }}>
-                    <td style={{ padding: '8px 12px', fontWeight: '500', color: '#fff' }}>
-                      <span style={{ color: '#FFB74D' }}>{getCompanyName(item.empresaOrigem)}</span>
-                      <ArrowRight size={12} style={{ display: 'inline', margin: '0 6px', color: '#888' }} />
-                      <span style={{ color: '#64B5F6' }}>{getCompanyName(item.empresaDestino)}</span>
-                    </td>
-                    <td style={{ padding: '8px 12px', color: '#ccc' }}>
-                      {item.motivo || '-'}
-                    </td>
-                    <td style={{ padding: '8px 12px', textAlign: 'right', color: item.faturamento ? '#FF8A80' : '#666', fontFamily: 'monospace' }}>
-                      {item.faturamento ? `R$ ${Number(item.faturamento).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '-'}
-                    </td>
-                    <td style={{ padding: '8px 12px', textAlign: 'right', color: item.impostos ? '#81C784' : '#666', fontFamily: 'monospace' }}>
-                      {item.impostos ? `R$ ${Number(item.impostos).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '-'}
-                    </td>
-                    <td style={{ padding: '8px 12px', textAlign: 'right', color: item.custo ? '#81C784' : '#666', fontFamily: 'monospace' }}>
-                      {item.custo ? `R$ ${Number(item.custo).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '-'}
-                    </td>
-                    <td style={{ padding: '8px 12px', textAlign: 'right', color: item.clientes ? '#FF8A80' : '#666', fontFamily: 'monospace' }}>
-                      {item.clientes ? `R$ ${Number(item.clientes).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '-'}
-                    </td>
-                    <td style={{ padding: '8px 12px', textAlign: 'right', color: item.fornecedores ? '#81C784' : '#666', fontFamily: 'monospace' }}>
-                      {item.fornecedores ? `R$ ${Number(item.fornecedores).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '-'}
-                    </td>
-                    <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                      <div style={{ display: 'flex', justifyContent: 'center', gap: '6px' }}>
-                        <button
-                          type="button"
-                          onClick={() => handleEditItem(item)}
-                          style={{ background: 'rgba(255,255,255,0.06)', border: 'none', color: '#FFB74D', padding: '4px', borderRadius: '4px', cursor: 'pointer' }}
-                          title="Editar esta exclusão"
-                        >
-                          <Edit2 size={13} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteItem(item.id)}
-                          style={{ background: 'rgba(255,255,255,0.06)', border: 'none', color: '#E57373', padding: '4px', borderRadius: '4px', cursor: 'pointer' }}
-                          title="Excluir esta exclusão"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div style={{ fontSize: '1.15rem', color: '#fff', fontWeight: 'bold', marginTop: '6px', fontFamily: 'monospace' }}>
+            R$ {totalCustoConsol.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
-        )}
+          <div style={{ fontSize: '0.7rem', color: '#888', marginTop: '4px' }}>Abate de Custo da Mercadoria</div>
+        </div>
       </div>
 
-      {/* RESUMO CONSOLIDADO DO MÊS */}
-      {exclusionsList.length > 0 && (
-        <div style={{
-          background: 'rgba(255, 152, 0, 0.08)',
-          border: '1px solid rgba(255, 152, 0, 0.25)',
-          borderRadius: '8px',
-          padding: '0.9rem 1.2rem',
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-          gap: '1rem',
-          textAlign: 'center'
-        }}>
-          <div>
-            <div style={{ fontSize: '0.7rem', color: '#FFB74D', textTransform: 'uppercase', fontWeight: 'bold' }}>Total Faturamento</div>
-            <div style={{ fontSize: '0.95rem', color: '#fff', fontWeight: 'bold', marginTop: '2px', fontFamily: 'monospace' }}>
-              R$ {totFat.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-            </div>
-          </div>
-          <div>
-            <div style={{ fontSize: '0.7rem', color: '#FFB74D', textTransform: 'uppercase', fontWeight: 'bold' }}>Total Impostos</div>
-            <div style={{ fontSize: '0.95rem', color: '#fff', fontWeight: 'bold', marginTop: '2px', fontFamily: 'monospace' }}>
-              R$ {totImp.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-            </div>
-          </div>
-          <div>
-            <div style={{ fontSize: '0.7rem', color: '#FFB74D', textTransform: 'uppercase', fontWeight: 'bold' }}>Total Custo</div>
-            <div style={{ fontSize: '0.95rem', color: '#fff', fontWeight: 'bold', marginTop: '2px', fontFamily: 'monospace' }}>
-              R$ {totCusto.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-            </div>
-          </div>
-          <div>
-            <div style={{ fontSize: '0.7rem', color: '#64B5F6', textTransform: 'uppercase', fontWeight: 'bold' }}>Total Clientes</div>
-            <div style={{ fontSize: '0.95rem', color: '#fff', fontWeight: 'bold', marginTop: '2px', fontFamily: 'monospace' }}>
-              R$ {totCli.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-            </div>
-          </div>
-          <div>
-            <div style={{ fontSize: '0.7rem', color: '#64B5F6', textTransform: 'uppercase', fontWeight: 'bold' }}>Total Fornecedores</div>
-            <div style={{ fontSize: '0.95rem', color: '#fff', fontWeight: 'bold', marginTop: '2px', fontFamily: 'monospace' }}>
-              R$ {totForn.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* TABELA CONSOLIDADA POR EMPRESA */}
+      <div style={{ background: 'rgba(0,0,0,0.25)', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden', marginBottom: '1.5rem' }}>
+        <table className="data-table" style={{ margin: 0 }}>
+          <thead>
+            <tr style={{ background: 'rgba(255, 152, 0, 0.08)' }}>
+              <th style={{ width: '22%', color: '#FFB74D' }}>Empresa</th>
+              <th style={{ width: '18%', color: '#90CAF9' }} title="Puxado automaticamente das contas contábeis mapeadas para esta empresa">
+                Clientes (Balanço - Auto) ℹ️
+              </th>
+              <th style={{ width: '18%', color: '#FFB74D' }} title="Puxado automaticamente das contas contábeis mapeadas para esta empresa">
+                Fornecedores (Balanço - Auto) ℹ️
+              </th>
+              <th style={{ width: '14%' }}>Faturamento (DRE)</th>
+              <th style={{ width: '14%' }}>Impostos (DRE)</th>
+              <th style={{ width: '14%' }}>Custo (DRE)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {availableCompanies.map(comp => {
+              const compPulled = pulledBalanco[comp.id] || { clientes: 0, fornecedores: 0, clientesContas: [], fornecedoresContas: [] };
+              const dreVal = companyDRE[comp.id] || { faturamento: '', impostos: '', custo: '' };
+
+              return (
+                <tr key={comp.id}>
+                  <td style={{ fontWeight: 'bold', color: '#fff' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Building2 size={15} style={{ color: '#FFB74D' }} />
+                      <span>{comp.name}</span>
+                    </div>
+                  </td>
+
+                  {/* Clientes - Auto Puxado */}
+                  <td style={{ fontFamily: 'monospace' }}>
+                    <div style={{ 
+                      display: 'inline-flex', 
+                      alignItems: 'center', 
+                      gap: '6px', 
+                      padding: '4px 10px', 
+                      borderRadius: '6px', 
+                      background: compPulled.clientes > 0 ? 'rgba(33, 150, 243, 0.15)' : 'rgba(255,255,255,0.03)',
+                      color: compPulled.clientes > 0 ? '#90CAF9' : '#888',
+                      border: compPulled.clientes > 0 ? '1px solid rgba(33, 150, 243, 0.3)' : '1px solid transparent'
+                    }} title={compPulled.clientesContas?.length > 0 ? compPulled.clientesContas.join('\n') : 'Nenhuma conta com saldo encontrada'}>
+                      <span>R$ {compPulled.clientes.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      {compPulled.clientes > 0 && <span style={{ fontSize: '0.65rem', background: '#2196F3', color: '#fff', padding: '1px 5px', borderRadius: '4px' }}>Auto</span>}
+                    </div>
+                  </td>
+
+                  {/* Fornecedores - Auto Puxado */}
+                  <td style={{ fontFamily: 'monospace' }}>
+                    <div style={{ 
+                      display: 'inline-flex', 
+                      alignItems: 'center', 
+                      gap: '6px', 
+                      padding: '4px 10px', 
+                      borderRadius: '6px', 
+                      background: compPulled.fornecedores > 0 ? 'rgba(255, 152, 0, 0.15)' : 'rgba(255,255,255,0.03)',
+                      color: compPulled.fornecedores > 0 ? '#FFB74D' : '#888',
+                      border: compPulled.fornecedores > 0 ? '1px solid rgba(255, 152, 0, 0.3)' : '1px solid transparent'
+                    }} title={compPulled.fornecedoresContas?.length > 0 ? compPulled.fornecedoresContas.join('\n') : 'Nenhuma conta com saldo encontrada'}>
+                      <span>R$ {compPulled.fornecedores.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                      {compPulled.fornecedores > 0 && <span style={{ fontSize: '0.65rem', background: '#FF9800', color: '#000', padding: '1px 5px', borderRadius: '4px', fontWeight: 'bold' }}>Auto</span>}
+                    </div>
+                  </td>
+
+                  {/* Faturamento DRE - Digitação */}
+                  <td>
+                    <input
+                      type="number"
+                      placeholder="0,00"
+                      value={dreVal.faturamento}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setCompanyDRE(prev => ({
+                          ...prev,
+                          [comp.id]: { ...(prev[comp.id] || {}), faturamento: val }
+                        }));
+                      }}
+                      className="text-input"
+                      style={{ width: '100%', fontSize: '0.85rem', padding: '4px 8px', fontFamily: 'monospace' }}
+                    />
+                  </td>
+
+                  {/* Impostos DRE - Digitação */}
+                  <td>
+                    <input
+                      type="number"
+                      placeholder="0,00"
+                      value={dreVal.impostos}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setCompanyDRE(prev => ({
+                          ...prev,
+                          [comp.id]: { ...(prev[comp.id] || {}), impostos: val }
+                        }));
+                      }}
+                      className="text-input"
+                      style={{ width: '100%', fontSize: '0.85rem', padding: '4px 8px', fontFamily: 'monospace' }}
+                    />
+                  </td>
+
+                  {/* Custo DRE - Digitação */}
+                  <td>
+                    <input
+                      type="number"
+                      placeholder="0,00"
+                      value={dreVal.custo}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setCompanyDRE(prev => ({
+                          ...prev,
+                          [comp.id]: { ...(prev[comp.id] || {}), custo: val }
+                        }));
+                      }}
+                      className="text-input"
+                      style={{ width: '100%', fontSize: '0.85rem', padding: '4px 8px', fontFamily: 'monospace' }}
+                    />
+                  </td>
+                </tr>
+              );
+            })}
+
+            {/* LINHA TOTAL CONSOLIDADO */}
+            <tr style={{ background: 'rgba(255, 152, 0, 0.12)', fontWeight: 'bold' }}>
+              <td style={{ color: '#FFB74D', textTransform: 'uppercase' }}>
+                🌐 Total Consolidado
+              </td>
+              <td style={{ color: '#90CAF9', fontFamily: 'monospace', fontSize: '0.95rem' }}>
+                R$ {totalCliConsol.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </td>
+              <td style={{ color: '#FFB74D', fontFamily: 'monospace', fontSize: '0.95rem' }}>
+                R$ {totalFornConsol.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </td>
+              <td style={{ color: '#fff', fontFamily: 'monospace', fontSize: '0.95rem' }}>
+                R$ {totalFatConsol.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </td>
+              <td style={{ color: '#fff', fontFamily: 'monospace', fontSize: '0.95rem' }}>
+                R$ {totalImpConsol.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </td>
+              <td style={{ color: '#fff', fontFamily: 'monospace', fontSize: '0.95rem' }}>
+                R$ {totalCustoConsol.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* BOTÕES DE AÇÃO */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+        <span style={{ fontSize: '0.78rem', color: '#888' }}>
+          💡 As exclusões salvas são aplicadas automaticamente no <strong>Consolidado Geral</strong> e nos <strong>Consolidados Personalizados</strong> (DRE, Balanço, DFC e Dashboard).
+        </span>
+
+        <button
+          type="button"
+          onClick={handleSaveMonthExclusions}
+          disabled={saving}
+          className="btn-primary"
+          style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '8px', 
+            padding: '0.7rem 1.6rem', 
+            fontWeight: 'bold', 
+            fontSize: '0.9rem',
+            background: 'linear-gradient(135deg, #FF9800, #F57C00)',
+            border: 'none',
+            color: '#000',
+            boxShadow: '0 4px 15px rgba(255, 152, 0, 0.4)'
+          }}
+        >
+          <Save size={16} />
+          {saving ? 'Gravando no Banco...' : `Salvar Exclusões de ${mesNome}/${dbAno}`}
+        </button>
+      </div>
 
       {/* MODAL DE MAPEAMENTO DE CONTAS CONTÁBEIS POR EMPRESA */}
       {showMappingModal && (
         <div style={{
           position: 'fixed',
           top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0,0,0,0.75)',
+          background: 'rgba(0,0,0,0.8)',
           backdropFilter: 'blur(6px)',
           display: 'flex',
           alignItems: 'center',
