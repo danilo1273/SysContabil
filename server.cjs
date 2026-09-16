@@ -522,11 +522,29 @@ app.post("/api/send-email", (req, res) => {
       } catch (e) {}
     }
 
+    function formatResendFrom(rawFrom) {
+      if (!rawFrom || typeof rawFrom !== 'string') {
+        return 'SysContábil AGF <onboarding@resend.dev>';
+      }
+      const str = rawFrom.trim();
+      if (!str) {
+        return 'SysContábil AGF <onboarding@resend.dev>';
+      }
+      if (/^.+<[^@\s]+@[^@\s]+\.[^@\s]+>$/.test(str)) {
+        return str;
+      }
+      if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(str)) {
+        return `SysContábil AGF <${str}>`;
+      }
+      const cleanName = str.replace(/[<>]/g, '').trim() || 'SysContábil AGF';
+      return `${cleanName} <onboarding@resend.dev>`;
+    }
+
     // Suporte a envio direto por API Resend (sem senha pessoal)
     const resendKey = process.env.RESEND_API_KEY || smtpConfig?.resendApiKey;
     if (resendKey) {
       try {
-        const fromEmail = process.env.RESEND_FROM || smtpConfig?.from || 'SysContábil AGF <onboarding@resend.dev>';
+        const fromEmail = formatResendFrom(process.env.RESEND_FROM || smtpConfig?.from);
         const rRes = await fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: {
@@ -545,7 +563,11 @@ app.post("/api/send-email", (req, res) => {
         if (rRes.ok) {
           return res.json({ success: true, mode: 'resend_api', id: rData.id });
         } else {
-          return res.json({ success: false, error: rData.message || 'Falha Resend API' });
+          let msg = rData.message || 'Falha Resend API';
+          if (typeof msg === 'string' && msg.toLowerCase().includes('testing emails to your own email address')) {
+            msg = 'O Resend (modo gratuito/teste) só permite envio para o seu próprio e-mail cadastrado. Para enviar para outras pessoas da equipe (@agfequipamentos.com.br), valide o domínio no painel do Resend ou clique em "Abrir no Outlook / Gmail".';
+          }
+          return res.json({ success: false, error: msg, raw: rData });
         }
       } catch (rErr) {
         return res.json({ success: false, error: rErr.message });

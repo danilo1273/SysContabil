@@ -710,10 +710,21 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                 window.$toast(`E-mail enviado com sucesso para ${emailModalData.to}!`, { type: 'success' });
                 setEmailModalData(null);
             } else {
-                window.$alert(`Não foi possível enviar: ${data.error || data.warning || 'Falha ao enviar'}`);
+                const errMsg = data.error || data.warning || 'Falha ao enviar';
+                const mailtoUrl = `mailto:${emailModalData.to}?subject=${encodeURIComponent(emailModalData.subject)}&body=${encodeURIComponent(emailModalData.body)}`;
+                const wantOutlook = window.confirm(`Não foi possível enviar automaticamente pela nuvem:\n\n${errMsg}\n\nDeseja abrir o e-mail preenchido no seu Outlook / Webmail agora para enviar em 1 clique?`);
+                if (wantOutlook) {
+                    window.open(mailtoUrl, '_blank');
+                    setEmailModalData(null);
+                }
             }
         } catch (e) {
-            window.$alert('Erro ao enviar e-mail: ' + e.message);
+            const mailtoUrl = `mailto:${emailModalData.to}?subject=${encodeURIComponent(emailModalData.subject)}&body=${encodeURIComponent(emailModalData.body)}`;
+            const wantOutlook = window.confirm(`Erro ao conectar com o serviço de envio: ${e.message}\n\nDeseja abrir no Outlook / Webmail agora para enviar diretamente em 1 clique?`);
+            if (wantOutlook) {
+                window.open(mailtoUrl, '_blank');
+                setEmailModalData(null);
+            }
         } finally {
             setIsSendingEmail(false);
         }
@@ -3074,16 +3085,19 @@ function GestaoContabilModule({ userRole, userName, companies }) {
 
                                     <div>
                                         <label style={{ display: 'block', fontSize: '0.8rem', color: '#ccc', marginBottom: '4px', fontWeight: 'bold' }}>
-                                            Nome / Endereço de Exibição (Opcional):
+                                            Nome de Exibição do Remetente (Opcional):
                                         </label>
                                         <input
                                             type="text"
-                                            placeholder="SysContábil AGF <onboarding@resend.dev>"
+                                            placeholder="ex: SysContábil AGF"
                                             value={smtpConfig.from || ''}
                                             onChange={(e) => setSmtpConfig({ ...smtpConfig, from: e.target.value })}
                                             className="text-input"
                                             style={{ width: '100%', padding: '0.55rem' }}
                                         />
+                                        <span style={{ fontSize: '0.72rem', color: '#888', marginTop: '3px', display: 'block' }}>
+                                            Digite apenas o nome da empresa ou sistema (ex: <em>SysContábil AGF</em>). O sistema gerencia o endereço automaticamente.
+                                        </span>
                                     </div>
                                 </div>
                             ) : (
@@ -3249,13 +3263,21 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                 />
                             </div>
 
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem', paddingTop: '0.8rem', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                            <div style={{ background: 'rgba(33, 150, 243, 0.08)', border: '1px solid rgba(33, 150, 243, 0.25)', borderRadius: '6px', padding: '0.6rem 0.8rem', fontSize: '0.76rem', color: '#90CAF9', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span>💡</span>
+                                <span>
+                                    <strong>Dica:</strong> Se preferir enviar diretamente do seu e-mail corporativo (@agfequipamentos.com.br) sem depender de serviços externos, use o botão <strong>Abrir no Outlook / Gmail</strong> abaixo.
+                                </span>
+                            </div>
+
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.8rem', paddingTop: '0.8rem', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
                                 <a
                                     href={`mailto:${emailModalData.to}?subject=${encodeURIComponent(emailModalData.subject)}&body=${encodeURIComponent(emailModalData.body)}`}
                                     className="btn-secondary"
-                                    style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', textDecoration: 'none' }}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', textDecoration: 'none', background: 'rgba(33, 150, 243, 0.15)', borderColor: '#2196F3', color: '#64B5F6' }}
                                     target="_blank"
                                     rel="noreferrer"
+                                    title="Abre seu Outlook ou Webmail corporativo já preenchido"
                                 >
                                     <ExternalLink size={14} /> Abrir no Outlook / Gmail
                                 </a>

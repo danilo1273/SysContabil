@@ -55,10 +55,31 @@ export default async function handler(req, res) {
       }
     }
 
+function formatResendFrom(rawFrom) {
+  if (!rawFrom || typeof rawFrom !== 'string') {
+    return 'SysContábil AGF <onboarding@resend.dev>';
+  }
+  const str = rawFrom.trim();
+  if (!str) {
+    return 'SysContábil AGF <onboarding@resend.dev>';
+  }
+  // Se já estiver no formato Nome <email@dominio.com>
+  if (/^.+<[^@\s]+@[^@\s]+\.[^@\s]+>$/.test(str)) {
+    return str;
+  }
+  // Se for apenas email email@dominio.com
+  if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(str)) {
+    return `SysContábil AGF <${str}>`;
+  }
+  // Se o usuário digitou apenas um nome de exibição (ex: "SysContábil AGF")
+  const cleanName = str.replace(/[<>]/g, '').trim() || 'SysContábil AGF';
+  return `${cleanName} <onboarding@resend.dev>`;
+}
+
     // 2.1 Envio via API do Resend (Sem necessidade de senha de e-mail!)
     const resendKey = process.env.RESEND_API_KEY || smtpConfig?.resendApiKey;
     if (resendKey) {
-      const fromEmail = process.env.RESEND_FROM || smtpConfig?.from || 'SysContábil AGF <onboarding@resend.dev>';
+      const fromEmail = formatResendFrom(process.env.RESEND_FROM || smtpConfig?.from);
       const rRes = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: {
@@ -81,7 +102,15 @@ export default async function handler(req, res) {
           id: rData.id
         });
       } else {
-        throw new Error(rData.message || 'Falha ao enviar via Resend API');
+        let msg = rData.message || 'Falha ao enviar via Resend API';
+        if (typeof msg === 'string' && msg.toLowerCase().includes('testing emails to your own email address')) {
+          msg = 'O Resend (modo gratuito/teste) só permite envio para o seu próprio e-mail cadastrado. Para enviar para outras pessoas da equipe (@agfequipamentos.com.br), valide o domínio no painel do Resend ou clique em "Abrir no Outlook / Gmail".';
+        }
+        return res.status(400).json({
+          success: false,
+          error: msg,
+          raw: rData
+        });
       }
     }
 
