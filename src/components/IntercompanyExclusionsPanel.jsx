@@ -43,11 +43,9 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
   const [saving, setSaving] = useState(false);
   const [showMappingModal, setShowMappingModal] = useState(false);
 
-  // Mapeamento de contas salvas
-  const [accountMapping, setAccountMapping] = useState({
-    clientesContas: ['1.1.1.3.01.000001', '1.1.1.3.01.000014'],
-    fornecedoresContas: ['2.1.1.1.01.000001']
-  });
+  // Mapeamento de contas por empresa: { [empresaId]: { clientesContas: [], fornecedoresContas: [] } }
+  const [accountMapping, setAccountMapping] = useState({});
+  const [mappingCompany, setMappingCompany] = useState(availableCompanies[0]?.id || 'equipamentos');
 
   // Sugestões de contas encontradas no balancete
   const [detectedAccounts, setDetectedAccounts] = useState({ clientes: [], fornecedores: [] });
@@ -65,18 +63,43 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
     return found ? found.name : id;
   };
 
-  // Carregar dados salvos do mês e mapeamento de contas
+  const getCompanyMapping = (compKey) => {
+    return accountMapping[compKey] || {
+      clientesContas: ['1.1.1.3.01.000001'],
+      fornecedoresContas: ['2.1.1.1.01.000001']
+    };
+  };
+
+  // Carregar dados salvos do mês e mapeamento de contas por empresa
   useEffect(() => {
     const loadInitialData = async () => {
       setLoading(true);
       try {
-        // 1. Carregar mapeamento geral de contas
+        // 1. Carregar mapeamento de contas por empresa
         const storedMapping = await getSettings('agf_intercompany_mapping');
         if (storedMapping && typeof storedMapping === 'object') {
-          setAccountMapping({
-            clientesContas: storedMapping.clientesContas || ['1.1.1.3.01.000001', '1.1.1.3.01.000014'],
-            fornecedoresContas: storedMapping.fornecedoresContas || ['2.1.1.1.01.000001']
+          // Migração de formato se antes era array plano
+          if (storedMapping.clientesContas || storedMapping.fornecedoresContas) {
+            const migrated = {};
+            availableCompanies.forEach(c => {
+              migrated[c.id] = {
+                clientesContas: [...(storedMapping.clientesContas || ['1.1.1.3.01.000001'])],
+                fornecedoresContas: [...(storedMapping.fornecedoresContas || ['2.1.1.1.01.000001'])]
+              };
+            });
+            setAccountMapping(migrated);
+          } else {
+            setAccountMapping(storedMapping);
+          }
+        } else {
+          const initialMap = {};
+          availableCompanies.forEach(c => {
+            initialMap[c.id] = {
+              clientesContas: ['1.1.1.3.01.000001'],
+              fornecedoresContas: ['2.1.1.1.01.000001']
+            };
           });
+          setAccountMapping(initialMap);
         }
 
         // 2. Carregar lista de exclusões salvas para este mês/ano
@@ -107,7 +130,6 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
           }
         }
 
-        // Limpar formulário de inserção
         resetForm();
       } catch (err) {
         console.error('Erro ao carregar exclusões:', err);
@@ -131,14 +153,18 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
     setEmpresaDestino(availableCompanies[1]?.id || 'rompedores');
   };
 
-  // Buscar contas do balancete para sugerir no mapeamento
-  const scanIntercompanyAccounts = async () => {
+  // Buscar contas do balancete para sugerir no mapeamento da empresa selecionada
+  const scanIntercompanyAccounts = async (targetComp = mappingCompany) => {
     try {
-      const records = await fetchAll(
-        supabase.from('balanco_history')
-          .select('conta, descricao, tipo, saldoAcumulado')
-          .neq('empresaId', 'exclusoes')
-      );
+      let query = supabase.from('balanco_history')
+        .select('conta, descricao, tipo, saldoAcumulado, empresaId')
+        .neq('empresaId', 'exclusoes');
+      
+      if (targetComp && targetComp !== 'todas') {
+        query = query.eq('empresaId', targetComp);
+      }
+
+      const records = await fetchAll(query);
 
       const clientesMap = new Map();
       const fornecedoresMap = new Map();
@@ -172,49 +198,72 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
     }
   };
 
-  // Puxar saldos de Clientes e Fornecedores do Balanço com base nas contas mapeadas
+  // Puxar saldos de Clientes e Fornecedores do Balanço com base nas contas mapeadas por empresa
   const handleAutoPullBalanco = async () => {
     setLoading(true);
     try {
-      const { clientesContas, fornecedoresContas } = accountMapping;
+      const origemMap = getCompanyMapping(empresaOrigem);
+      const destinoMap = getCompanyMapping(empresaDestino);
+
+      const clientesContas = origemMap.clientesContas || [];
+      const fornecedoresContas = destinoMap.fornecedoresContas || [];
+
       if (clientesContas.length === 0 && fornecedoresContas.length === 0) {
-        window.$alert('Nenhuma conta mapeada! Clique no botão de engrenagem para mapear as contas primeiro.');
+        window.$alert(`Nenhuma conta mapeada para ${getCompanyName(empresaOrigem)} ou ${getCompanyName(empresaDestino)}! Clique no botão "Mapear Contas do Balanço" para configurar.`);
         setLoading(false);
         return;
       }
-
-      let query = supabase.from('balanco_history')
-        .select('conta, descricao, saldoAcumulado, empresaId')
-        .eq('ano', dbAno)
-        .eq('mes', dbMes)
-        .neq('empresaId', 'exclusoes');
-
-      const records = await fetchAll(query);
 
       let totalCli = 0;
       let totalForn = 0;
       let matchCliCount = 0;
       let matchFornCount = 0;
 
-      (records || []).forEach(r => {
-        if (!r.conta) return;
-
-        // Se uma empresa de origem estiver selecionada, busca contas de clientes nela
-        const matchOrigem = !empresaOrigem || empresaOrigem === 'todas' || r.empresaId === empresaOrigem;
-        const matchDestino = !empresaDestino || empresaDestino === 'todas' || r.empresaId === empresaDestino;
+      // 1. Puxar Clientes da Empresa de Origem
+      if (clientesContas.length > 0) {
+        let cliQuery = supabase.from('balanco_history')
+          .select('conta, descricao, saldoAcumulado, empresaId')
+          .eq('ano', dbAno)
+          .eq('mes', dbMes)
+          .neq('empresaId', 'exclusoes');
         
-        const isCli = clientesContas.some(c => r.conta.startsWith(c.trim()));
-        if (isCli && matchOrigem) {
-          totalCli += (r.saldoAcumulado || 0);
-          matchCliCount++;
+        if (empresaOrigem && empresaOrigem !== 'todas') {
+          cliQuery = cliQuery.eq('empresaId', empresaOrigem);
         }
 
-        const isForn = fornecedoresContas.some(c => r.conta.startsWith(c.trim()));
-        if (isForn && matchDestino) {
-          totalForn += (r.saldoAcumulado || 0);
-          matchFornCount++;
+        const cliRecords = await fetchAll(cliQuery);
+        (cliRecords || []).forEach(r => {
+          if (!r.conta) return;
+          const isCli = clientesContas.some(c => r.conta.startsWith(c.trim()));
+          if (isCli) {
+            totalCli += (r.saldoAcumulado || 0);
+            matchCliCount++;
+          }
+        });
+      }
+
+      // 2. Puxar Fornecedores da Empresa de Destino
+      if (fornecedoresContas.length > 0) {
+        let fornQuery = supabase.from('balanco_history')
+          .select('conta, descricao, saldoAcumulado, empresaId')
+          .eq('ano', dbAno)
+          .eq('mes', dbMes)
+          .neq('empresaId', 'exclusoes');
+        
+        if (empresaDestino && empresaDestino !== 'todas') {
+          fornQuery = fornQuery.eq('empresaId', empresaDestino);
         }
-      });
+
+        const fornRecords = await fetchAll(fornQuery);
+        (fornRecords || []).forEach(r => {
+          if (!r.conta) return;
+          const isForn = fornecedoresContas.some(c => r.conta.startsWith(c.trim()));
+          if (isForn) {
+            totalForn += (r.saldoAcumulado || 0);
+            matchFornCount++;
+          }
+        });
+      }
 
       const cliFinal = Math.abs(totalCli);
       const fornFinal = Math.abs(totalForn);
@@ -222,7 +271,7 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
       if (cliFinal > 0) setClientes(String(cliFinal));
       if (fornFinal > 0) setFornecedores(String(fornFinal));
 
-      window.$toast(`Saldos identificados: Clientes R$ ${cliFinal.toLocaleString('pt-BR')} (${matchCliCount} contas), Fornecedores R$ ${fornFinal.toLocaleString('pt-BR')} (${matchFornCount} contas)`, { type: 'success' });
+      window.$toast(`Saldos identificados: Clientes (${getCompanyName(empresaOrigem)}) R$ ${cliFinal.toLocaleString('pt-BR')} (${matchCliCount} contas), Fornecedores (${getCompanyName(empresaDestino)}) R$ ${fornFinal.toLocaleString('pt-BR')} (${matchFornCount} contas)`, { type: 'success' });
     } catch (err) {
       console.error(err);
       window.$alert('Erro ao puxar saldos do balanço: ' + err.message);
@@ -237,14 +286,12 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
     try {
       const trimestre = Math.ceil(dbMes / 3);
 
-      // 1. Calcular totais agregados para leitura rápida
       const totalFat = updatedList.reduce((acc, item) => acc + (Number(item.faturamento) || 0), 0);
       const totalImp = updatedList.reduce((acc, item) => acc + (Number(item.impostos) || 0), 0);
       const totalCusto = updatedList.reduce((acc, item) => acc + (Number(item.custo) || 0), 0);
       const totalCli = updatedList.reduce((acc, item) => acc + (Number(item.clientes) || 0), 0);
       const totalForn = updatedList.reduce((acc, item) => acc + (Number(item.fornecedores) || 0), 0);
 
-      // 2. Persistir lista completa e totais nos settings
       await saveSettings(`agf_exclusoes_lista_${dbAno}_${dbMes}`, updatedList);
       await saveSettings(`agf_exclusoes_${dbAno}_${dbMes}`, {
         faturamento: totalFat,
@@ -255,15 +302,12 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
         updated_at: new Date().toISOString()
       });
 
-      // 3. Atualizar dre_history para a empresa 'exclusoes'
-      // Limpa registros anteriores para evitar duplicidades
       await supabase.from('dre_history').delete().match({
         empresaId: 'exclusoes',
         ano: dbAno,
         mes: dbMes
       });
 
-      // Se houver exclusões cadastradas, insere registros agregados/individuais
       if (updatedList.length > 0) {
         const dreEntries = [
           {
@@ -302,7 +346,6 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
           await supabase.from('dre_history').upsert(entry);
         }
 
-        // 4. Atualizar balanco_history para a empresa 'exclusoes'
         await supabase.from('balanco_history').delete().match({
           empresaId: 'exclusoes',
           ano: dbAno,
@@ -338,7 +381,6 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
           await supabase.from('balanco_history').upsert(entry);
         }
       } else {
-        // Se limpou todas as exclusões, limpa balanco_history também
         await supabase.from('balanco_history').delete().match({
           empresaId: 'exclusoes',
           ano: dbAno,
@@ -358,7 +400,6 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
     }
   };
 
-  // Submeter formulário (Adicionar ou Editar Exclusão)
   const handleSubmitForm = async (e) => {
     if (e) e.preventDefault();
 
@@ -369,7 +410,7 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
     const numFornecedores = parseFloat(fornecedores) || 0;
 
     if (numFaturamento === 0 && numImpostos === 0 && numCusto === 0 && numClientes === 0 && numFornecedores === 0) {
-      window.$alert('Informe ao menos um valor (faturamento, impostos, custo, clientes ou fornecedores) para registrar a exclusão.');
+      window.$alert('Informe ao menos um valor para registrar a exclusão.');
       return;
     }
 
@@ -401,7 +442,6 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
     await syncWithDatabase(updated);
   };
 
-  // Excluir um item da lista
   const handleDeleteItem = async (itemId) => {
     const confirmDelete = window.confirm('Tem certeza que deseja remover esta exclusão?');
     if (!confirmDelete) return;
@@ -410,7 +450,6 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
     await syncWithDatabase(updated);
   };
 
-  // Carregar item no formulário para edição
   const handleEditItem = (item) => {
     setEditingId(item.id);
     setEmpresaOrigem(item.empresaOrigem || availableCompanies[0]?.id || 'equipamentos');
@@ -428,7 +467,7 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
   const handleSaveMapping = async () => {
     try {
       await saveSettings('agf_intercompany_mapping', accountMapping);
-      window.$toast('Mapeamento de contas salvo com sucesso!', { type: 'success' });
+      window.$toast('Mapeamento de contas por empresa salvo com sucesso!', { type: 'success' });
       setShowMappingModal(false);
     } catch (e) {
       window.$alert('Erro ao salvar mapeamento: ' + e.message);
@@ -436,34 +475,56 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
   };
 
   const addClienteConta = (conta) => {
-    if (!conta || accountMapping.clientesContas.includes(conta.trim())) return;
+    if (!conta) return;
+    const cleanConta = conta.trim();
+    const currentList = accountMapping[mappingCompany]?.clientesContas || [];
+    if (currentList.includes(cleanConta)) return;
+
     setAccountMapping(prev => ({
       ...prev,
-      clientesContas: [...prev.clientesContas, conta.trim()]
+      [mappingCompany]: {
+        ...(prev[mappingCompany] || { fornecedoresContas: [] }),
+        clientesContas: [...currentList, cleanConta]
+      }
     }));
     setNewClienteInput('');
   };
 
   const removeClienteConta = (conta) => {
+    const currentList = accountMapping[mappingCompany]?.clientesContas || [];
     setAccountMapping(prev => ({
       ...prev,
-      clientesContas: prev.clientesContas.filter(c => c !== conta)
+      [mappingCompany]: {
+        ...(prev[mappingCompany] || { fornecedoresContas: [] }),
+        clientesContas: currentList.filter(c => c !== conta)
+      }
     }));
   };
 
   const addFornecConta = (conta) => {
-    if (!conta || accountMapping.fornecedoresContas.includes(conta.trim())) return;
+    if (!conta) return;
+    const cleanConta = conta.trim();
+    const currentList = accountMapping[mappingCompany]?.fornecedoresContas || [];
+    if (currentList.includes(cleanConta)) return;
+
     setAccountMapping(prev => ({
       ...prev,
-      fornecedoresContas: [...prev.fornecedoresContas, conta.trim()]
+      [mappingCompany]: {
+        ...(prev[mappingCompany] || { clientesContas: [] }),
+        fornecedoresContas: [...currentList, cleanConta]
+      }
     }));
     setNewFornecInput('');
   };
 
   const removeFornecConta = (conta) => {
+    const currentList = accountMapping[mappingCompany]?.fornecedoresContas || [];
     setAccountMapping(prev => ({
       ...prev,
-      fornecedoresContas: prev.fornecedoresContas.filter(c => c !== conta)
+      [mappingCompany]: {
+        ...(prev[mappingCompany] || { clientesContas: [] }),
+        fornecedoresContas: currentList.filter(c => c !== conta)
+      }
     }));
   };
 
@@ -473,6 +534,8 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
   const totCusto = exclusionsList.reduce((acc, i) => acc + (Number(i.custo) || 0), 0);
   const totCli = exclusionsList.reduce((acc, i) => acc + (Number(i.clientes) || 0), 0);
   const totForn = exclusionsList.reduce((acc, i) => acc + (Number(i.fornecedores) || 0), 0);
+
+  const activeMappingForCompany = getCompanyMapping(mappingCompany);
 
   return (
     <div style={{
@@ -507,14 +570,14 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
           <button
             type="button"
             onClick={() => {
-              scanIntercompanyAccounts();
+              scanIntercompanyAccounts(mappingCompany);
               setShowMappingModal(true);
             }}
             className="btn-secondary"
             style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', padding: '0.5rem 0.85rem' }}
-            title="Configurar contas contábeis de Clientes e Fornecedores Intercompany"
+            title="Configurar contas contábeis de Clientes e Fornecedores Intercompany por Empresa"
           >
-            <Settings size={14} /> Mapear Contas do Balanço
+            <Settings size={14} /> Mapear Contas do Balanço (por Empresa)
           </button>
         </div>
       </div>
@@ -666,14 +729,14 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
               <label style={{ fontSize: '0.76rem', color: '#64B5F6' }}>
-                🏦 Clientes (Ativo):
+                🏦 Clientes ({getCompanyName(empresaOrigem)}):
               </label>
               <button
                 type="button"
                 onClick={handleAutoPullBalanco}
                 disabled={loading}
                 style={{ background: 'none', border: 'none', color: '#2196F3', fontSize: '0.68rem', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
-                title="Puxar saldos das contas mapeadas"
+                title={`Puxar saldos das contas mapeadas em ${getCompanyName(empresaOrigem)}`}
               >
                 Auto-Puxar
               </button>
@@ -699,14 +762,14 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
               <label style={{ fontSize: '0.76rem', color: '#64B5F6' }}>
-                🏢 Fornecedores (Passivo):
+                🏢 Fornecedores ({getCompanyName(empresaDestino)}):
               </label>
               <button
                 type="button"
                 onClick={handleAutoPullBalanco}
                 disabled={loading}
                 style={{ background: 'none', border: 'none', color: '#2196F3', fontSize: '0.68rem', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
-                title="Puxar saldos das contas mapeadas"
+                title={`Puxar saldos das contas mapeadas em ${getCompanyName(empresaDestino)}`}
               >
                 Auto-Puxar
               </button>
@@ -895,7 +958,7 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
         </div>
       )}
 
-      {/* MODAL DE MAPEAMENTO DE CONTAS CONTÁBEIS */}
+      {/* MODAL DE MAPEAMENTO DE CONTAS CONTÁBEIS POR EMPRESA */}
       {showMappingModal && (
         <div style={{
           position: 'fixed',
@@ -913,8 +976,8 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
             border: '1px solid rgba(255, 255, 255, 0.15)',
             borderRadius: '12px',
             width: '100%',
-            maxWidth: '650px',
-            maxHeight: '90vh',
+            maxWidth: '680px',
+            maxHeight: '92vh',
             overflowY: 'auto',
             padding: '1.5rem',
             boxShadow: '0 10px 30px rgba(0,0,0,0.8)',
@@ -927,10 +990,10 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
               <div>
                 <h3 style={{ margin: 0, color: '#fff', fontSize: '1.1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Settings size={18} style={{ color: '#FFB74D' }} />
-                  Mapear Contas Intercompany do Balanço
+                  Mapear Contas do Balanço por Empresa
                 </h3>
                 <p style={{ margin: '4px 0 0 0', fontSize: '0.78rem', color: '#aaa' }}>
-                  Informe as contas analíticas ou prefixos contábeis das empresas ligadas. O botão <i>Auto-Puxar</i> somará estas contas automaticamente.
+                  Cada empresa possui planos de contas e códigos contábeis distintos. Configure as contas de Clientes e Fornecedores individualmente por empresa.
                 </p>
               </div>
               <button
@@ -941,11 +1004,58 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
               </button>
             </div>
 
-            {/* SEÇÃO 1: CONTAS DE CLIENTES */}
+            {/* SELETOR DE EMPRESA (ABAS) */}
+            <div>
+              <label style={{ display: 'block', fontSize: '0.78rem', color: '#ccc', marginBottom: '6px', fontWeight: 'bold' }}>
+                Selecione a Empresa para Configurar:
+              </label>
+              <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
+                {availableCompanies.map(c => {
+                  const isSelected = mappingCompany === c.id;
+                  const compAccountsCount = (accountMapping[c.id]?.clientesContas?.length || 0) + (accountMapping[c.id]?.fornecedoresContas?.length || 0);
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => {
+                        setMappingCompany(c.id);
+                        scanIntercompanyAccounts(c.id);
+                      }}
+                      style={{
+                        padding: '7px 14px',
+                        borderRadius: '8px',
+                        background: isSelected ? 'rgba(255, 152, 0, 0.2)' : 'rgba(255,255,255,0.05)',
+                        border: isSelected ? '1px solid #FF9800' : '1px solid rgba(255,255,255,0.1)',
+                        color: isSelected ? '#FFB74D' : '#ccc',
+                        fontWeight: isSelected ? 'bold' : 'normal',
+                        cursor: 'pointer',
+                        fontSize: '0.82rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      <span>🏢 {c.name}</span>
+                      <span style={{ fontSize: '0.68rem', background: isSelected ? '#FF9800' : 'rgba(255,255,255,0.15)', color: isSelected ? '#000' : '#fff', padding: '1px 6px', borderRadius: '10px' }}>
+                        {compAccountsCount}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* SEÇÃO 1: CONTAS DE CLIENTES DA EMPRESA SELECIONADA */}
             <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '1rem' }}>
-              <h4 style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: '#64B5F6' }}>
-                🏦 Contas de Clientes / A Receber Intercompany (Ativo):
-              </h4>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <h4 style={{ margin: 0, fontSize: '0.85rem', color: '#64B5F6' }}>
+                  🏦 Clientes / A Receber em {getCompanyName(mappingCompany)} (Ativo):
+                </h4>
+                <span style={{ fontSize: '0.7rem', color: '#888' }}>
+                  Contas onde {getCompanyName(mappingCompany)} tem a receber das outras empresas
+                </span>
+              </div>
               
               <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
                 <input
@@ -963,24 +1073,28 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
                   className="btn-primary"
                   style={{ padding: '5px 10px', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '4px' }}
                 >
-                  <Plus size={14} /> Adicionar
+                  <Plus size={14} /> Adicionar Conta
                 </button>
               </div>
 
               {/* Tags de Contas Adicionadas */}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                {accountMapping.clientesContas.map(conta => (
-                  <span key={conta} style={{ background: 'rgba(33, 150, 243, 0.15)', color: '#90CAF9', border: '1px solid rgba(33, 150, 243, 0.3)', padding: '3px 8px', borderRadius: '6px', fontSize: '0.76rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    {conta}
-                    <X size={12} style={{ cursor: 'pointer', color: '#E57373' }} onClick={() => removeClienteConta(conta)} />
-                  </span>
-                ))}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', minHeight: '32px' }}>
+                {(activeMappingForCompany.clientesContas || []).length === 0 ? (
+                  <span style={{ fontSize: '0.75rem', color: '#666', fontStyle: 'italic' }}>Nenhuma conta de cliente mapeada para esta empresa.</span>
+                ) : (
+                  (activeMappingForCompany.clientesContas || []).map(conta => (
+                    <span key={conta} style={{ background: 'rgba(33, 150, 243, 0.15)', color: '#90CAF9', border: '1px solid rgba(33, 150, 243, 0.3)', padding: '3px 8px', borderRadius: '6px', fontSize: '0.76rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {conta}
+                      <X size={12} style={{ cursor: 'pointer', color: '#E57373' }} onClick={() => removeClienteConta(conta)} />
+                    </span>
+                  ))
+                )}
               </div>
 
-              {/* Sugestões do banco */}
+              {/* Sugestões do balancete desta empresa */}
               {detectedAccounts.clientes.length > 0 && (
                 <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px dashed rgba(255,255,255,0.08)' }}>
-                  <span style={{ fontSize: '0.7rem', color: '#888' }}>Contas detectadas nos balancetes:</span>
+                  <span style={{ fontSize: '0.7rem', color: '#888' }}>Contas intercompany identificadas nos balancetes de {getCompanyName(mappingCompany)}:</span>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '4px' }}>
                     {detectedAccounts.clientes.map(d => (
                       <button
@@ -998,11 +1112,16 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
               )}
             </div>
 
-            {/* SEÇÃO 2: CONTAS DE FORNECEDORES */}
+            {/* SEÇÃO 2: CONTAS DE FORNECEDORES DA EMPRESA SELECIONADA */}
             <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '8px', padding: '1rem' }}>
-              <h4 style={{ margin: '0 0 8px 0', fontSize: '0.85rem', color: '#FFB74D' }}>
-                🏢 Contas de Fornecedores / A Pagar Intercompany (Passivo):
-              </h4>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <h4 style={{ margin: 0, fontSize: '0.85rem', color: '#FFB74D' }}>
+                  🏢 Fornecedores / A Pagar em {getCompanyName(mappingCompany)} (Passivo):
+                </h4>
+                <span style={{ fontSize: '0.7rem', color: '#888' }}>
+                  Contas onde {getCompanyName(mappingCompany)} deve a partes relacionadas
+                </span>
+              </div>
               
               <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
                 <input
@@ -1020,24 +1139,28 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
                   className="btn-primary"
                   style={{ padding: '5px 10px', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '4px' }}
                 >
-                  <Plus size={14} /> Adicionar
+                  <Plus size={14} /> Adicionar Conta
                 </button>
               </div>
 
               {/* Tags de Contas Adicionadas */}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                {accountMapping.fornecedoresContas.map(conta => (
-                  <span key={conta} style={{ background: 'rgba(255, 152, 0, 0.15)', color: '#FFB74D', border: '1px solid rgba(255, 152, 0, 0.3)', padding: '3px 8px', borderRadius: '6px', fontSize: '0.76rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    {conta}
-                    <X size={12} style={{ cursor: 'pointer', color: '#E57373' }} onClick={() => removeFornecConta(conta)} />
-                  </span>
-                ))}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', minHeight: '32px' }}>
+                {(activeMappingForCompany.fornecedoresContas || []).length === 0 ? (
+                  <span style={{ fontSize: '0.75rem', color: '#666', fontStyle: 'italic' }}>Nenhuma conta de fornecedor mapeada para esta empresa.</span>
+                ) : (
+                  (activeMappingForCompany.fornecedoresContas || []).map(conta => (
+                    <span key={conta} style={{ background: 'rgba(255, 152, 0, 0.15)', color: '#FFB74D', border: '1px solid rgba(255, 152, 0, 0.3)', padding: '3px 8px', borderRadius: '6px', fontSize: '0.76rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {conta}
+                      <X size={12} style={{ cursor: 'pointer', color: '#E57373' }} onClick={() => removeFornecConta(conta)} />
+                    </span>
+                  ))
+                )}
               </div>
 
-              {/* Sugestões do banco */}
+              {/* Sugestões do balancete desta empresa */}
               {detectedAccounts.fornecedores.length > 0 && (
                 <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px dashed rgba(255,255,255,0.08)' }}>
-                  <span style={{ fontSize: '0.7rem', color: '#888' }}>Contas detectadas nos balancetes:</span>
+                  <span style={{ fontSize: '0.7rem', color: '#888' }}>Contas intercompany identificadas nos balancetes de {getCompanyName(mappingCompany)}:</span>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '4px' }}>
                     {detectedAccounts.fornecedores.map(d => (
                       <button
@@ -1071,7 +1194,7 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
                 className="btn-primary"
                 style={{ padding: '0.5rem 1.2rem', fontWeight: 'bold' }}
               >
-                Salvar Mapeamento
+                Salvar Mapeamento no Banco de Dados
               </button>
             </div>
           </div>

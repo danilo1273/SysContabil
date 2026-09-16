@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getHistorySeries, getSettings, saveSettings } from '../utils/db';
+import { getHistorySeries, getSettings, saveSettings, getCustomConsolidations } from '../utils/db';
 import { printReport } from '../utils/printHelper';
 
 const formatNumber = (val) => {
@@ -76,6 +76,15 @@ function FaturamentoModule({ companies = [], selectedCompany, selectedAno, selec
   const [customHeaderNome, setCustomHeaderNome] = useState('');
   const [customHeaderCnpj, setCustomHeaderCnpj] = useState('');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [customConsolidations, setCustomConsolidations] = useState([]);
+
+  useEffect(() => {
+    getCustomConsolidations().then(list => {
+      if (Array.isArray(list)) setCustomConsolidations(list);
+    }).catch(e => console.error(e));
+  }, []);
+
+  const activeCustom = (customConsolidations || []).find(c => c.id === selectedCompany) || null;
 
   // Carrega overrides e razão social salvos no banco
   useEffect(() => {
@@ -264,11 +273,11 @@ function FaturamentoModule({ companies = [], selectedCompany, selectedAno, selec
     'consolidado': { nome: 'AGF GROUP - CONSOLIDADO', cnpj: 'Múltiplos CNPJs' }
   };
 
-  const compData = selectedCompany !== 'consolidado' ? companies.find(c => c.id === selectedCompany) : null;
+  const compData = selectedCompany !== 'consolidado' && !activeCustom ? companies.find(c => c.id === selectedCompany) : null;
   
   const defaultHeader = companyHeaders[selectedCompany] || { 
-    nome: compData ? compData.name.toUpperCase() : 'AGF GROUP', 
-    cnpj: '' 
+    nome: activeCustom ? `AGF GROUP - CONSOLIDADO (${activeCustom.name.toUpperCase()})` : (compData ? compData.name.toUpperCase() : 'AGF GROUP'), 
+    cnpj: activeCustom ? 'Múltiplos CNPJs' : '' 
   };
 
   const headerNome = (customHeaderNome && customHeaderNome.trim() !== '') ? customHeaderNome : defaultHeader.nome;

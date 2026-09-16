@@ -239,15 +239,47 @@ export async function bulkPutRecords(table, entries) {
   return { success: true };
 }
 
+export async function getCustomConsolidations() {
+  const data = await getSettings('agf_custom_consolidations');
+  if (Array.isArray(data) && data.length > 0) return data;
+  const initial = [
+    {
+      id: 'custom_eq_romp',
+      name: 'AGF Equipamentos + Rompedores',
+      companies: ['equipamentos', 'rompedores'],
+      description: 'Consolidação personalizada de Equipamentos e Rompedores'
+    }
+  ];
+  try {
+    await saveSettings('agf_custom_consolidations', initial);
+  } catch(e){}
+  return initial;
+}
+
+export async function saveCustomConsolidations(list) {
+  return await saveSettings('agf_custom_consolidations', list);
+}
+
 export async function getHistorySeries(empresaId, ano, customCompanies = []) {
   let dreQuery = supabase.from("dre_history").select("*").eq("ano", ano);
   let balancoQuery = supabase.from("balanco_history").select("*").eq("ano", ano);
 
-  const isCustom = empresaId === 'custom_consolidado' && Array.isArray(customCompanies) && customCompanies.length > 0;
+  let isCustom = empresaId === 'custom_consolidado' || (typeof empresaId === 'string' && empresaId.startsWith('custom_'));
+  let targetCompanies = Array.isArray(customCompanies) ? [...customCompanies] : [];
+  
+  if (isCustom && targetCompanies.length === 0) {
+    try {
+      const allCustom = await getCustomConsolidations();
+      const match = allCustom.find(c => c.id === empresaId);
+      if (match && match.companies) targetCompanies = match.companies;
+    } catch(e){}
+  }
 
-  if (isCustom) {
-    dreQuery = dreQuery.in("empresaId", [...customCompanies, "exclusoes"]);
-    balancoQuery = balancoQuery.in("empresaId", [...customCompanies, "exclusoes"]);
+  const hasCustomTarget = isCustom && targetCompanies.length > 0;
+
+  if (hasCustomTarget) {
+    dreQuery = dreQuery.in("empresaId", [...targetCompanies, "exclusoes"]);
+    balancoQuery = balancoQuery.in("empresaId", [...targetCompanies, "exclusoes"]);
   } else if (empresaId && empresaId !== "consolidado" && empresaId !== "todas") {
     dreQuery = dreQuery.eq("empresaId", empresaId);
     balancoQuery = balancoQuery.eq("empresaId", empresaId);
@@ -274,7 +306,7 @@ export async function getHistorySeries(empresaId, ano, customCompanies = []) {
           if (Array.isArray(excList) && excList.length > 0) {
             const matchingExcs = excList.filter(item => {
               if (item.empresaOrigem === 'todas' || item.empresaDestino === 'todas') return true;
-              return customCompanies.includes(item.empresaOrigem) && customCompanies.includes(item.empresaDestino);
+              return targetCompanies.includes(item.empresaOrigem) && targetCompanies.includes(item.empresaDestino);
             });
 
             const subFat = matchingExcs.reduce((acc, i) => acc + (Number(i.faturamento) || 0), 0);

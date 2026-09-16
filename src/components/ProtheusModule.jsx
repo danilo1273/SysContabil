@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Upload, UploadCloud, Plus, FileText, CheckCircle, AlertTriangle, Play, Database, FileSpreadsheet, Activity, ChevronRight, ChevronDown, RefreshCw, Package } from 'lucide-react';
+import { Upload, UploadCloud, Plus, FileText, CheckCircle, AlertTriangle, Play, Database, FileSpreadsheet, Activity, ChevronRight, ChevronDown, RefreshCw, Package, Settings, X, Trash2, Edit2, Check } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, Cell } from 'recharts';
 import { parseProtheusExcel } from '../utils/protheusParser';
 import { protheusMapping, applyMapping } from '../utils/mappingConfig';
 import { supabase } from "../supabaseClient";
-import { saveBalanceteToDB, getDREFromDB, getBalancoFromDB, addManualEntryToDB, getSettings, saveSettings } from '../utils/db';
+import { saveBalanceteToDB, getDREFromDB, getBalancoFromDB, addManualEntryToDB, getSettings, saveSettings, getCustomConsolidations, saveCustomConsolidations } from '../utils/db';
 import TaxModule from './TaxModule';
 import DashboardView from './DashboardView';
 import FaturamentoModule from './FaturamentoModule';
@@ -149,15 +149,11 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
   const [results, setResults] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [selectedCompany, setSelectedCompany] = useState('consolidado');
-  const [customConsolidationCompanies, setCustomConsolidationCompanies] = useState(() => {
-    try {
-      const saved = localStorage.getItem('agf_custom_consolidation');
-      return saved ? JSON.parse(saved) : ['equipamentos', 'rompedores'];
-    } catch(e) {
-      return ['equipamentos', 'rompedores'];
-    }
-  });
+  const [customConsolidations, setCustomConsolidations] = useState([]);
   const [showCustomConsolidationModal, setShowCustomConsolidationModal] = useState(false);
+  const [editingCustomGroup, setEditingCustomGroup] = useState(null);
+  const [customGroupName, setCustomGroupName] = useState('');
+  const [customGroupCompanies, setCustomGroupCompanies] = useState(['equipamentos', 'rompedores']);
   const [latestAvailable, setLatestAvailable] = useState(null);
   const [dbFilterCompany, setDbFilterCompany] = useState('');
   const [dbSearchText, setDbSearchText] = useState('');
@@ -273,6 +269,10 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
         if (res) setCompanies(res);
     }).catch(e => console.error(e));
 
+    getCustomConsolidations().then(res => {
+        if (Array.isArray(res)) setCustomConsolidations(res);
+    }).catch(e => console.error(e));
+
     const handleNav = (e) => {
         const route = e.detail;
         window.__agf_pending_route = route;
@@ -283,6 +283,101 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
     window.addEventListener('agf_navigate', handleNav);
     return () => window.removeEventListener('agf_navigate', handleNav);
   }, []);
+
+  const activeCustom = useMemo(() => {
+    return (customConsolidations || []).find(c => c.id === selectedCompany) 
+      || (selectedCompany === 'custom_consolidado' || (typeof selectedCompany === 'string' && selectedCompany.startsWith('custom_')) ? (customConsolidations?.[0] || null) : null);
+  }, [customConsolidations, selectedCompany]);
+
+  const openCustomModal = (itemToEdit = null) => {
+    if (itemToEdit) {
+      setEditingCustomGroup(itemToEdit.id);
+      setCustomGroupName(itemToEdit.name);
+      setCustomGroupCompanies([...(itemToEdit.companies || [])]);
+    } else {
+      setEditingCustomGroup(null);
+      setCustomGroupName('');
+      setCustomGroupCompanies(['equipamentos', 'rompedores']);
+    }
+    setShowCustomConsolidationModal(true);
+  };
+
+  const handleSaveCustomGroup = async () => {
+    if (!customGroupName.trim()) {
+      window.$alert('Por favor, informe um nome para o grupo consolidado.');
+      return;
+    }
+    if (customGroupCompanies.length < 2) {
+      window.$alert('Selecione pelo menos 2 empresas para compor o consolidado.');
+      return;
+    }
+
+    let updatedList = [...customConsolidations];
+    let targetId = editingCustomGroup;
+
+    if (editingCustomGroup) {
+      updatedList = updatedList.map(item => {
+        if (item.id === editingCustomGroup) {
+          return {
+            ...item,
+            name: customGroupName.trim(),
+            companies: [...customGroupCompanies]
+          };
+        }
+        return item;
+      });
+    } else {
+      const slug = customGroupName.trim().toLowerCase().replace(/[^a-z0-9]/g, '_');
+      targetId = `custom_${slug}_${Date.now()}`;
+      const newGroup = {
+        id: targetId,
+        name: customGroupName.trim(),
+        companies: [...customGroupCompanies],
+        description: `Consolidado de ${customGroupCompanies.map(cId => companies.find(c => c.id === cId)?.name || cId).join(' + ')}`
+      };
+      updatedList.push(newGroup);
+    }
+
+    try {
+      await saveCustomConsolidations(updatedList);
+      setCustomConsolidations(updatedList);
+      setSelectedCompany(targetId);
+      loadPanelData(selectedAno, selectedMes, period, targetId);
+      setShowCustomConsolidationModal(false);
+      window.$toast(`Consolidado "${customGroupName.trim()}" salvo com sucesso no banco de dados!`, { type: 'success' });
+    } catch (e) {
+      console.error('Erro ao salvar consolidado personalizado:', e);
+      window.$alert('Erro ao salvar consolidado personalizado: ' + e.message);
+    }
+  };
+
+  const handleDeleteCustomGroup = async (idToDelete) => {
+    const item = customConsolidations.find(c => c.id === idToDelete);
+    if (!item) return;
+    if (!window.confirm(`Deseja realmente excluir o consolidado "${item.name}"?`)) return;
+
+    const updatedList = customConsolidations.filter(c => c.id !== idToDelete);
+    try {
+      await saveCustomConsolidations(updatedList);
+      setCustomConsolidations(updatedList);
+      if (selectedCompany === idToDelete) {
+        setSelectedCompany('consolidado');
+        loadPanelData(selectedAno, selectedMes, period, 'consolidado');
+      }
+      window.$toast(`Consolidado "${item.name}" removido com sucesso.`, { type: 'success' });
+    } catch (e) {
+      console.error('Erro ao excluir consolidado:', e);
+      window.$alert('Erro ao excluir: ' + e.message);
+    }
+  };
+
+  const handleActivateCustomGroup = (groupId) => {
+    setSelectedCompany(groupId);
+    loadPanelData(selectedAno, selectedMes, period, groupId);
+    setShowCustomConsolidationModal(false);
+    const found = customConsolidations.find(c => c.id === groupId);
+    window.$toast(`Visão alternada para: ${found ? found.name : groupId}`, { type: 'info' });
+  };
   const [files, setFiles] = useState({});
 
   // States for manual entry
@@ -732,14 +827,19 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
       let excDreDb = await getDREFromDB('exclusoes', pAno, pMes, pPeriod);
       let excBalDb = await getBalancoFromDB('exclusoes', pAno, pMes);
 
-      // Se estiver no Consolidado Personalizado, filtrar as exclusões para considerar apenas operações entre as empresas do subgrupo
-      if (pCompany === 'custom_consolidado') {
+      // Se estiver em um Consolidado Personalizado, filtrar as exclusões para considerar apenas operações entre as empresas do subgrupo
+      const panelCustom = (customConsolidations || []).find(c => c.id === pCompany)
+        || (pCompany === 'custom_consolidado' || (typeof pCompany === 'string' && pCompany.startsWith('custom_')) ? (customConsolidations?.[0] || null) : null);
+      const isPanelCustom = Boolean(panelCustom);
+      const panelCustomCompanies = panelCustom ? (panelCustom.companies || []) : [];
+
+      if (isPanelCustom) {
         try {
           const excList = await getSettings(`agf_exclusoes_lista_${pAno}_${pMes}`);
           if (Array.isArray(excList) && excList.length > 0) {
             const matchingExcs = excList.filter(item => {
               if (item.empresaOrigem === 'todas' || item.empresaDestino === 'todas') return true;
-              return customConsolidationCompanies.includes(item.empresaOrigem) && customConsolidationCompanies.includes(item.empresaDestino);
+              return panelCustomCompanies.includes(item.empresaOrigem) && panelCustomCompanies.includes(item.empresaDestino);
             });
             const subFat = matchingExcs.reduce((acc, i) => acc + (Number(i.faturamento) || 0), 0);
             const subImp = matchingExcs.reduce((acc, i) => acc + (Number(i.impostos) || 0), 0);
@@ -816,8 +916,8 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
       // 4.6 movido para depois do buildDRE para aproveitar o lucroLiq dinamicamente
 
       // 5. Estruturar os dados para a tabela
-      const targetCompanyIds = pCompany === 'custom_consolidado'
-        ? [...customConsolidationCompanies, 'exclusoes']
+      const targetCompanyIds = isPanelCustom
+        ? [...panelCustomCompanies, 'exclusoes']
         : consolidated.companies.map(c => c.id);
 
       const buildGenericTable = (mappedDataDict, mappingRef, tablePrefix, isDetailed = true, addGrandTotal = false, skipGroupHeader = false) => {
@@ -1401,8 +1501,8 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
 
     const handlePrint = (reportName) => {
         const isConsol = selectedCompany === 'consolidado';
-        const isCustomConsol = selectedCompany === 'custom_consolidado';
-        const customNames = customConsolidationCompanies.map(cid => companies.find(c => c.id === cid)?.name || cid).join(' + ');
+        const isCustomConsol = Boolean(activeCustom);
+        const customNames = activeCustom ? activeCustom.name : '';
         const compData = (!isConsol && !isCustomConsol) ? companies.find(c => c.id === selectedCompany) : null;
         const compNome = isConsol ? 'AGF Group (Consolidado)' : isCustomConsol ? `AGF Group (Consolidado: ${customNames})` : (compData ? compData.name : 'AGF');
         const mesNome = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][selectedMes-1];
@@ -1421,10 +1521,10 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
 
     const PrintHeader = () => {
         const isConsol = selectedCompany === 'consolidado';
-        const isCustomConsol = selectedCompany === 'custom_consolidado';
-        const customNames = customConsolidationCompanies.map(cid => companies.find(c => c.id === cid)?.name || cid).join(' + ');
+        const isCustomConsol = Boolean(activeCustom);
+        const customNames = activeCustom ? activeCustom.name : '';
         const compData = (!isConsol && !isCustomConsol) ? companies.find(c => c.id === selectedCompany) : null;
-        const headerNome = isConsol ? 'GRUPO AGF (CONSOLIDADO)' : isCustomConsol ? `GRUPO AGF (CONSOLIDADO: ${customNames.toUpperCase()})` : (compData ? compData.name.toUpperCase() : '');
+        const headerNome = isConsol ? 'GRUPO AGF (CONSOLIDADO GERAL)' : isCustomConsol ? `GRUPO AGF (CONSOLIDADO: ${customNames.toUpperCase()})` : (compData ? compData.name.toUpperCase() : '');
         const headerCnpj = isConsol ? 'CNPJ: 11.681.470/0001-84 IE: 530051442114' : (compData && compData.cnpj ? `CNPJ: ${compData.cnpj}` : 'CNPJ: 11.681.470/0001-84 IE: 530051442114');
         
         const mesNome = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][selectedMes-1];
@@ -1448,12 +1548,13 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
 
   const renderTable = (title, lines, avBaseKey = null) => {
     if (!lines || lines.length === 0) return null;
-    const isConsolView = selectedCompany === 'consolidado' || selectedCompany === 'custom_consolidado';
+    const isCustomConsol = Boolean(activeCustom);
+    const isConsolView = selectedCompany === 'consolidado' || isCustomConsol;
     // Quando uma empresa específica está selecionada, filtrar as colunas
     const compArray = selectedCompany === 'consolidado'
       ? results.companies
-      : selectedCompany === 'custom_consolidado'
-        ? results.companies.filter(c => customConsolidationCompanies.includes(c.id) || c.id === 'exclusoes')
+      : isCustomConsol
+        ? results.companies.filter(c => (activeCustom.companies || []).includes(c.id) || c.id === 'exclusoes')
         : results.companies.filter(c => c.id === selectedCompany);
     
     // Encontrar a linha base para o cálculo de AV%
@@ -1486,7 +1587,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
               ))}
               {isConsolView && (
                 <React.Fragment>
-                  <th>{selectedCompany === 'custom_consolidado' ? 'CONSOLIDADO (PERSONALIZADO)' : 'CONSOLIDADO'}</th>
+                  <th>{isCustomConsol ? `CONSOLIDADO (${activeCustom.name.toUpperCase()})` : 'CONSOLIDADO'}</th>
                   {avBaseRow && <th className="av-col">AV %</th>}
                 </React.Fragment>
               )}
@@ -1956,29 +2057,45 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
               <h2 style={{ color: 'var(--color-primary)' }}>Painel de Inteligência Consolidado</h2>
               {latestAvailable && <p style={{ color: '#888', fontSize: '0.85rem', marginTop: '0.2rem' }}>Último balancete integrado: <strong>{latestAvailable}</strong></p>}
             </div>
-            <div style={{ display: 'flex', gap: '1rem' }}>
-              <select value={selectedCompany} onChange={(e) => { 
-                setSelectedCompany(e.target.value);
-                loadPanelData(selectedAno, selectedMes, period, e.target.value); 
-              }} className="select-input" style={{ width: '240px', borderColor: 'var(--color-primary)' }}>
-                <option value="consolidado">VISÃO: CONSOLIDADO GERAL</option>
-                <option value="custom_consolidado">
-                  VISÃO: CONSOLIDADO PERSONALIZADO ({customConsolidationCompanies.map(cid => companies.find(c => c.id === cid)?.name?.split(' ')?.[1] || cid).join(' + ')})
-                </option>
-                {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+              <select 
+                value={selectedCompany} 
+                onChange={(e) => { 
+                  if (e.target.value === '__manage_custom__') {
+                    openCustomModal();
+                    return;
+                  }
+                  setSelectedCompany(e.target.value);
+                  loadPanelData(selectedAno, selectedMes, period, e.target.value); 
+                }} 
+                className="select-input" 
+                style={{ width: '270px', borderColor: 'var(--color-primary)' }}
+              >
+                <option value="consolidado">VISÃO: CONSOLIDADO GERAL (Todas)</option>
+                {customConsolidations && customConsolidations.length > 0 && (
+                  <optgroup label="Consolidados Personalizados">
+                    {customConsolidations.map(cc => (
+                      <option key={cc.id} value={cc.id}>
+                        VISÃO: {cc.name.toUpperCase()}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                <optgroup label="Empresas Individuais">
+                  {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </optgroup>
+                <option value="__manage_custom__">⚙️ + Criar / Gerenciar Personalizados...</option>
               </select>
 
-              {selectedCompany === 'custom_consolidado' && (
-                <button
-                  type="button"
-                  onClick={() => setShowCustomConsolidationModal(true)}
-                  className="btn-secondary"
-                  style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '0.45rem 0.8rem', fontSize: '0.82rem', borderColor: '#FF9800', color: '#FFB74D' }}
-                  title="Configurar quais empresas participam do consolidado personalizado"
-                >
-                  <Settings size={14} /> Selecionar Empresas ({customConsolidationCompanies.length})
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => openCustomModal()}
+                className="btn-secondary"
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.55rem 0.85rem', fontSize: '0.82rem', borderColor: '#FF9800', color: '#FFB74D' }}
+                title="Criar e gerenciar grupos consolidados personalizados"
+              >
+                <Settings size={14} /> Personalizados ({customConsolidations.length})
+              </button>
 
               {period === 'mensal' && (
                 <select value={selectedMes} onChange={(e) => {
@@ -2062,7 +2179,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
           {secondaryTab === 'dash' && (
             <DashboardView 
               selectedCompany={selectedCompany} 
-              customCompanies={customConsolidationCompanies}
+              customCompanies={activeCustom ? (activeCustom.companies || []) : []}
               selectedAno={selectedAno} 
               selectedMes={selectedMes} 
               selectedTrimestre={selectedTrimestre}
@@ -2383,113 +2500,244 @@ await supabase.from("settings").upsert({ key: "customMapping", value: JSON.strin
         </div>
       )}
 
-      {/* MODAL DE SELEÇÃO DO CONSOLIDADO PERSONALIZADO */}
+      {/* MODAL DE GERENCIAMENTO DE CONSOLIDADOS PERSONALIZADOS */}
       {showCustomConsolidationModal && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)',
+          background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(6px)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
           padding: '1rem'
         }}>
           <div style={{
-            background: '#1a1b26', border: '1px solid rgba(255, 152, 0, 0.35)',
-            borderRadius: '14px', width: '100%', maxWidth: '520px',
-            padding: '1.5rem', boxShadow: '0 12px 40px rgba(0,0,0,0.85)'
+            background: '#1a1b26', border: '1px solid rgba(255, 152, 0, 0.4)',
+            borderRadius: '16px', width: '100%', maxWidth: '620px', maxHeight: '90vh',
+            display: 'flex', flexDirection: 'column',
+            boxShadow: '0 16px 50px rgba(0,0,0,0.9)', overflow: 'hidden'
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.8rem' }}>
+            {/* Cabeçalho */}
+            <div style={{ 
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
+              padding: '1.2rem 1.5rem', borderBottom: '1px solid rgba(255,255,255,0.1)',
+              background: 'rgba(255, 152, 0, 0.08)'
+            }}>
               <div>
-                <h3 style={{ margin: 0, color: '#FFB74D', fontSize: '1.15rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  ⚙️ Consolidado Personalizado
+                <h3 style={{ margin: 0, color: '#FFB74D', fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Settings size={20} /> Consolidados Personalizados
                 </h3>
                 <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: '#aaa' }}>
-                  Selecione as empresas que devem compor este subgrupo consolidado.
+                  Crie e gerencie grupos de consolidação específicos gravados no banco de dados.
                 </p>
               </div>
               <button
                 onClick={() => setShowCustomConsolidationModal(false)}
-                style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', padding: '4px' }}
+                style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', padding: '6px', borderRadius: '6px' }}
               >
                 <X size={20} />
               </button>
             </div>
 
-            <div style={{ marginBottom: '1.2rem' }}>
-              <div style={{ fontSize: '0.85rem', color: '#ccc', marginBottom: '0.6rem', fontWeight: 'bold' }}>
-                Marque as empresas desejadas (ex: AGF Equipamentos + AGF Rompedores):
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {companies.map(comp => {
-                  const isChecked = customConsolidationCompanies.includes(comp.id);
-                  return (
-                    <label
-                      key={comp.id}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px',
-                        padding: '0.65rem 0.9rem',
-                        background: isChecked ? 'rgba(255, 152, 0, 0.12)' : 'rgba(255,255,255,0.03)',
-                        border: isChecked ? '1px solid #FF9800' : '1px solid rgba(255,255,255,0.08)',
-                        borderRadius: '8px',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s'
+            <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1 }}>
+              {/* Formulário: Criar / Editar */}
+              <div style={{ 
+                background: 'rgba(255, 255, 255, 0.03)', 
+                border: editingCustomGroup ? '1px solid #FF9800' : '1px solid rgba(255, 255, 255, 0.1)', 
+                borderRadius: '12px', padding: '1.2rem', marginBottom: '1.5rem' 
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
+                  <span style={{ fontWeight: 'bold', color: editingCustomGroup ? '#FFB74D' : '#fff', fontSize: '0.95rem' }}>
+                    {editingCustomGroup ? '✏️ Editar Grupo Consolidado' : '➕ Criar Novo Consolidado'}
+                  </span>
+                  {editingCustomGroup && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingCustomGroup(null);
+                        setCustomGroupName('');
+                        setCustomGroupCompanies(['equipamentos', 'rompedores']);
                       }}
+                      style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: '0.78rem', textDecoration: 'underline' }}
                     >
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={(e) => {
-                          let next;
-                          if (e.target.checked) {
-                            next = [...customConsolidationCompanies, comp.id];
-                          } else {
-                            next = customConsolidationCompanies.filter(id => id !== comp.id);
-                          }
-                          if (next.length === 0) {
-                            window.$alert('Ao menos uma empresa deve estar selecionada.');
-                            return;
-                          }
-                          setCustomConsolidationCompanies(next);
-                        }}
-                        style={{ width: '16px', height: '16px', accentColor: '#FF9800' }}
-                      />
-                      <span style={{ color: isChecked ? '#fff' : '#aaa', fontWeight: isChecked ? 'bold' : 'normal', fontSize: '0.9rem' }}>
-                        {comp.name}
-                      </span>
-                    </label>
-                  );
-                })}
+                      Cancelar Edição
+                    </button>
+                  )}
+                </div>
+
+                <div style={{ marginBottom: '1rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: '#aaa', marginBottom: '0.3rem' }}>
+                    Nome do Consolidado:
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ex: AGF Equipamentos + AGF Rompedores"
+                    value={customGroupName}
+                    onChange={(e) => setCustomGroupName(e.target.value)}
+                    className="select-input"
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: '1rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: '#aaa', marginBottom: '0.5rem' }}>
+                    Selecione as Empresas Participantes (mínimo 2):
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    {companies.map(comp => {
+                      const isChecked = customGroupCompanies.includes(comp.id);
+                      return (
+                        <label
+                          key={comp.id}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: '8px',
+                            padding: '0.5rem 0.75rem',
+                            background: isChecked ? 'rgba(255, 152, 0, 0.15)' : 'rgba(255,255,255,0.02)',
+                            border: isChecked ? '1px solid #FF9800' : '1px solid rgba(255,255,255,0.08)',
+                            borderRadius: '8px', cursor: 'pointer', fontSize: '0.85rem'
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setCustomGroupCompanies(prev => [...prev, comp.id]);
+                              } else {
+                                setCustomGroupCompanies(prev => prev.filter(id => id !== comp.id));
+                              }
+                            }}
+                            style={{ accentColor: '#FF9800' }}
+                          />
+                          <span style={{ color: isChecked ? '#fff' : '#aaa', fontWeight: isChecked ? 'bold' : 'normal' }}>
+                            {comp.name}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleSaveCustomGroup}
+                  className="btn-primary"
+                  style={{ background: '#FF9800', color: '#000', border: 'none', fontWeight: 'bold', width: '100%', padding: '0.65rem' }}
+                >
+                  {editingCustomGroup ? '💾 Salvar Alterações no Banco' : '💾 Criar e Gravar no Banco de Dados'}
+                </button>
+              </div>
+
+              {/* Lista de Grupos Existentes */}
+              <div>
+                <div style={{ fontSize: '0.85rem', color: '#ccc', marginBottom: '0.6rem', fontWeight: 'bold' }}>
+                  Grupos Salvos no Banco de Dados ({customConsolidations.length}):
+                </div>
+
+                {customConsolidations.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '1.5rem', color: '#888', background: 'rgba(255,255,255,0.02)', borderRadius: '8px' }}>
+                    Nenhum consolidado personalizado cadastrado ainda.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {customConsolidations.map(group => {
+                      const isActive = selectedCompany === group.id;
+                      return (
+                        <div
+                          key={group.id}
+                          style={{
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                            padding: '0.85rem 1rem',
+                            background: isActive ? 'rgba(76, 175, 80, 0.12)' : 'rgba(255,255,255,0.03)',
+                            border: isActive ? '1px solid #4CAF50' : '1px solid rgba(255,255,255,0.08)',
+                            borderRadius: '10px', flexWrap: 'wrap', gap: '10px'
+                          }}
+                        >
+                          <div style={{ flex: 1, minWidth: '220px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontWeight: 'bold', color: isActive ? '#81C784' : '#fff', fontSize: '0.95rem' }}>
+                                {group.name}
+                              </span>
+                              {isActive && (
+                                <span style={{ fontSize: '0.7rem', background: '#4CAF50', color: '#000', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>
+                                  VISÃO ATIVA
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '6px' }}>
+                              {(group.companies || []).map(cId => {
+                                const cFound = companies.find(c => c.id === cId);
+                                return (
+                                  <span
+                                    key={cId}
+                                    style={{
+                                      fontSize: '0.72rem', background: 'rgba(255,255,255,0.08)',
+                                      color: '#bbb', padding: '2px 8px', borderRadius: '12px'
+                                    }}
+                                  >
+                                    🏢 {cFound ? cFound.name : cId}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                            {!isActive && (
+                              <button
+                                type="button"
+                                onClick={() => handleActivateCustomGroup(group.id)}
+                                className="btn-secondary"
+                                style={{ fontSize: '0.78rem', padding: '0.4rem 0.75rem', borderColor: '#4CAF50', color: '#81C784' }}
+                                title="Ativar esta visão no painel"
+                              >
+                                <Check size={12} style={{ display: 'inline', marginRight: '4px' }} /> Ativar
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingCustomGroup(group.id);
+                                setCustomGroupName(group.name);
+                                setCustomGroupCompanies([...(group.companies || [])]);
+                              }}
+                              className="btn-secondary"
+                              style={{ fontSize: '0.78rem', padding: '0.4rem 0.6rem' }}
+                              title="Editar este grupo"
+                            >
+                              <Edit2 size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteCustomGroup(group.id)}
+                              className="btn-secondary"
+                              style={{ fontSize: '0.78rem', padding: '0.4rem 0.6rem', borderColor: '#f44336', color: '#f44336' }}
+                              title="Excluir este grupo"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
 
-            <div style={{ background: 'rgba(33, 150, 243, 0.08)', border: '1px dashed rgba(33, 150, 243, 0.3)', borderRadius: '8px', padding: '10px 12px', marginBottom: '1.2rem', fontSize: '0.78rem', color: '#90CAF9' }}>
-              💡 <strong>Regra de Integração:</strong> A DRE, o Balanço Patrimonial e o Dashboard considerarão <i>apenas</i> as empresas marcadas acima, aplicando automaticamente as exclusões intercompany entre elas!
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+            {/* Rodapé */}
+            <div style={{ 
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
+              padding: '1rem 1.5rem', borderTop: '1px solid rgba(255,255,255,0.1)',
+              background: 'rgba(0,0,0,0.2)'
+            }}>
+              <span style={{ fontSize: '0.78rem', color: '#888' }}>
+                💡 Todas as visões aplicam automaticamente as exclusões intercompany configuradas entre as empresas do grupo.
+              </span>
               <button
                 type="button"
                 onClick={() => setShowCustomConsolidationModal(false)}
                 className="btn-secondary"
-                style={{ padding: '0.5rem 1rem' }}
+                style={{ padding: '0.5rem 1.2rem' }}
               >
                 Fechar
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  try {
-                    localStorage.setItem('agf_custom_consolidation', JSON.stringify(customConsolidationCompanies));
-                  } catch(e){}
-                  setSelectedCompany('custom_consolidado');
-                  loadPanelData(selectedAno, selectedMes, period, 'custom_consolidado');
-                  setShowCustomConsolidationModal(false);
-                  window.$toast('Consolidado Personalizado aplicado com sucesso!', { type: 'success' });
-                }}
-                className="btn-primary"
-                style={{ background: '#FF9800', color: '#000', border: 'none', fontWeight: 'bold', padding: '0.5rem 1.3rem' }}
-              >
-                Aplicar e Atualizar Visão
               </button>
             </div>
           </div>

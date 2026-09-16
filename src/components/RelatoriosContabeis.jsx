@@ -1,16 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { getBalancoFromDB } from '../utils/db';
+import { getBalancoFromDB, getCustomConsolidations } from '../utils/db';
 import { printReport } from '../utils/printHelper';
 
 export default function RelatoriosContabeis({ selectedAno, selectedMes, companies }) {
   const [selectedCompany, setSelectedCompany] = useState('consolidado');
+  const [customConsolidations, setCustomConsolidations] = useState([]);
   const [reportType, setReportType] = useState('endividamento'); // 'endividamento', 'disponivel'
   const [balancoData, setBalancoData] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
+    getCustomConsolidations().then(list => {
+      if (Array.isArray(list)) setCustomConsolidations(list);
+    }).catch(e => console.error(e));
+  }, []);
+
+  const activeCustom = (customConsolidations || []).find(c => c.id === selectedCompany) || null;
+
+  useEffect(() => {
     loadData();
-  }, [selectedAno, selectedMes, selectedCompany]);
+  }, [selectedAno, selectedMes, selectedCompany, customConsolidations]);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -28,6 +37,17 @@ export default function RelatoriosContabeis({ selectedAno, selectedMes, companie
             }
             data = Object.values(allData);
          }
+      } else if (activeCustom) {
+         const targetComps = activeCustom.companies || [];
+         const allData = {};
+         for (let cId of targetComps) {
+            const res = await getBalancoFromDB(cId, selectedAno, selectedMes);
+            Object.entries(res).forEach(([conta, info]) => {
+               if (!allData[conta]) allData[conta] = { conta, descricao: info.descricao, saldoAcumulado: 0 };
+               allData[conta].saldoAcumulado += info.valor;
+            });
+         }
+         data = Object.values(allData);
       } else {
          const res = await getBalancoFromDB(selectedCompany, selectedAno, selectedMes);
          data = Object.entries(res).map(([conta, info]) => ({
@@ -46,8 +66,12 @@ export default function RelatoriosContabeis({ selectedAno, selectedMes, companie
   };
 
   const handlePrint = () => {
-     const cData = selectedCompany !== 'consolidado' && companies ? companies.find(c => c.id === selectedCompany) : null;
-     const compName = selectedCompany === 'consolidado' ? 'AGF Group (Consolidado)' : (cData ? cData.name : 'AGF');
+     const cData = selectedCompany !== 'consolidado' && !activeCustom && companies ? companies.find(c => c.id === selectedCompany) : null;
+     const compName = selectedCompany === 'consolidado' 
+       ? 'AGF Group (Consolidado Geral)' 
+       : activeCustom 
+         ? `AGF Group (Consolidado: ${activeCustom.name})` 
+         : (cData ? cData.name : 'AGF');
      const repName = reportType === 'endividamento' ? 'Relatório de Endividamento' : 'Relatório de Disponibilidade';
      const mesNome = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][selectedMes-1] || '';
      const periodText = `${mesNome} ${selectedAno}`;
@@ -70,17 +94,28 @@ export default function RelatoriosContabeis({ selectedAno, selectedMes, companie
   
   const total = filteredData.reduce((acc, curr) => acc + Math.abs(curr.saldoAcumulado), 0);
 
-  const compData = selectedCompany !== 'consolidado' && companies ? companies.find(c => c.id === selectedCompany) : null;
-  const headerNome = compData ? compData.name.toUpperCase() : 'AGF GROUP - CONSOLIDADO';
+  const compData = selectedCompany !== 'consolidado' && !activeCustom && companies ? companies.find(c => c.id === selectedCompany) : null;
+  const headerNome = selectedCompany === 'consolidado' 
+    ? 'AGF GROUP - CONSOLIDADO GERAL' 
+    : activeCustom 
+      ? `AGF GROUP - CONSOLIDADO (${activeCustom.name.toUpperCase()})` 
+      : (compData ? compData.name.toUpperCase() : 'AGF GROUP');
 
   return (
     <div className="glass-panel" style={{ padding: '2rem' }}>
       <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', flexWrap: 'wrap', alignItems: 'flex-end' }} className="no-print">
         <div>
            <label style={{ display: 'block', marginBottom: '0.5rem', color: '#aaa', fontSize: '0.85rem' }}>Empresa</label>
-           <select value={selectedCompany} onChange={e => setSelectedCompany(e.target.value)} className="select-input">
-             <option value="consolidado">Consolidado</option>
-             {companies && companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+           <select value={selectedCompany} onChange={e => setSelectedCompany(e.target.value)} className="select-input" style={{ width: '260px' }}>
+             <option value="consolidado">VISÃO: CONSOLIDADO GERAL</option>
+             {customConsolidations.length > 0 && (
+               <optgroup label="Consolidados Personalizados">
+                 {customConsolidations.map(cc => <option key={cc.id} value={cc.id}>VISÃO: {cc.name.toUpperCase()}</option>)}
+               </optgroup>
+             )}
+             <optgroup label="Empresas Individuais">
+               {companies && companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+             </optgroup>
            </select>
         </div>
         <div>
