@@ -32,7 +32,7 @@ function App() {
   const [notifications, setNotifications] = useState([]);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
 
-  const isSuperAdmin = user?.role === 'superadmin' || ['danilo', 'ryan.santos'].includes(user?.username);
+  const isSuperAdmin = user?.role === 'superadmin' || ['danilo', 'ryan.santos', 'carol.cons'].includes(user?.username);
 
   useEffect(() => {
     if (user) {

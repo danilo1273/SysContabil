@@ -86,8 +86,8 @@ const UserPanel = ({ onClose }) => {
   };
 
   const handleDelete = (username) => {
-    if ((['danilo', 'ryan.santos'].includes(username))) {
-      window.$alert('Usuários mestres (danilo, ryan.santos) não podem ser excluídos.');
+    if ((['danilo', 'ryan.santos', 'carol.cons'].includes(username))) {
+      window.$alert('Usuários mestres (danilo, ryan.santos, carol.cons) não podem ser excluídos.');
       return;
     }
     if (window.confirm(`Tem certeza que deseja excluir o usuário "${username}"?`)) {
@@ -116,7 +116,7 @@ const UserPanel = ({ onClose }) => {
                   type="text" 
                   value={formData.username} 
                   onChange={e => setFormData({...formData, username: e.target.value})} 
-                  disabled={editingUser && (['danilo', 'ryan.santos'].includes(formData.username))}
+                  disabled={editingUser && (['danilo', 'ryan.santos', 'carol.cons'].includes(formData.username))}
                   style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', background: '#2a2a2a', border: '1px solid #444', color: '#fff' }}
                 />
               </div>
@@ -144,34 +144,34 @@ const UserPanel = ({ onClose }) => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', background: '#2a2a2a', padding: '1rem', borderRadius: '6px', border: '1px solid #444' }}>
                 
                 <label style={{ color: '#fff', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={formData.permissions?.includes('db') || (['danilo', 'ryan.santos'].includes(formData.username))} onChange={(e) => {
+                  <input type="checkbox" checked={formData.permissions?.includes('db') || (['danilo', 'ryan.santos', 'carol.cons'].includes(formData.username)) || formData.role === 'superadmin'} onChange={(e) => {
                     const newPerms = e.target.checked ? [...(formData.permissions || []), 'db'] : (formData.permissions || []).filter(p => p !== 'db');
                     setFormData({...formData, permissions: newPerms});
-                  }} disabled={(['danilo', 'ryan.santos'].includes(formData.username))} />
+                  }} disabled={(['danilo', 'ryan.santos', 'carol.cons'].includes(formData.username)) || formData.role === 'superadmin'} />
                   Banco de Dados / Importar
                 </label>
 
                 <label style={{ color: '#fff', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={formData.permissions?.includes('contabil') || (['danilo', 'ryan.santos'].includes(formData.username))} onChange={(e) => {
+                  <input type="checkbox" checked={formData.permissions?.includes('contabil') || (['danilo', 'ryan.santos', 'carol.cons'].includes(formData.username)) || formData.role === 'superadmin'} onChange={(e) => {
                     const newPerms = e.target.checked ? [...(formData.permissions || []), 'contabil'] : (formData.permissions || []).filter(p => p !== 'contabil');
                     setFormData({...formData, permissions: newPerms});
-                  }} disabled={(['danilo', 'ryan.santos'].includes(formData.username))} />
+                  }} disabled={(['danilo', 'ryan.santos', 'carol.cons'].includes(formData.username)) || formData.role === 'superadmin'} />
                   Contábil (Gestão, Rateios, IRPJ)
                 </label>
 
                 <label style={{ color: '#fff', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={formData.permissions?.includes('dash') || (['danilo', 'ryan.santos'].includes(formData.username))} onChange={(e) => {
+                  <input type="checkbox" checked={formData.permissions?.includes('dash') || (['danilo', 'ryan.santos', 'carol.cons'].includes(formData.username)) || formData.role === 'superadmin'} onChange={(e) => {
                     const newPerms = e.target.checked ? [...(formData.permissions || []), 'dash'] : (formData.permissions || []).filter(p => p !== 'dash');
                     setFormData({...formData, permissions: newPerms});
-                  }} disabled={(['danilo', 'ryan.santos'].includes(formData.username))} />
+                  }} disabled={(['danilo', 'ryan.santos', 'carol.cons'].includes(formData.username)) || formData.role === 'superadmin'} />
                   Visualizar Dados (Dashboards e DRE)
                 </label>
 
                 <label style={{ color: '#fff', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={formData.permissions?.includes('estoque') || (['danilo', 'ryan.santos'].includes(formData.username))} onChange={(e) => {
+                  <input type="checkbox" checked={formData.permissions?.includes('estoque') || (['danilo', 'ryan.santos', 'carol.cons'].includes(formData.username)) || formData.role === 'superadmin'} onChange={(e) => {
                     const newPerms = e.target.checked ? [...(formData.permissions || []), 'estoque'] : (formData.permissions || []).filter(p => p !== 'estoque');
                     setFormData({...formData, permissions: newPerms});
-                  }} disabled={(['danilo', 'ryan.santos'].includes(formData.username))} />
+                  }} disabled={(['danilo', 'ryan.santos', 'carol.cons'].includes(formData.username)) || formData.role === 'superadmin'} />
                   📦 Movimento de Estoque (Auditoria de TMs e Filiais)
                 </label>
                 
@@ -200,7 +200,7 @@ const UserPanel = ({ onClose }) => {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
                   <div style={{ flex: 1, paddingRight: '0.5rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                      <strong style={{ color: (['danilo', 'ryan.santos'].includes(u.username)) ? 'var(--color-primary)' : '#fff', wordBreak: 'break-all' }}>{u.username}</strong>
+                      <strong style={{ color: (['danilo', 'ryan.santos', 'carol.cons'].includes(u.username) || u.role === 'superadmin') ? 'var(--color-primary)' : '#fff', wordBreak: 'break-all' }}>{u.username}</strong>
                       <span style={{ fontSize: '0.68rem', color: pres.color, border: `1px solid ${pres.color}40`, background: `${pres.color}15`, padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold' }}>
                         {pres.label}
                       </span>
@@ -211,7 +211,7 @@ const UserPanel = ({ onClose }) => {
                       {pres.module && <span style={{ color: '#64B5F6' }}>📍 Módulo: {pres.module}</span>}
                     </div>
                     <div style={{ marginTop: '0.4rem' }}>
-                      {(['danilo', 'ryan.santos'].includes(u.username)) ? (
+                      {(['danilo', 'ryan.santos', 'carol.cons'].includes(u.username) || u.role === 'superadmin') ? (
                         <span style={{ background: 'var(--color-primary)', color: '#000', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>Super Admin</span>
                       ) : (
                         <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
@@ -226,7 +226,7 @@ const UserPanel = ({ onClose }) => {
                   </div>
                   <div style={{ display: 'flex', gap: '0.3rem', flexShrink: 0 }}>
                     <button onClick={() => handleEdit(u)} style={{ background: '#2196F3', color: '#fff', border: 'none', borderRadius: '4px', padding: '0.3rem 0.5rem', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 'bold' }}>Editar</button>
-                    {!(['danilo', 'ryan.santos'].includes(u.username)) && (
+                    {!(['danilo', 'ryan.santos', 'carol.cons'].includes(u.username) || u.role === 'superadmin') && (
                       <button onClick={() => handleDelete(u.username)} style={{ background: '#f44336', color: '#fff', border: 'none', borderRadius: '4px', padding: '0.3rem 0.5rem', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 'bold' }}>Excluir</button>
                     )}
                   </div>

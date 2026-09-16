@@ -133,6 +133,7 @@ function PendencyWidget({ companies, ano, onSelectAno, availableYears = [] }) {
 }
 
 function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBackToModules }) {
+  const isSuperAdmin = userRole === 'superadmin' || ['danilo', 'ryan.santos', 'carol.cons'].includes(username);
   const [activeTab, setActiveTab] = useState(moduleMode === 'contabil' ? 'apuracao' : 'resultados');
   const prevModeRef = useRef(moduleMode);
 
@@ -300,6 +301,10 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
   }, [customConsolidations, selectedCompany]);
 
   const openCustomModal = (itemToEdit = null) => {
+    if (!isSuperAdmin) {
+      window.$alert('Apenas Superadmin tem permissão para criar ou gerenciar consolidados personalizados.');
+      return;
+    }
     if (itemToEdit) {
       setEditingCustomGroup(itemToEdit.id);
       setCustomGroupName(itemToEdit.name);
@@ -313,6 +318,10 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
   };
 
   const handleSaveCustomGroup = async () => {
+    if (!isSuperAdmin) {
+      window.$alert('Apenas Superadmin pode criar ou alterar consolidados personalizados.');
+      return;
+    }
     if (!customGroupName.trim()) {
       window.$alert('Por favor, informe um nome para o grupo consolidado.');
       return;
@@ -362,6 +371,10 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
   };
 
   const handleDeleteCustomGroup = async (idToDelete) => {
+    if (!isSuperAdmin) {
+      window.$alert('Apenas Superadmin pode excluir consolidados personalizados.');
+      return;
+    }
     const item = customConsolidations.find(c => c.id === idToDelete);
     if (!item) return;
     if (!window.confirm(`Deseja realmente excluir o consolidado "${item.name}"?`)) return;
@@ -2130,41 +2143,38 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
               <select 
                 value={selectedCompany} 
                 onChange={(e) => { 
-                  if (e.target.value === '__manage_custom__') {
-                    openCustomModal();
-                    return;
-                  }
                   setSelectedCompany(e.target.value);
                   loadPanelData(selectedAno, selectedMes, period, e.target.value); 
                 }} 
                 className="select-input" 
                 style={{ width: '270px', borderColor: 'var(--color-primary)' }}
               >
-                <option value="consolidado">VISÃO: CONSOLIDADO GERAL (Todas)</option>
+                <option value="consolidado">Consolidado Geral (Todas as Empresas)</option>
                 {customConsolidations && customConsolidations.length > 0 && (
                   <optgroup label="Consolidados Personalizados">
                     {customConsolidations.map(cc => (
                       <option key={cc.id} value={cc.id}>
-                        VISÃO: {cc.name.toUpperCase()}
+                        {cc.name}
                       </option>
                     ))}
                   </optgroup>
                 )}
-                <optgroup label="Empresas Individuais">
+                <optgroup label="Empresas">
                   {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </optgroup>
-                <option value="__manage_custom__">⚙️ + Criar / Gerenciar Personalizados...</option>
               </select>
 
-              <button
-                type="button"
-                onClick={() => openCustomModal()}
-                className="btn-secondary"
-                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.55rem 0.85rem', fontSize: '0.82rem', borderColor: '#FF9800', color: '#FFB74D' }}
-                title="Criar e gerenciar grupos consolidados personalizados"
-              >
-                <Settings size={14} /> Personalizados ({customConsolidations.length})
-              </button>
+              {isSuperAdmin && (
+                <button
+                  type="button"
+                  onClick={() => openCustomModal()}
+                  className="btn-secondary"
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.55rem 0.85rem', fontSize: '0.82rem', borderColor: '#FF9800', color: '#FFB74D' }}
+                  title="Criar e gerenciar grupos consolidados personalizados (Apenas Superadmin)"
+                >
+                  <Settings size={14} /> Personalizados ({customConsolidations.length})
+                </button>
+              )}
 
               {period === 'mensal' && (
                 <select value={selectedMes} onChange={(e) => {

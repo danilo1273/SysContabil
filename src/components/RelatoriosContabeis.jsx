@@ -107,15 +107,15 @@ export default function RelatoriosContabeis({ selectedAno, selectedMes, companie
         <div>
            <label style={{ display: 'block', marginBottom: '0.5rem', color: '#aaa', fontSize: '0.85rem' }}>Empresa</label>
            <select value={selectedCompany} onChange={e => setSelectedCompany(e.target.value)} className="select-input" style={{ width: '260px' }}>
-             <option value="consolidado">VISÃO: CONSOLIDADO GERAL</option>
-             {customConsolidations.length > 0 && (
-               <optgroup label="Consolidados Personalizados">
-                 {customConsolidations.map(cc => <option key={cc.id} value={cc.id}>VISÃO: {cc.name.toUpperCase()}</option>)}
-               </optgroup>
-             )}
-             <optgroup label="Empresas Individuais">
-               {companies && companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-             </optgroup>
+              <option value="consolidado">Consolidado Geral (Todas)</option>
+              {customConsolidations.length > 0 && (
+                <optgroup label="Consolidados Personalizados">
+                  {customConsolidations.map(cc => <option key={cc.id} value={cc.id}>{cc.name}</option>)}
+                </optgroup>
+              )}
+              <optgroup label="Empresas">
+                {companies && companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </optgroup>
            </select>
         </div>
         <div>

@@ -2,7 +2,7 @@ import React from 'react';
 import { BarChart3, Calculator, Lock, ArrowRight } from 'lucide-react';
 
 export default function ModuleSelectionScreen({ user, onSelectModule }) {
-  const isSuperadmin = user?.role === 'superadmin' || ['danilo', 'ryan.santos'].includes(user?.username);
+  const isSuperadmin = user?.role === 'superadmin' || ['danilo', 'ryan.santos', 'carol.cons'].includes(user?.username);
   const hasContabil = isSuperadmin || user?.permissions?.includes('contabil') || user?.permissions?.includes('db');
   const hasIndicadores = isSuperadmin || user?.permissions?.includes('dash') || true;
 

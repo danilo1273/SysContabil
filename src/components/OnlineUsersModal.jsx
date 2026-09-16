@@ -300,7 +300,7 @@ export default function OnlineUsersModal({ onClose }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
               {filteredUsers.map(u => {
                 const st = getUserStatus(u.username, u);
-                const isSuper = ['danilo', 'ryan.santos'].includes(u.username);
+                const isSuper = u.role === 'superadmin' || ['danilo', 'ryan.santos', 'carol.cons'].includes(u.username);
 
                 return (
                   <div
