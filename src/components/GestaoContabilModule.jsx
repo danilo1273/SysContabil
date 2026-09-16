@@ -290,8 +290,12 @@ function GestaoContabilModule({ userRole, userName, companies }) {
             return depRot ? depRot.titulo : depId;
         }).join(', ');
 
-        const subject = `[SysContábil] Rotina Liberada: ${rotinaLiberada.titulo} (${selectedMes}/${selectedAno})`;
-        const textMsg = `Olá ${rotinaLiberada.responsavel || 'Equipe'},\n\nAs integrações pré-requisito da Filial ${rotinaLiberada.filialCode || ''} foram realizadas com sucesso (${depNames}).\n\nVocê já pode seguir com a ${rotinaLiberada.titulo}!\n\nCompetência: ${selectedMes}/${selectedAno}\nSistema SysContábil AGF`;
+        const localNome = rotinaLiberada.abrangencia === 'consolidado' || rotinaLiberada.filialCode === 'consolidado'
+            ? (rotinaLiberada.filialNome || 'Consolidado da Empresa')
+            : (rotinaLiberada.filialNome || `Filial ${rotinaLiberada.filialCode || ''}`);
+
+        const subject = `[SysContábil] Rotina Liberada: ${rotinaLiberada.titulo} (${localNome} - ${selectedMes}/${selectedAno})`;
+        const textMsg = `Olá ${rotinaLiberada.responsavel || 'Equipe'},\n\nAs integrações pré-requisito de ${localNome} foram realizadas com sucesso (${depNames}).\n\nVocê já pode seguir com a apuração da rotina: ${rotinaLiberada.titulo}!\n\nCompetência: ${selectedMes}/${selectedAno}\nSistema SysContábil AGF`;
 
         const htmlMsg = `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
@@ -676,8 +680,16 @@ function GestaoContabilModule({ userRole, userName, companies }) {
     const handleOpenManualEmail = (rotina) => {
         const respUser = users.find(u => u.username === rotina.responsavel);
         const to = rotina.responsavelEmail || respUser?.email || (rotina.responsavel ? `${rotina.responsavel}@agfequipamentos.com.br` : '');
-        const subject = `[SysContábil] Integrações realizadas, pode seguir com a apuração fiscal da filial ${rotina.filialCode || ''}`;
-        const body = `Olá ${rotina.responsavel || 'Equipe'},\n\nAs integrações contábeis (Entrada, Saída e Financeiro) da filial ${rotina.filialNome || rotina.filialCode} foram 100% concluídas!\n\nVocê já pode seguir com a Apuração Fiscal desta filial para a competência ${selectedMes}/${selectedAno}.\n\nAtenciosamente,\nSysContábil AGF`;
+        
+        const localNome = rotina.abrangencia === 'consolidado' || rotina.filialCode === 'consolidado'
+            ? (rotina.filialNome || 'Consolidado da Empresa')
+            : (rotina.filialNome || `Filial ${rotina.filialCode || ''}`);
+
+        const rotinaNome = rotina.titulo || 'Apuração Fiscal';
+        const prazoStr = rotina.data_limite ? `\nPrazo de Entrega: ${new Date(rotina.data_limite + 'T12:00:00').toLocaleDateString('pt-BR')}` : '';
+
+        const subject = `[SysContábil] Integrações realizadas - Liberado para ${rotinaNome} (${localNome})`;
+        const body = `Olá ${rotina.responsavel || 'Equipe'},\n\nAs integrações contábeis (Entrada, Saída e Financeiro) de "${localNome}" foram 100% concluídas!\n\nVocê já pode seguir com a apuração da rotina: ${rotinaNome}.\n\nCompetência: ${selectedMes}/${selectedAno}${prazoStr}\n\nAtenciosamente,\nSysContábil AGF`;
         
         setEmailModalData({ rotina, to, subject, body });
     };
