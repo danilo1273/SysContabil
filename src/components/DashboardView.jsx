@@ -137,7 +137,7 @@ function MoneyInput({
   );
 }
 
-export default function DashboardView({ selectedCompany, selectedAno, selectedMes, period, selectedTrimestre }) {
+export default function DashboardView({ selectedCompany, selectedAno, selectedMes, period, selectedTrimestre, customCompanies = [] }) {
   const [loading, setLoading] = useState(true);
   const [dataAtual, setDataAtual] = useState({ dre: [], balanco: [] });
   const [dataAnterior, setDataAnterior] = useState({ dre: [], balanco: [] });
@@ -173,18 +173,18 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
     const fetchData = async () => {
       setLoading(true);
       try {
-        const atual = await getHistorySeries(selectedCompany, selectedAno);
-        const anterior = await getHistorySeries(selectedCompany, selectedAno - 1);
+        const atual = await getHistorySeries(selectedCompany, selectedAno, customCompanies);
+        const anterior = await getHistorySeries(selectedCompany, selectedAno - 1, customCompanies);
         setDataAtual(atual);
         setDataAnterior(anterior);
 
         // Buscar dados futuros se existirem (para visualização híbrida real + projetada)
         try {
           const [next1, next2, next3, next4] = await Promise.all([
-            getHistorySeries(selectedCompany, selectedAno + 1),
-            getHistorySeries(selectedCompany, selectedAno + 2),
-            getHistorySeries(selectedCompany, selectedAno + 3),
-            getHistorySeries(selectedCompany, selectedAno + 4)
+            getHistorySeries(selectedCompany, selectedAno + 1, customCompanies),
+            getHistorySeries(selectedCompany, selectedAno + 2, customCompanies),
+            getHistorySeries(selectedCompany, selectedAno + 3, customCompanies),
+            getHistorySeries(selectedCompany, selectedAno + 4, customCompanies)
           ]);
           setFutureBalancoData({
             [selectedAno + 1]: next1?.balanco || [],
@@ -213,7 +213,7 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
       setLoading(false);
     };
     fetchData();
-  }, [selectedCompany, selectedAno, selectedMes]);
+  }, [selectedCompany, selectedAno, selectedMes, JSON.stringify(customCompanies)]);
 
   if (loading) {
     return <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--color-primary)' }}>Carregando Indicadores Avançados...</div>;

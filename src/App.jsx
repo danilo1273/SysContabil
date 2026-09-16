@@ -31,6 +31,8 @@ function App() {
   const [notifications, setNotifications] = useState([]);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
 
+  const isSuperAdmin = user?.role === 'superadmin' || ['danilo', 'ryan.santos'].includes(user?.username);
+
   useEffect(() => {
     if (user) {
         const fetchNotifs = async () => {
@@ -310,38 +312,40 @@ function App() {
           )}
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          {/* Botão Usuários Online */}
-          <button 
-            onClick={() => setShowOnlineUsersModal(true)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '7px',
-              padding: '0.45rem 0.85rem',
-              background: 'rgba(76, 175, 80, 0.12)',
-              border: '1px solid rgba(76, 175, 80, 0.45)',
-              color: '#81C784',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontWeight: '600',
-              fontSize: '0.85rem',
-              transition: 'all 0.2s',
-              boxShadow: '0 2px 8px rgba(76, 175, 80, 0.15)'
-            }}
-            title="Ver usuários online agora e último acesso"
-          >
-            <span style={{ 
-              display: 'inline-block', 
-              width: '8px', 
-              height: '8px', 
-              borderRadius: '50%', 
-              background: '#4CAF50',
-              boxShadow: '0 0 8px #4CAF50'
-            }} />
-            <span>{onlineCount} Online</span>
-          </button>
+          {/* Botão Usuários Online (Visível apenas para Super Admin) */}
+          {isSuperAdmin && (
+            <button 
+              onClick={() => setShowOnlineUsersModal(true)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '7px',
+                padding: '0.45rem 0.85rem',
+                background: 'rgba(76, 175, 80, 0.12)',
+                border: '1px solid rgba(76, 175, 80, 0.45)',
+                color: '#81C784',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontWeight: '600',
+                fontSize: '0.85rem',
+                transition: 'all 0.2s',
+                boxShadow: '0 2px 8px rgba(76, 175, 80, 0.15)'
+              }}
+              title="Ver usuários online agora e último acesso"
+            >
+              <span style={{ 
+                display: 'inline-block', 
+                width: '8px', 
+                height: '8px', 
+                borderRadius: '50%', 
+                background: '#4CAF50',
+                boxShadow: '0 0 8px #4CAF50'
+              }} />
+              <span>{onlineCount} Online</span>
+            </button>
+          )}
 
-          {user.role === 'superadmin' && (
+          {isSuperAdmin && (
             <button onClick={() => setShowUserPanel(true)} style={{ padding: '0.5rem 1rem', background: '#2196F3', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>👥 Gerenciar Usuários</button>
           )}
             <div style={{ position: 'relative' }}>
@@ -411,7 +415,7 @@ function App() {
     </main>
     {showUserPanel && <UserPanel onClose={() => setShowUserPanel(false)} />}
     {showProfile && <UserProfileModal user={user} onClose={() => setShowProfile(false)} />}
-    {showOnlineUsersModal && <OnlineUsersModal onClose={() => setShowOnlineUsersModal(false)} />}
+    {isSuperAdmin && showOnlineUsersModal && <OnlineUsersModal onClose={() => setShowOnlineUsersModal(false)} />}
   </div>
   );
 }

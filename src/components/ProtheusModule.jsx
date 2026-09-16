@@ -148,8 +148,16 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
   const [isProcessing, setIsProcessing] = useState(false);
   const [results, setResults] = useState(null);
   const [editingId, setEditingId] = useState(null);
-  const [editingValue, setEditingValue] = useState('');
   const [selectedCompany, setSelectedCompany] = useState('consolidado');
+  const [customConsolidationCompanies, setCustomConsolidationCompanies] = useState(() => {
+    try {
+      const saved = localStorage.getItem('agf_custom_consolidation');
+      return saved ? JSON.parse(saved) : ['equipamentos', 'rompedores'];
+    } catch(e) {
+      return ['equipamentos', 'rompedores'];
+    }
+  });
+  const [showCustomConsolidationModal, setShowCustomConsolidationModal] = useState(false);
   const [latestAvailable, setLatestAvailable] = useState(null);
   const [dbFilterCompany, setDbFilterCompany] = useState('');
   const [dbSearchText, setDbSearchText] = useState('');
@@ -615,10 +623,11 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
     loadPanelData(a, targetMes, period);
   };
 
-  const loadPanelData = async (anoParam, mesParam, periodParam) => {
+  const loadPanelData = async (anoParam, mesParam, periodParam, companyParam) => {
     const pAno = anoParam !== undefined ? anoParam : selectedAno;
     const pMes = mesParam !== undefined ? mesParam : selectedMes;
     const pPeriod = periodParam !== undefined ? periodParam : period;
+    const pCompany = companyParam !== undefined ? companyParam : selectedCompany;
 
     setIsProcessing(true);
     try {
@@ -720,8 +729,41 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
       }
 
       // 4.5. Injetar Exclusões
-      const excDreDb = await getDREFromDB('exclusoes', pAno, pMes, pPeriod);
-      const excBalDb = await getBalancoFromDB('exclusoes', pAno, pMes);
+      let excDreDb = await getDREFromDB('exclusoes', pAno, pMes, pPeriod);
+      let excBalDb = await getBalancoFromDB('exclusoes', pAno, pMes);
+
+      // Se estiver no Consolidado Personalizado, filtrar as exclusões para considerar apenas operações entre as empresas do subgrupo
+      if (pCompany === 'custom_consolidado') {
+        try {
+          const excList = await getSettings(`agf_exclusoes_lista_${pAno}_${pMes}`);
+          if (Array.isArray(excList) && excList.length > 0) {
+            const matchingExcs = excList.filter(item => {
+              if (item.empresaOrigem === 'todas' || item.empresaDestino === 'todas') return true;
+              return customConsolidationCompanies.includes(item.empresaOrigem) && customConsolidationCompanies.includes(item.empresaDestino);
+            });
+            const subFat = matchingExcs.reduce((acc, i) => acc + (Number(i.faturamento) || 0), 0);
+            const subImp = matchingExcs.reduce((acc, i) => acc + (Number(i.impostos) || 0), 0);
+            const subCusto = matchingExcs.reduce((acc, i) => acc + (Number(i.custo) || 0), 0);
+            const subCli = matchingExcs.reduce((acc, i) => acc + (Number(i.clientes) || 0), 0);
+            const subForn = matchingExcs.reduce((acc, i) => acc + (Number(i.fornecedores) || 0), 0);
+
+            excDreDb = {
+              '3.1.1.1.01.00001.EXC': { descricao: 'Exclusão Intercompany - Faturamento', valor: -Math.abs(subFat) },
+              '3.1.1.2.01.EXC': { descricao: 'Exclusão Intercompany - Impostos s/ Vendas', valor: Math.abs(subImp) },
+              '4.1.1.1.13.EXC': { descricao: 'Exclusão Intercompany - Custo (CPV/CMV)', valor: Math.abs(subCusto) }
+            };
+            excBalDb = {
+              '1.1.1.3.01.EXC': { descricao: 'Exclusão Intercompany - Clientes', valor: -Math.abs(subCli) },
+              '2.1.1.1.01.EXC': { descricao: 'Exclusão Intercompany - Fornecedores', valor: Math.abs(subForn) }
+            };
+          } else {
+            excDreDb = {};
+            excBalDb = {};
+          }
+        } catch (e) {
+          console.warn('Erro ao filtrar exclusões customizadas:', e);
+        }
+      }
       
       checkUnmapped(excBalDb, mergedMapping.ativo, 'ativo', 'exclusoes');
       checkUnmapped(excBalDb, mergedMapping.passivo, 'passivo', 'exclusoes');
@@ -774,6 +816,10 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
       // 4.6 movido para depois do buildDRE para aproveitar o lucroLiq dinamicamente
 
       // 5. Estruturar os dados para a tabela
+      const targetCompanyIds = pCompany === 'custom_consolidado'
+        ? [...customConsolidationCompanies, 'exclusoes']
+        : consolidated.companies.map(c => c.id);
+
       const buildGenericTable = (mappedDataDict, mappingRef, tablePrefix, isDetailed = true, addGrandTotal = false, skipGroupHeader = false) => {
         const lines = [];
         if (!mappingRef) return lines;
@@ -811,7 +857,9 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                const cell = (mappedDataDict[c.id] && mappedDataDict[c.id][group]) ? mappedDataDict[c.id][group][acc] : null;
                const val = cell ? cell.total : 0;
                row[c.id] = val;
-               accConsolidado += val;
+               if (targetCompanyIds.includes(c.id)) {
+                 accConsolidado += val;
+               }
                if (val !== 0) allZeros = false;
                
                if (cell && cell.details) {
@@ -828,7 +876,9 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
               let dAllZeros = true;
               for (const c of consolidated.companies) {
                 if (!d[c.id]) d[c.id] = 0;
-                dCons += d[c.id];
+                if (targetCompanyIds.includes(c.id)) {
+                  dCons += d[c.id];
+                }
                 if (d[c.id] !== 0) dAllZeros = false;
               }
               d.consolidado = dCons;
@@ -846,7 +896,9 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                const cell = (mappedDataDict[c.id] && mappedDataDict[c.id][group]) ? mappedDataDict[c.id][group]['TOTAL'] : null;
                const val = cell ? cell.total : 0;
                totalRow[c.id] = val;
-               groupConsolidado += val;
+               if (targetCompanyIds.includes(c.id)) {
+                 groupConsolidado += val;
+               }
             }
             totalRow.consolidado = groupConsolidado;
             lines.push(totalRow);
@@ -868,14 +920,14 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
           for (const group of groups) {
             const hasGroupInAnyComp = consolidated.companies.some(c => mappedDataDict[c.id] && mappedDataDict[c.id][group]);
             if (!hasGroupInAnyComp) continue;
-            let gConsolidado = 0;
             for (const c of consolidated.companies) {
                const cell = (mappedDataDict[c.id] && mappedDataDict[c.id][group]) ? mappedDataDict[c.id][group]['TOTAL'] : null;
                const val = cell ? cell.total : 0;
                grandTotalRow[c.id] += val;
-               gConsolidado += val;
+               if (targetCompanyIds.includes(c.id)) {
+                 grandTotalRow.consolidado += val;
+               }
             }
-            grandTotalRow.consolidado += gConsolidado;
           }
           lines.push(grandTotalRow);
         }
@@ -908,7 +960,9 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                  const cell = consolidated.dre[c.id]?.[groupName]?.[lineName];
                  const val = cell ? cell.total : 0;
                  row[c.id] = val;
-                 row.consolidado += val;
+                 if (targetCompanyIds.includes(c.id)) {
+                   row.consolidado += val;
+                 }
                  if (val !== 0) hasValue = true;
                }
                if (hasValue || subtotalRow) {
@@ -1346,8 +1400,11 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
     } finally { setIsProcessing(false); } };
 
     const handlePrint = (reportName) => {
-        const compData = selectedCompany !== 'consolidado' ? companies.find(c => c.id === selectedCompany) : null;
-        const compNome = selectedCompany === 'consolidado' ? 'AGF Group (Consolidado)' : (compData ? compData.name : 'AGF');
+        const isConsol = selectedCompany === 'consolidado';
+        const isCustomConsol = selectedCompany === 'custom_consolidado';
+        const customNames = customConsolidationCompanies.map(cid => companies.find(c => c.id === cid)?.name || cid).join(' + ');
+        const compData = (!isConsol && !isCustomConsol) ? companies.find(c => c.id === selectedCompany) : null;
+        const compNome = isConsol ? 'AGF Group (Consolidado)' : isCustomConsol ? `AGF Group (Consolidado: ${customNames})` : (compData ? compData.name : 'AGF');
         const mesNome = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][selectedMes-1];
         let periodText = '';
         if (period === 'mensal') periodText = `${mesNome} ${selectedAno}`;
@@ -1358,14 +1415,17 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
             company: compNome,
             reportName: reportName,
             period: periodText,
-            orientation: selectedCompany === 'consolidado' ? 'landscape' : 'portrait'
+            orientation: (isConsol || isCustomConsol) ? 'landscape' : 'portrait'
         });
     };
 
     const PrintHeader = () => {
-        const compData = selectedCompany !== 'consolidado' ? companies.find(c => c.id === selectedCompany) : null;
-        const headerNome = selectedCompany === 'consolidado' ? 'GRUPO AGF (CONSOLIDADO)' : (compData ? compData.name.toUpperCase() : '');
-        const headerCnpj = selectedCompany === 'consolidado' ? 'CNPJ: 11.681.470/0001-84 IE: 530051442114' : (compData && compData.cnpj ? `CNPJ: ${compData.cnpj}` : 'CNPJ: 11.681.470/0001-84 IE: 530051442114');
+        const isConsol = selectedCompany === 'consolidado';
+        const isCustomConsol = selectedCompany === 'custom_consolidado';
+        const customNames = customConsolidationCompanies.map(cid => companies.find(c => c.id === cid)?.name || cid).join(' + ');
+        const compData = (!isConsol && !isCustomConsol) ? companies.find(c => c.id === selectedCompany) : null;
+        const headerNome = isConsol ? 'GRUPO AGF (CONSOLIDADO)' : isCustomConsol ? `GRUPO AGF (CONSOLIDADO: ${customNames.toUpperCase()})` : (compData ? compData.name.toUpperCase() : '');
+        const headerCnpj = isConsol ? 'CNPJ: 11.681.470/0001-84 IE: 530051442114' : (compData && compData.cnpj ? `CNPJ: ${compData.cnpj}` : 'CNPJ: 11.681.470/0001-84 IE: 530051442114');
         
         const mesNome = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][selectedMes-1];
         let periodText = '';
@@ -1388,16 +1448,19 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
 
   const renderTable = (title, lines, avBaseKey = null) => {
     if (!lines || lines.length === 0) return null;
+    const isConsolView = selectedCompany === 'consolidado' || selectedCompany === 'custom_consolidado';
     // Quando uma empresa específica está selecionada, filtrar as colunas
     const compArray = selectedCompany === 'consolidado'
       ? results.companies
-      : results.companies.filter(c => c.id === selectedCompany);
+      : selectedCompany === 'custom_consolidado'
+        ? results.companies.filter(c => customConsolidationCompanies.includes(c.id) || c.id === 'exclusoes')
+        : results.companies.filter(c => c.id === selectedCompany);
     
     // Encontrar a linha base para o cálculo de AV%
     const avBaseRow = avBaseKey ? lines.find(l => l.conta === avBaseKey) : null;
 
     const getDisplayValue = (line) => {
-      if (selectedCompany === 'consolidado') return line.consolidado;
+      if (isConsolView) return line.consolidado;
       return line[selectedCompany];
     };
     
@@ -1421,9 +1484,9 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                   {avBaseRow && <th className="av-col">AV %</th>}
                 </React.Fragment>
               ))}
-              {selectedCompany === 'consolidado' && (
+              {isConsolView && (
                 <React.Fragment>
-                  <th>CONSOLIDADO</th>
+                  <th>{selectedCompany === 'custom_consolidado' ? 'CONSOLIDADO (PERSONALIZADO)' : 'CONSOLIDADO'}</th>
                   {avBaseRow && <th className="av-col">AV %</th>}
                 </React.Fragment>
               )}
@@ -1469,7 +1532,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                         </React.Fragment>
                       );
                     })}
-                    {selectedCompany === 'consolidado' && (() => {
+                    {isConsolView && (() => {
                       const avValConsol = avBaseRow ? Math.abs(avBaseRow.consolidado || 1) : 1;
                       const avPctConsol = (avBaseRow && (line.consolidado || 0) !== 0) ? (line.consolidado / avValConsol) * 100 : 0;
                       return (
@@ -1511,7 +1574,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                             </React.Fragment>
                           );
                         })}
-                        {selectedCompany === 'consolidado' && (() => {
+                        {isConsolView && (() => {
                           const avValConsolDet = avBaseRow ? Math.abs(avBaseRow.consolidado || 1) : 1;
                           const avPctConsolDet = (avBaseRow && (det.consolidado || 0) !== 0) ? (det.consolidado / avValConsolDet) * 100 : 0;
                           return (
@@ -1760,6 +1823,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
           <IntercompanyExclusionsPanel 
             dbAno={dbAno} 
             dbMes={dbMes} 
+            companies={companies}
             onSaved={() => loadDbRecords(dbAno, dbMes)} 
           />
 
@@ -1896,10 +1960,25 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
               <select value={selectedCompany} onChange={(e) => { 
                 setSelectedCompany(e.target.value);
                 loadPanelData(selectedAno, selectedMes, period, e.target.value); 
-              }} className="select-input" style={{ width: '220px', borderColor: 'var(--color-primary)' }}>
-                <option value="consolidado">VISÃO: CONSOLIDADO</option>
+              }} className="select-input" style={{ width: '240px', borderColor: 'var(--color-primary)' }}>
+                <option value="consolidado">VISÃO: CONSOLIDADO GERAL</option>
+                <option value="custom_consolidado">
+                  VISÃO: CONSOLIDADO PERSONALIZADO ({customConsolidationCompanies.map(cid => companies.find(c => c.id === cid)?.name?.split(' ')?.[1] || cid).join(' + ')})
+                </option>
                 {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
+
+              {selectedCompany === 'custom_consolidado' && (
+                <button
+                  type="button"
+                  onClick={() => setShowCustomConsolidationModal(true)}
+                  className="btn-secondary"
+                  style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '0.45rem 0.8rem', fontSize: '0.82rem', borderColor: '#FF9800', color: '#FFB74D' }}
+                  title="Configurar quais empresas participam do consolidado personalizado"
+                >
+                  <Settings size={14} /> Selecionar Empresas ({customConsolidationCompanies.length})
+                </button>
+              )}
 
               {period === 'mensal' && (
                 <select value={selectedMes} onChange={(e) => {
@@ -1983,6 +2062,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
           {secondaryTab === 'dash' && (
             <DashboardView 
               selectedCompany={selectedCompany} 
+              customCompanies={customConsolidationCompanies}
               selectedAno={selectedAno} 
               selectedMes={selectedMes} 
               selectedTrimestre={selectedTrimestre}
@@ -2049,7 +2129,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                 };
                 const ativoTot = getTotal(results.ativo);
                 const passivoTot = getTotal(results.passivo);
-                const comps = selectedCompany === 'consolidado' ? ['consolidado'] : [selectedCompany];
+                const comps = (selectedCompany === 'consolidado' || selectedCompany === 'custom_consolidado') ? ['consolidado'] : [selectedCompany];
                 return (
                   <div className="print-hide" style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
                     {comps.map(cid => {
@@ -2057,7 +2137,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                       const passivo = passivoTot[cid] || 0;
                       const diff = ativo - passivo;
                       const ok = Math.abs(diff) < 0.01; // Restaura exibição estrita para apontar qualquer diferença centesimal
-                      const label = cid === 'consolidado' ? 'Consolidado' : results.companies.find(c => c.id === cid)?.name || cid;
+                      const label = selectedCompany === 'custom_consolidado' ? 'Consolidado Personalizado' : cid === 'consolidado' ? 'Consolidado' : results.companies.find(c => c.id === cid)?.name || cid;
                       return (
                         <div key={cid} style={{
                           display: 'flex', alignItems: 'center', gap: '0.75rem',
@@ -2297,6 +2377,119 @@ await supabase.from("settings").upsert({ key: "customMapping", value: JSON.strin
                 }}
               >
                 Salvar Mapeamento
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE SELEÇÃO DO CONSOLIDADO PERSONALIZADO */}
+      {showCustomConsolidationModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
+          padding: '1rem'
+        }}>
+          <div style={{
+            background: '#1a1b26', border: '1px solid rgba(255, 152, 0, 0.35)',
+            borderRadius: '14px', width: '100%', maxWidth: '520px',
+            padding: '1.5rem', boxShadow: '0 12px 40px rgba(0,0,0,0.85)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '0.8rem' }}>
+              <div>
+                <h3 style={{ margin: 0, color: '#FFB74D', fontSize: '1.15rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  ⚙️ Consolidado Personalizado
+                </h3>
+                <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: '#aaa' }}>
+                  Selecione as empresas que devem compor este subgrupo consolidado.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowCustomConsolidationModal(false)}
+                style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', padding: '4px' }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={{ marginBottom: '1.2rem' }}>
+              <div style={{ fontSize: '0.85rem', color: '#ccc', marginBottom: '0.6rem', fontWeight: 'bold' }}>
+                Marque as empresas desejadas (ex: AGF Equipamentos + AGF Rompedores):
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {companies.map(comp => {
+                  const isChecked = customConsolidationCompanies.includes(comp.id);
+                  return (
+                    <label
+                      key={comp.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px',
+                        padding: '0.65rem 0.9rem',
+                        background: isChecked ? 'rgba(255, 152, 0, 0.12)' : 'rgba(255,255,255,0.03)',
+                        border: isChecked ? '1px solid #FF9800' : '1px solid rgba(255,255,255,0.08)',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={(e) => {
+                          let next;
+                          if (e.target.checked) {
+                            next = [...customConsolidationCompanies, comp.id];
+                          } else {
+                            next = customConsolidationCompanies.filter(id => id !== comp.id);
+                          }
+                          if (next.length === 0) {
+                            window.$alert('Ao menos uma empresa deve estar selecionada.');
+                            return;
+                          }
+                          setCustomConsolidationCompanies(next);
+                        }}
+                        style={{ width: '16px', height: '16px', accentColor: '#FF9800' }}
+                      />
+                      <span style={{ color: isChecked ? '#fff' : '#aaa', fontWeight: isChecked ? 'bold' : 'normal', fontSize: '0.9rem' }}>
+                        {comp.name}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div style={{ background: 'rgba(33, 150, 243, 0.08)', border: '1px dashed rgba(33, 150, 243, 0.3)', borderRadius: '8px', padding: '10px 12px', marginBottom: '1.2rem', fontSize: '0.78rem', color: '#90CAF9' }}>
+              💡 <strong>Regra de Integração:</strong> A DRE, o Balanço Patrimonial e o Dashboard considerarão <i>apenas</i> as empresas marcadas acima, aplicando automaticamente as exclusões intercompany entre elas!
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={() => setShowCustomConsolidationModal(false)}
+                className="btn-secondary"
+                style={{ padding: '0.5rem 1rem' }}
+              >
+                Fechar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    localStorage.setItem('agf_custom_consolidation', JSON.stringify(customConsolidationCompanies));
+                  } catch(e){}
+                  setSelectedCompany('custom_consolidado');
+                  loadPanelData(selectedAno, selectedMes, period, 'custom_consolidado');
+                  setShowCustomConsolidationModal(false);
+                  window.$toast('Consolidado Personalizado aplicado com sucesso!', { type: 'success' });
+                }}
+                className="btn-primary"
+                style={{ background: '#FF9800', color: '#000', border: 'none', fontWeight: 'bold', padding: '0.5rem 1.3rem' }}
+              >
+                Aplicar e Atualizar Visão
               </button>
             </div>
           </div>

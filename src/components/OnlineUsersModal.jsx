@@ -299,10 +299,10 @@ export default function OnlineUsersModal({ onClose }) {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                       <div style={{
                         position: 'relative', width: '38px', height: '38px',
-                        borderRadius: '50%', background: isSuper ? 'rgba(255, 152, 0, 0.2)' : 'rgba(33, 150, 243, 0.2)',
+                        borderRadius: '50%', background: 'rgba(255, 255, 255, 0.08)',
                         border: `2px solid ${st.color}`,
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        color: isSuper ? '#FFB74D' : '#64B5F6', fontWeight: 'bold', fontSize: '1rem'
+                        color: '#fff', fontWeight: 'bold', fontSize: '0.95rem'
                       }}>
                         {u.username.substring(0, 2).toUpperCase()}
                         <span style={{
@@ -313,17 +313,8 @@ export default function OnlineUsersModal({ onClose }) {
                       </div>
 
                       <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
                           <strong style={{ fontSize: '0.92rem', color: '#fff' }}>{u.username}</strong>
-                          {isSuper ? (
-                            <span style={{ background: 'rgba(255, 152, 0, 0.2)', color: '#FFB74D', border: '1px solid rgba(255, 152, 0, 0.4)', padding: '1px 5px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 'bold' }}>
-                              Super Admin
-                            </span>
-                          ) : (
-                            <span style={{ background: 'rgba(255, 255, 255, 0.08)', color: '#ccc', padding: '1px 5px', borderRadius: '4px', fontSize: '0.65rem' }}>
-                              {u.role || 'Usuário'}
-                            </span>
-                          )}
                         </div>
                         {u.email && (
                           <div style={{ fontSize: '0.74rem', color: '#888', marginTop: '2px' }}>

@@ -239,11 +239,16 @@ export async function bulkPutRecords(table, entries) {
   return { success: true };
 }
 
-export async function getHistorySeries(empresaId, ano) {
+export async function getHistorySeries(empresaId, ano, customCompanies = []) {
   let dreQuery = supabase.from("dre_history").select("*").eq("ano", ano);
   let balancoQuery = supabase.from("balanco_history").select("*").eq("ano", ano);
 
-  if (empresaId && empresaId !== "consolidado" && empresaId !== "todas") {
+  const isCustom = empresaId === 'custom_consolidado' && Array.isArray(customCompanies) && customCompanies.length > 0;
+
+  if (isCustom) {
+    dreQuery = dreQuery.in("empresaId", [...customCompanies, "exclusoes"]);
+    balancoQuery = balancoQuery.in("empresaId", [...customCompanies, "exclusoes"]);
+  } else if (empresaId && empresaId !== "consolidado" && empresaId !== "todas") {
     dreQuery = dreQuery.eq("empresaId", empresaId);
     balancoQuery = balancoQuery.eq("empresaId", empresaId);
   }
@@ -252,6 +257,100 @@ export async function getHistorySeries(empresaId, ano) {
   dre = dre.filter(r => !( (r.conta.startsWith("7") || r.conta.startsWith("6") || r.conta.startsWith("5.1.1.1.01")) && !r.id.includes("tax-dre") && !r.id.includes("manual_") ));
   let balanco = await fetchAll(balancoQuery);
   balanco = balanco.filter(r => !( r.conta.startsWith("2.1.1.6") && !r.id.includes("tax-bal") && !r.id.includes("manual_") ) && r.conta !== '2.9.9.1.01.00900' && !r.conta.startsWith('2.9.9.1.01.00900') && !(r.descricao && r.descricao.toUpperCase().includes('ENCERRAMENTO DO EXERCIC')));
+
+  // Se for consolidado personalizado, filtrar as exclusões para manter apenas as que ocorrem entre as empresas selecionadas
+  if (isCustom) {
+    const monthsWithExc = new Set(dre.filter(r => r.empresaId === 'exclusoes').map(r => r.mes));
+    if (monthsWithExc.size > 0) {
+      const nonExcDre = dre.filter(r => r.empresaId !== 'exclusoes');
+      const nonExcBal = balanco.filter(r => r.empresaId !== 'exclusoes');
+      
+      const customExcDre = [];
+      const customExcBal = [];
+
+      for (const m of monthsWithExc) {
+        try {
+          const excList = await getSettings(`agf_exclusoes_lista_${ano}_${m}`);
+          if (Array.isArray(excList) && excList.length > 0) {
+            const matchingExcs = excList.filter(item => {
+              if (item.empresaOrigem === 'todas' || item.empresaDestino === 'todas') return true;
+              return customCompanies.includes(item.empresaOrigem) && customCompanies.includes(item.empresaDestino);
+            });
+
+            const subFat = matchingExcs.reduce((acc, i) => acc + (Number(i.faturamento) || 0), 0);
+            const subImp = matchingExcs.reduce((acc, i) => acc + (Number(i.impostos) || 0), 0);
+            const subCusto = matchingExcs.reduce((acc, i) => acc + (Number(i.custo) || 0), 0);
+            const subCli = matchingExcs.reduce((acc, i) => acc + (Number(i.clientes) || 0), 0);
+            const subForn = matchingExcs.reduce((acc, i) => acc + (Number(i.fornecedores) || 0), 0);
+
+            if (subFat > 0) {
+              customExcDre.push({
+                id: `custom_exc_${ano}_${m}_fat`,
+                empresaId: 'exclusoes',
+                ano,
+                mes: m,
+                conta: '3.1.1.1.01.00001.EXC',
+                descricao: 'Exclusão Intercompany - Faturamento',
+                valorMensal: -Math.abs(subFat)
+              });
+            }
+            if (subImp > 0) {
+              customExcDre.push({
+                id: `custom_exc_${ano}_${m}_imp`,
+                empresaId: 'exclusoes',
+                ano,
+                mes: m,
+                conta: '3.1.1.2.01.EXC',
+                descricao: 'Exclusão Intercompany - Impostos s/ Vendas',
+                valorMensal: Math.abs(subImp)
+              });
+            }
+            if (subCusto > 0) {
+              customExcDre.push({
+                id: `custom_exc_${ano}_${m}_custo`,
+                empresaId: 'exclusoes',
+                ano,
+                mes: m,
+                conta: '4.1.1.1.13.EXC',
+                descricao: 'Exclusão Intercompany - Custo (CPV/CMV)',
+                valorMensal: Math.abs(subCusto)
+              });
+            }
+            if (subCli > 0) {
+              customExcBal.push({
+                id: `custom_exc_${ano}_${m}_cli`,
+                empresaId: 'exclusoes',
+                ano,
+                mes: m,
+                tipo: 'ativo',
+                conta: '1.1.1.3.01.EXC',
+                descricao: 'Exclusão Intercompany - Clientes',
+                saldoAcumulado: -Math.abs(subCli)
+              });
+            }
+            if (subForn > 0) {
+              customExcBal.push({
+                id: `custom_exc_${ano}_${m}_forn`,
+                empresaId: 'exclusoes',
+                ano,
+                mes: m,
+                tipo: 'passivo',
+                conta: '2.1.1.1.01.EXC',
+                descricao: 'Exclusão Intercompany - Fornecedores',
+                saldoAcumulado: Math.abs(subForn)
+              });
+            }
+          }
+        } catch (e) {
+          console.warn(`Erro ao carregar exclusões customizadas ${ano}/${m}:`, e);
+        }
+      }
+
+      dre = [...nonExcDre, ...customExcDre];
+      balanco = [...nonExcBal, ...customExcBal];
+    }
+  }
+
   return { dre: dre || [], balanco: balanco || [] };
 }
 
