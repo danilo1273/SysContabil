@@ -280,6 +280,150 @@ function GestaoContabilModule({ userRole, userName, companies }) {
         }
     };
 
+    // Registrar envio de e-mail / cobrança no histórico da rotina
+    const handleRecordEmailSent = async (rotinaId, tipoEnvio = 'manual') => {
+        if (!rotinaId) return;
+        const nowIso = new Date().toISOString();
+        let targetRotina = null;
+
+        setRotinas(prev => {
+            return prev.map(r => {
+                if (r.id === rotinaId) {
+                    targetRotina = {
+                        ...r,
+                        ultimo_email_enviado_em: nowIso,
+                        total_emails_enviados: (r.total_emails_enviados || 0) + 1,
+                        email_enviado_por: userName || 'Gestor',
+                        email_notificado: true,
+                        tipo_ultimo_email: tipoEnvio,
+                        updated_at: nowIso
+                    };
+                    return targetRotina;
+                }
+                return r;
+            });
+        });
+
+        try {
+            const currentRot = rotinas.find(r => r.id === rotinaId);
+            const payload = targetRotina || (currentRot ? {
+                ...currentRot,
+                ultimo_email_enviado_em: nowIso,
+                total_emails_enviados: (currentRot.total_emails_enviados || 0) + 1,
+                email_enviado_por: userName || 'Gestor',
+                email_notificado: true,
+                tipo_ultimo_email: tipoEnvio,
+                updated_at: nowIso
+            } : null);
+
+            if (payload) {
+                await fetch('/api/gestao/rotinas', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify([payload])
+                });
+            }
+        } catch (e) {
+            console.error('Erro ao registrar histórico de envio de e-mail:', e);
+        }
+    };
+
+    // Alterar Prazo / Data Limite de uma Rotina ou Integração
+    const handleUpdateRoutinePrazo = async (rotinaId, newPrazo) => {
+        let targetItem = null;
+        setRotinas(prev => {
+            return prev.map(r => {
+                if (r.id === rotinaId) {
+                    targetItem = { ...r, data_limite: newPrazo, updated_at: new Date().toISOString() };
+                    return targetItem;
+                }
+                return r;
+            });
+        });
+
+        if (targetItem) {
+            await fetch('/api/gestao/rotinas', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify([targetItem])
+            });
+            window.$toast('Prazo atualizado com sucesso!', { type: 'success' });
+        }
+    };
+
+    // Abrir Modal de Cobrança para Integração (Entradas, Saídas, Financeiro)
+    const handleOpenCobrancaIntegracao = (rot, filial, tipoNome) => {
+        const respUser = users.find(u => u.username === rot.responsavel);
+        const to = rot.responsavelEmail || respUser?.email || (rot.responsavel ? `${rot.responsavel}@agfequipamentos.com.br` : '');
+        const subject = `[Cobrança] Integração de ${tipoNome} - Filial ${filial.code} (${selectedMes}/${selectedAno})`;
+        
+        const prazoFormatado = rot.data_limite 
+            ? new Date(rot.data_limite + 'T12:00:00').toLocaleDateString('pt-BR') 
+            : 'não estipulado';
+
+        const body = `Olá ${rot.responsavel || 'Equipe'},\n\nVerificamos no SysContábil que a integração de ${tipoNome} da Filial ${filial.code} (${filial.name}) está atualmente no dia ${rot.dia_atual || 0}/31.\n\nLembramos que o nosso prazo para conclusão é: ${prazoFormatado}.\n\nPor favor, favor atualizar as movimentações e o andamento no sistema assim que possível.\n\nCompetência: ${selectedMes}/${selectedAno}\n\nAtenciosamente,\nGestão Contábil - SysContábil AGF`;
+
+        setEmailModalData({ rotina: rot, to, subject, body, isCobranca: true, tipoNome });
+    };
+
+    // Verificar se prazo de uma rotina ou integração está vencido
+    const isPrazoVencido = (dataLimite, diaAtual) => {
+        if (!dataLimite || (diaAtual !== undefined && diaAtual >= 31)) return false;
+        try {
+            const limit = new Date(dataLimite + 'T23:59:59');
+            return new Date() > limit;
+        } catch(e) {
+            return false;
+        }
+    };
+
+    // Renderizar etiqueta de status de cobrança/notificação
+    const renderCobrancaBadge = (r) => {
+        if (!r) return null;
+        if (r.ultimo_email_enviado_em) {
+            const dt = new Date(r.ultimo_email_enviado_em);
+            const dateStr = dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+            const timeStr = dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+            const count = r.total_emails_enviados || 1;
+            return (
+                <span
+                    style={{
+                        background: 'rgba(33, 150, 243, 0.15)',
+                        color: '#64B5F6',
+                        border: '1px solid rgba(33, 150, 243, 0.35)',
+                        padding: '1px 5px',
+                        borderRadius: '4px',
+                        fontSize: '0.67rem',
+                        fontWeight: '500',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '3px'
+                    }}
+                    title={`Última cobrança/notificação enviada em ${dateStr} às ${timeStr} por ${r.email_enviado_por || 'Gestor'} (Total: ${count}x)`}
+                >
+                    <Mail size={10} /> Cobrado {dateStr} {timeStr} ({count}x)
+                </span>
+            );
+        }
+        return (
+            <span
+                style={{
+                    background: 'rgba(255, 255, 255, 0.04)',
+                    color: '#888',
+                    padding: '1px 5px',
+                    borderRadius: '4px',
+                    fontSize: '0.67rem',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '3px'
+                }}
+                title="Nenhum e-mail de cobrança registrado para esta tarefa ainda"
+            >
+                <Mail size={10} /> Não cobrado
+            </span>
+        );
+    };
+
     // Disparo de e-mail ao liberar uma rotina
     const dispatchLiberationEmail = async (rotinaLiberada, allRoutines) => {
         const respUser = users.find(u => u.username === rotinaLiberada.responsavel);
@@ -341,6 +485,7 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                 })
             });
 
+            await handleRecordEmailSent(rotinaLiberada.id, 'automatico');
             window.$toast(`🔔 ${rotinaLiberada.titulo} liberada! Notificação enviada${targetEmail ? ` para ${targetEmail}` : ''}.`, { type: 'success' });
         } catch (err) {
             console.error('Erro ao enviar e-mail de liberação:', err);
@@ -719,13 +864,19 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                 data = { success: true, mode: 'fallback' };
             }
             if (data.success) {
-                window.$toast(`E-mail enviado com sucesso para ${emailModalData.to}!`, { type: 'success' });
+                if (emailModalData.rotina?.id) {
+                    await handleRecordEmailSent(emailModalData.rotina.id, 'nuvem');
+                }
+                window.$toast(`E-mail enviado com sucesso para ${emailModalData.to}! Histórico de cobrança atualizado.`, { type: 'success' });
                 setEmailModalData(null);
             } else {
                 const errMsg = data.error || data.warning || 'Falha ao enviar';
                 const mailtoUrl = `mailto:${emailModalData.to}?subject=${encodeURIComponent(emailModalData.subject)}&body=${encodeURIComponent(emailModalData.body)}`;
                 const wantOutlook = window.confirm(`Não foi possível enviar automaticamente pela nuvem:\n\n${errMsg}\n\nDeseja abrir o e-mail preenchido no seu Outlook / Webmail agora para enviar em 1 clique?`);
                 if (wantOutlook) {
+                    if (emailModalData.rotina?.id) {
+                        await handleRecordEmailSent(emailModalData.rotina.id, 'outlook');
+                    }
                     window.open(mailtoUrl, '_blank');
                     setEmailModalData(null);
                 }
@@ -734,6 +885,9 @@ function GestaoContabilModule({ userRole, userName, companies }) {
             const mailtoUrl = `mailto:${emailModalData.to}?subject=${encodeURIComponent(emailModalData.subject)}&body=${encodeURIComponent(emailModalData.body)}`;
             const wantOutlook = window.confirm(`Erro ao conectar com o serviço de envio: ${e.message}\n\nDeseja abrir no Outlook / Webmail agora para enviar diretamente em 1 clique?`);
             if (wantOutlook) {
+                if (emailModalData.rotina?.id) {
+                    await handleRecordEmailSent(emailModalData.rotina.id, 'outlook');
+                }
                 window.open(mailtoUrl, '_blank');
                 setEmailModalData(null);
             }
@@ -1399,10 +1553,13 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                                 </div>
 
                                                 {/* Responsável e Prazo */}
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', color: '#888' }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                                        <User size={13} style={{ color: '#777' }} />
-                                                        <span>{decl.responsavel || 'Sem responsável'}</span>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px', fontSize: '0.75rem', color: '#888' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                            <User size={13} style={{ color: '#777' }} />
+                                                            <span>{decl.responsavel || 'Sem responsável'}</span>
+                                                        </div>
+                                                        {renderCobrancaBadge(decl)}
                                                     </div>
                                                     {decl.data_limite && (
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#FFB74D' }}>
@@ -1581,7 +1738,7 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                             </div>
 
                                             {/* LINHAS DAS 3 INTEGRAÇÕES (COMPACTO COM MAIS RESPIRO) */}
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                                 {[
                                                     { rot: fEntradas, label: 'Entradas', icon: '📥' },
                                                     { rot: fSaidas, label: 'Saídas', icon: '📤' },
@@ -1601,16 +1758,16 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                                                 padding: '6px 9px',
                                                                 display: 'flex',
                                                                 flexDirection: 'column',
-                                                                gap: '4px'
+                                                                gap: '5px'
                                                             }}
                                                         >
-                                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
                                                                 <span style={{ fontSize: '0.82rem', color: '#eee', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '5px' }}>
                                                                     <span>{icon}</span> {label}
                                                                 </span>
 
-                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
                                                                         <span style={{ fontSize: '0.74rem', color: '#888' }}>Dia:</span>
                                                                         <input
                                                                             type="number"
@@ -1619,7 +1776,7 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                                                             value={rot.dia_atual || 0}
                                                                             onChange={(e) => handleUpdateRoutineProgress(rot.id, parseInt(e.target.value) || 0)}
                                                                             className="text-input"
-                                                                            style={{ width: '46px', padding: '2px 4px', fontSize: '0.78rem', textAlign: 'center' }}
+                                                                            style={{ width: '44px', padding: '2px 4px', fontSize: '0.76rem', textAlign: 'center' }}
                                                                         />
                                                                         <span style={{ fontSize: '0.74rem', color: '#888' }}>/31</span>
                                                                     </div>
@@ -1631,9 +1788,9 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                                                             color: isDone ? '#81C784' : '#FFB74D',
                                                                             border: `1px solid ${isDone ? 'rgba(76, 175, 80, 0.4)' : 'rgba(255, 152, 0, 0.3)'}`,
                                                                             borderRadius: '4px',
-                                                                            padding: '2px 7px',
+                                                                            padding: '2px 6px',
                                                                             cursor: 'pointer',
-                                                                            fontSize: '0.74rem',
+                                                                            fontSize: '0.72rem',
                                                                             fontWeight: 'bold'
                                                                         }}
                                                                         title="Marcar como integrado até dia 31"
@@ -1645,7 +1802,7 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                                                         value={rot.responsavel || ''}
                                                                         onChange={(e) => handleUpdateRotinaResponsavel(rot.id, e.target.value)}
                                                                         className="select-input"
-                                                                        style={{ padding: '2px 6px', fontSize: '0.74rem', maxWidth: '125px' }}
+                                                                        style={{ padding: '2px 5px', fontSize: '0.72rem', maxWidth: '115px' }}
                                                                         title="Responsável pela integração"
                                                                     >
                                                                         <option value="">Responsável...</option>
@@ -1653,12 +1810,57 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                                                             <option key={u.username} value={u.username}>{u.username}</option>
                                                                         ))}
                                                                     </select>
+
+                                                                    <button
+                                                                        onClick={() => handleOpenCobrancaIntegracao(rot, filial, label)}
+                                                                        disabled={isDone}
+                                                                        style={{
+                                                                            background: isDone ? 'rgba(255,255,255,0.03)' : 'rgba(33, 150, 243, 0.15)',
+                                                                            color: isDone ? '#555' : '#64B5F6',
+                                                                            border: `1px solid ${isDone ? 'transparent' : 'rgba(33, 150, 243, 0.35)'}`,
+                                                                            borderRadius: '4px',
+                                                                            padding: '2px 6px',
+                                                                            cursor: isDone ? 'default' : 'pointer',
+                                                                            fontSize: '0.7rem',
+                                                                            display: 'inline-flex',
+                                                                            alignItems: 'center',
+                                                                            gap: '3px',
+                                                                            fontWeight: '500'
+                                                                        }}
+                                                                        title={isDone ? 'Integração já concluída' : 'Cobrar responsável por e-mail'}
+                                                                    >
+                                                                        <Mail size={11} /> Cobrar
+                                                                    </button>
                                                                 </div>
                                                             </div>
 
                                                             {/* Barra de progresso fina */}
                                                             <div style={{ background: 'rgba(255,255,255,0.05)', height: '3px', borderRadius: '2px', overflow: 'hidden' }}>
                                                                 <div style={{ width: `${pct}%`, height: '100%', background: isDone ? '#4CAF50' : '#FF9800', transition: 'width 0.2s' }}></div>
+                                                            </div>
+
+                                                            {/* Linha de Prazo e Status de Cobrança */}
+                                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.68rem', paddingTop: '2px' }}>
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                                                    {isPrazoVencido(rot.data_limite, rot.dia_atual) && (
+                                                                        <span style={{ color: '#EF5350', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '2px' }}>
+                                                                            <AlertTriangle size={10} /> Atrasado!
+                                                                        </span>
+                                                                    )}
+                                                                    {renderCobrancaBadge(rot)}
+                                                                </div>
+
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                                                                    <span style={{ color: '#777' }}>Prazo:</span>
+                                                                    <input
+                                                                        type="date"
+                                                                        value={rot.data_limite || ''}
+                                                                        onChange={(e) => handleUpdateRoutinePrazo(rot.id, e.target.value)}
+                                                                        className="text-input"
+                                                                        style={{ fontSize: '0.68rem', padding: '1px 3px', width: '95px', height: '20px', background: 'rgba(0,0,0,0.25)', border: '1px solid rgba(255,255,255,0.1)' }}
+                                                                        title="Definir prazo limite para esta integração"
+                                                                    />
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     );
@@ -1711,14 +1913,17 @@ function GestaoContabilModule({ userRole, userName, companies }) {
 
                                                     {/* Mensagem de Estado & Botões de Ação */}
                                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
-                                                        <div style={{ fontSize: '0.74rem', color: isApuracaoDone ? '#81C784' : isApuracaoLiberada ? '#4CAF50' : '#888' }}>
-                                                            {isApuracaoDone ? (
-                                                                <span>✅ Concluída {fApuracao.concluido_por ? `por ${fApuracao.concluido_por}` : ''}</span>
-                                                            ) : isApuracaoLiberada ? (
-                                                                <span style={{ fontWeight: 'bold' }}>🟢 Liberada! Pronto p/ apurar</span>
-                                                            ) : (
-                                                                <span>🔒 Bloqueada (aguardando dia 31)</span>
-                                                            )}
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                                            <div style={{ fontSize: '0.74rem', color: isApuracaoDone ? '#81C784' : isApuracaoLiberada ? '#4CAF50' : '#888' }}>
+                                                                {isApuracaoDone ? (
+                                                                    <span>✅ Concluída {fApuracao.concluido_por ? `por ${fApuracao.concluido_por}` : ''}</span>
+                                                                ) : isApuracaoLiberada ? (
+                                                                    <span style={{ fontWeight: 'bold' }}>🟢 Liberada! Pronto p/ apurar</span>
+                                                                ) : (
+                                                                    <span>🔒 Bloqueada (aguardando dia 31)</span>
+                                                                )}
+                                                            </div>
+                                                            <div>{renderCobrancaBadge(fApuracao)}</div>
                                                         </div>
 
                                                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -3282,17 +3487,41 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                 </span>
                             </div>
 
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.8rem', paddingTop: '0.8rem', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-                                <a
-                                    href={`mailto:${emailModalData.to}?subject=${encodeURIComponent(emailModalData.subject)}&body=${encodeURIComponent(emailModalData.body)}`}
-                                    className="btn-secondary"
-                                    style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', textDecoration: 'none', background: 'rgba(33, 150, 243, 0.15)', borderColor: '#2196F3', color: '#64B5F6' }}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    title="Abre seu Outlook ou Webmail corporativo já preenchido"
-                                >
-                                    <ExternalLink size={14} /> Abrir no Outlook / Gmail
-                                </a>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.8rem', paddingTop: '0.8rem', borderTop: '1px solid rgba(255,255,255,0.1)', flexWrap: 'wrap', gap: '8px' }}>
+                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                    <a
+                                        href={`mailto:${emailModalData.to}?subject=${encodeURIComponent(emailModalData.subject)}&body=${encodeURIComponent(emailModalData.body)}`}
+                                        onClick={async () => {
+                                            if (emailModalData.rotina?.id) {
+                                                await handleRecordEmailSent(emailModalData.rotina.id, 'outlook');
+                                                window.$toast('Cobrança registrada no sistema!', { type: 'success' });
+                                            }
+                                        }}
+                                        className="btn-secondary"
+                                        style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', textDecoration: 'none', background: 'rgba(33, 150, 243, 0.15)', borderColor: '#2196F3', color: '#64B5F6' }}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        title="Abre seu Outlook ou Webmail corporativo já preenchido e registra a cobrança"
+                                    >
+                                        <ExternalLink size={14} /> Abrir no Outlook / Gmail
+                                    </a>
+
+                                    <button
+                                        type="button"
+                                        onClick={async () => {
+                                            if (emailModalData.rotina?.id) {
+                                                await handleRecordEmailSent(emailModalData.rotina.id, 'manual');
+                                                window.$toast('Marcado como cobrado no sistema!', { type: 'success' });
+                                            }
+                                            setEmailModalData(null);
+                                        }}
+                                        className="btn-secondary"
+                                        style={{ padding: '0.55rem 0.9rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '5px', borderColor: 'rgba(76, 175, 80, 0.4)', color: '#81C784', background: 'rgba(76, 175, 80, 0.1)' }}
+                                        title="Registra no card que você já cobrou o responsável (ex: por WhatsApp, Teams, ligação ou Outlook)"
+                                    >
+                                        <Check size={14} /> Marcar como Cobrado
+                                    </button>
+                                </div>
 
                                 <div style={{ display: 'flex', gap: '8px' }}>
                                     <button
