@@ -16,6 +16,15 @@ export async function fetchAll(queryBuilder) {
 }
 
 
+export function isResultadoOuEncerramentoConta(conta, descricao) {
+  if (!conta) return false;
+  if (conta === '2.9.9.1.01.00002') return false; // Dividendos é conta legítima
+  const isConta = conta === '2.9.9.1.01' || conta === '2.9.9.1.01.00001' || conta === '2.9.9.1.01.00900' || conta.startsWith('2.9.9.1.01.00900');
+  const descUpper = (descricao || '').toUpperCase();
+  const isDesc = descUpper.includes('ENCERRAMENTO DO EXERCIC') || descUpper.includes('RESULTADO DO EXERCIC') || descUpper.includes('LUCRO / PREJUIZO DO EXERCIC') || descUpper.includes('LUCRO/PREJUIZO DO EXERCIC') || descUpper.includes('APURACAO DO RESULTAD');
+  return isConta || isDesc;
+}
+
 export async function saveBalanceteToDB(fileData, empresaId, ano, mes, userConfigs) {
   const dreEntries = [];
   const balancoEntries = [];
@@ -25,7 +34,7 @@ export async function saveBalanceteToDB(fileData, empresaId, ano, mes, userConfi
 
   for (const [conta, data] of Object.entries(rawAccounts)) {
     if (!data.isAnalitica) continue;
-    if (conta === '2.9.9.1.01.00900' || conta.startsWith('2.9.9.1.01.00900') || (data.descricao && (data.descricao.toUpperCase().includes('ENCERRAMENTO DO EXERCICIO') || data.descricao.toUpperCase().includes('ENCERRAMENTO DO EXERCÍCIO')))) continue;
+    if (isResultadoOuEncerramentoConta(conta, data.descricao)) continue;
 
     if (conta.startsWith("3.") || conta.startsWith("4.") || conta.startsWith("5.") || conta.startsWith("6.") || conta.startsWith("7.")) {
       dreEntries.push({
@@ -139,7 +148,7 @@ export async function getBalancoFromDB(empresaId, ano, mes) {
 
   const consolidated = {};
   for (const r of records) {
-    if (r && !( r.conta.startsWith("2.1.1.6") && !r.id.includes("tax-bal") && !r.id.includes("manual_") ) && r.conta !== '2.9.9.1.01.00900' && !r.conta.startsWith('2.9.9.1.01.00900') && !(r.descricao && r.descricao.toUpperCase().includes('ENCERRAMENTO DO EXERCIC'))) {
+    if (r && !( r.conta.startsWith("2.1.1.6") && !r.id.includes("tax-bal") && !r.id.includes("manual_") ) && !isResultadoOuEncerramentoConta(r.conta, r.descricao)) {
     if (!consolidated[r.conta]) {
       consolidated[r.conta] = { descricao: r.descricao, valor: 0 };
     }
@@ -210,7 +219,7 @@ export async function getRawRecords(ano, mes) {
   let cc = await fetchAll(supabase.from("cc_history").select("*").eq("ano", ano).eq("mes", mes));
   
   if (dre) dre = dre.filter(r => !( (r.conta.startsWith("7") || r.conta.startsWith("6") || r.conta.startsWith("5.1.1.1.01")) && !r.id.includes("tax-dre") && !r.id.includes("manual_") ));
-  if (balanco) balanco = balanco.filter(r => !( r.conta.startsWith("2.1.1.6") && !r.id.includes("tax-bal") && !r.id.includes("manual_") ) && r.conta !== '2.9.9.1.01.00900' && !r.conta.startsWith('2.9.9.1.01.00900') && !(r.descricao && r.descricao.toUpperCase().includes('ENCERRAMENTO DO EXERCIC')));
+  if (balanco) balanco = balanco.filter(r => !( r.conta.startsWith("2.1.1.6") && !r.id.includes("tax-bal") && !r.id.includes("manual_") ) && !isResultadoOuEncerramentoConta(r.conta, r.descricao));
   
   return { dre: dre || [], balanco: balanco || [], cc: cc || [] };
 }
@@ -288,7 +297,7 @@ export async function getHistorySeries(empresaId, ano, customCompanies = []) {
   let dre = await fetchAll(dreQuery);
   dre = dre.filter(r => !( (r.conta.startsWith("7") || r.conta.startsWith("6") || r.conta.startsWith("5.1.1.1.01")) && !r.id.includes("tax-dre") && !r.id.includes("manual_") ));
   let balanco = await fetchAll(balancoQuery);
-  balanco = balanco.filter(r => !( r.conta.startsWith("2.1.1.6") && !r.id.includes("tax-bal") && !r.id.includes("manual_") ) && r.conta !== '2.9.9.1.01.00900' && !r.conta.startsWith('2.9.9.1.01.00900') && !(r.descricao && r.descricao.toUpperCase().includes('ENCERRAMENTO DO EXERCIC')));
+  balanco = balanco.filter(r => !( r.conta.startsWith("2.1.1.6") && !r.id.includes("tax-bal") && !r.id.includes("manual_") ) && !isResultadoOuEncerramentoConta(r.conta, r.descricao));
 
   // Se for consolidado personalizado, filtrar as exclusões para manter apenas as que ocorrem entre as empresas selecionadas
   if (isCustom) {

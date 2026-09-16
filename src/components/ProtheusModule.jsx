@@ -5,7 +5,7 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, Cell
 import { parseProtheusExcel } from '../utils/protheusParser';
 import { protheusMapping, applyMapping } from '../utils/mappingConfig';
 import { supabase } from "../supabaseClient";
-import { saveBalanceteToDB, getDREFromDB, getBalancoFromDB, addManualEntryToDB, getSettings, saveSettings, getCustomConsolidations, saveCustomConsolidations } from '../utils/db';
+import { saveBalanceteToDB, getDREFromDB, getBalancoFromDB, addManualEntryToDB, getSettings, saveSettings, getCustomConsolidations, saveCustomConsolidations, isResultadoOuEncerramentoConta } from '../utils/db';
 import TaxModule from './TaxModule';
 import DashboardView from './DashboardView';
 import FaturamentoModule from './FaturamentoModule';
@@ -164,6 +164,9 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
   const [customMappings, setCustomMappings] = useState({});
   const [isMappingModalOpen, setIsMappingModalOpen] = useState(false);
   const [mappingTarget, setMappingTarget] = useState(null);
+  const [showViewMappingModal, setShowViewMappingModal] = useState(false);
+  const [mappingSearchText, setMappingSearchText] = useState('');
+  const [mappingViewTab, setMappingViewTab] = useState('passivo');
   
   const [manualEmpresa, setManualEmpresa] = useState('');
   const [manualConta, setManualConta] = useState('');
@@ -743,9 +746,9 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
         dbDataArray.forEach(d => {
           if ((tipo === 'ativo' && d.conta.startsWith('1')) || (tipo === 'passivo' && d.conta.startsWith('2'))) {
              if (!prefixes.some(p => d.conta.startsWith(p)) && Math.abs(d.saldoAcumulado || d.valor || 0) > 0.01) {
-               if (d.conta !== '2.9.9.1.01.00900' && !d.conta.startsWith('2.1.1.6')) {
-                 unmappedAccounts.push({ ...d, tipo, compId });
-               }
+                if (!isResultadoOuEncerramentoConta(d.conta, d.descricao) && !d.conta.startsWith('2.1.1.6')) {
+                  unmappedAccounts.push({ ...d, tipo, compId });
+                }
              }
           }
         });
@@ -2191,6 +2194,14 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
             <div className="glass-panel" style={{ padding: '1.5rem', position: 'relative' }}>
               <div className="print-hide" style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginBottom: '1rem' }}>
                 <button 
+                   onClick={() => { setMappingViewTab('dre'); setShowViewMappingModal(true); }} 
+                   className="btn-secondary"
+                   style={{ padding: '0.6rem 1rem' }}
+                   title="Visualizar o plano de contas e agrupamento da DRE"
+                >
+                   🗺️ Ver Mapeamento
+                </button>
+                <button 
                    onClick={() => setIsDREDetalhada(!isDREDetalhada)} 
                    className="btn-secondary"
                    style={{ padding: '0.6rem 1rem' }}
@@ -2219,6 +2230,14 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                   <input type="checkbox" checked={hideZeros} onChange={e => setHideZeros(e.target.checked)} />
                   Ocultar valores zerados
                 </label>
+                <button 
+                   onClick={() => { setMappingViewTab('passivo'); setShowViewMappingModal(true); }} 
+                   className="btn-secondary"
+                   style={{ padding: '0.6rem 1rem' }}
+                   title="Visualizar o plano de contas e agrupamento do Balanço Patrimonial"
+                >
+                   🗺️ Ver Mapeamento
+                </button>
                 <button 
                    onClick={() => setIsBalancoDetalhado(!isBalancoDetalhado)} 
                    className="btn-secondary"
@@ -2734,6 +2753,205 @@ await supabase.from("settings").upsert({ key: "customMapping", value: JSON.strin
               <button
                 type="button"
                 onClick={() => setShowCustomConsolidationModal(false)}
+                className="btn-secondary"
+                style={{ padding: '0.5rem 1.2rem' }}
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE VISUALIZAÇÃO DO MAPEAMENTO CONTÁBIL GERAL */}
+      {showViewMappingModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(6px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999,
+          padding: '1rem'
+        }}>
+          <div style={{
+            background: '#1a1b26', border: '1px solid rgba(33, 150, 243, 0.4)',
+            borderRadius: '16px', width: '100%', maxWidth: '850px', maxHeight: '90vh',
+            display: 'flex', flexDirection: 'column',
+            boxShadow: '0 16px 50px rgba(0,0,0,0.95)', overflow: 'hidden'
+          }}>
+            {/* Cabeçalho */}
+            <div style={{ 
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
+              padding: '1.2rem 1.5rem', borderBottom: '1px solid rgba(255,255,255,0.1)',
+              background: 'rgba(33, 150, 243, 0.08)'
+            }}>
+              <div>
+                <h3 style={{ margin: 0, color: '#64B5F6', fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  🗺️ Plano de Mapeamento Contábil do Sistema
+                </h3>
+                <p style={{ margin: '4px 0 0 0', fontSize: '0.82rem', color: '#aaa' }}>
+                  Consulte como as contas do balancete Protheus são agrupadas em cada demonstrativo.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowViewMappingModal(false)}
+                style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', padding: '6px' }}
+              >
+                <X size={22} />
+              </button>
+            </div>
+
+            {/* Abas dos Relatórios & Busca */}
+            <div style={{ padding: '1rem 1.5rem 0.5rem 1.5rem', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {[
+                  { id: 'passivo', label: '⚖️ Passivo e PL' },
+                  { id: 'ativo', label: '⚖️ Ativo' },
+                  { id: 'dre', label: '📄 DRE' },
+                  { id: 'dfc_ativo', label: '💸 DFC Operacional' },
+                  { id: 'dfc_investimento', label: '💸 DFC Investimento' },
+                  { id: 'dfc_financiamento', label: '💸 DFC Financiamento' }
+                ].map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => setMappingViewTab(t.id)}
+                    style={{
+                      background: mappingViewTab === t.id ? 'var(--color-primary)' : 'rgba(255,255,255,0.05)',
+                      color: mappingViewTab === t.id ? '#000' : '#ccc',
+                      border: 'none', borderRadius: '8px', padding: '0.5rem 1rem',
+                      fontWeight: mappingViewTab === t.id ? 'bold' : 'normal',
+                      fontSize: '0.85rem', cursor: 'pointer'
+                    }}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <input
+                  type="text"
+                  placeholder="Pesquisar conta, prefixo ou descrição (ex: 2.9.9, 1.1.1, Dividendos, Capital, Fornecedor)..."
+                  value={mappingSearchText}
+                  onChange={e => setMappingSearchText(e.target.value)}
+                  className="text-input"
+                  style={{ flex: 1, padding: '0.6rem 1rem', fontSize: '0.88rem' }}
+                />
+                {mappingSearchText && (
+                  <button
+                    onClick={() => setMappingSearchText('')}
+                    className="btn-secondary"
+                    style={{ padding: '0.6rem 0.8rem', fontSize: '0.8rem' }}
+                  >
+                    Limpar
+                  </button>
+                )}
+              </div>
+
+              <div style={{ background: 'rgba(33, 150, 243, 0.08)', border: '1px dashed rgba(33, 150, 243, 0.3)', borderRadius: '8px', padding: '8px 12px', fontSize: '0.78rem', color: '#90CAF9' }}>
+                ℹ️ <strong>Lucro e Resultado do Exercício:</strong> A conta de encerramento/resultado do exercício do Protheus (ex: <code>2.9.9.1.01</code> ou <code>2.9.9.1.01.00900</code>) é automaticamente desconsiderada no Balanço Patrimonial para não duplicar valores, já que o Lucro Líquido é apurado dinamicamente através da DRE.
+              </div>
+            </div>
+
+            {/* Conteúdo com Grupos e Subgrupos */}
+            <div style={{ padding: '1.5rem', overflowY: 'auto', flex: 1 }}>
+              {(() => {
+                const currentReportMapping = mergedMapping[mappingViewTab] || {};
+                const groups = Object.keys(currentReportMapping);
+                const query = mappingSearchText.trim().toLowerCase();
+
+                let renderedCount = 0;
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    {groups.map(groupName => {
+                      const subgroups = currentReportMapping[groupName] || {};
+                      const subEntries = Object.entries(subgroups);
+
+                      const filteredSub = subEntries.filter(([subName, prefixes]) => {
+                        if (!query) return true;
+                        if (groupName.toLowerCase().includes(query)) return true;
+                        if (subName.toLowerCase().includes(query)) return true;
+                        return prefixes.some(p => p.toLowerCase().includes(query));
+                      });
+
+                      if (filteredSub.length === 0) return null;
+                      renderedCount += filteredSub.length;
+
+                      return (
+                        <div key={groupName} style={{
+                          background: 'rgba(255,255,255,0.03)',
+                          border: '1px solid rgba(255,255,255,0.08)',
+                          borderRadius: '10px', overflow: 'hidden'
+                        }}>
+                          <div style={{
+                            background: 'rgba(255,255,255,0.06)',
+                            padding: '0.65rem 1rem', fontWeight: 'bold',
+                            color: 'var(--color-primary)', fontSize: '0.92rem',
+                            borderBottom: '1px solid rgba(255,255,255,0.06)'
+                          }}>
+                            📂 {groupName}
+                          </div>
+
+                          <div style={{ padding: '0.8rem 1rem', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {filteredSub.map(([subName, prefixes]) => (
+                              <div key={subName} style={{
+                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                padding: '0.5rem 0.75rem', background: 'rgba(0,0,0,0.2)',
+                                borderRadius: '6px', flexWrap: 'wrap', gap: '8px'
+                              }}>
+                                <span style={{ color: '#fff', fontSize: '0.85rem', fontWeight: 500 }}>
+                                  {subName}
+                                </span>
+                                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                  {prefixes.length === 0 ? (
+                                    <span style={{ fontSize: '0.75rem', color: '#888', fontStyle: 'italic' }}>
+                                      {subName === 'Lucro do Exercício' ? '⚡ Calculado Dinamicamente da DRE' : 'Nenhuma conta cadastrada'}
+                                    </span>
+                                  ) : (
+                                    prefixes.map(prefix => (
+                                      <span
+                                        key={prefix}
+                                        style={{
+                                          fontSize: '0.76rem',
+                                          background: query && prefix.toLowerCase().includes(query) ? 'rgba(255,152,0,0.3)' : 'rgba(33,150,243,0.15)',
+                                          border: query && prefix.toLowerCase().includes(query) ? '1px solid #FF9800' : '1px solid rgba(33,150,243,0.3)',
+                                          color: query && prefix.toLowerCase().includes(query) ? '#FFB74D' : '#90CAF9',
+                                          padding: '2px 8px', borderRadius: '6px', fontFamily: 'monospace'
+                                        }}
+                                      >
+                                        {prefix}
+                                      </span>
+                                    ))
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {renderedCount === 0 && (
+                      <div style={{ textAlign: 'center', padding: '2rem', color: '#888' }}>
+                        Nenhuma conta ou grupo encontrado para o filtro "{mappingSearchText}".
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Rodapé */}
+            <div style={{ 
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
+              padding: '1rem 1.5rem', borderTop: '1px solid rgba(255,255,255,0.1)',
+              background: 'rgba(0,0,0,0.2)'
+            }}>
+              <span style={{ fontSize: '0.78rem', color: '#888' }}>
+                💡 O mapeamento gerencial organiza automaticamente cada conta contábil analítica na linha correspondente dos demonstrativos.
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowViewMappingModal(false)}
                 className="btn-secondary"
                 style={{ padding: '0.5rem 1.2rem' }}
               >

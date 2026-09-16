@@ -65,8 +65,11 @@ export const parseProtheusExcel = async (fileBlob) => {
           // Descarta: 'Pergunta 01', 'Data Inicial ?', textos, etc.
           if (!conta || !(/^\d[\d.a-zA-Z_-]+$/.test(conta)) || !conta.includes('.')) continue;
 
-          // Desconsiderar conta de encerramento de exercício solicitada pelo usuário
-          if (conta === '2.9.9.1.01.00900' || conta.startsWith('2.9.9.1.01.00900') || descricao.toUpperCase().includes('ENCERRAMENTO DO EXERCICIO') || descricao.toUpperCase().includes('ENCERRAMENTO DO EXERCÍCIO')) {
+          // Desconsiderar contas de apuração/encerramento/resultado do exercício (o sistema apura o lucro via DRE)
+          const descUpper = descricao.toUpperCase();
+          const isResultConta = conta === '2.9.9.1.01' || conta === '2.9.9.1.01.00001' || conta === '2.9.9.1.01.00900' || conta.startsWith('2.9.9.1.01.00900');
+          const isResultDesc = descUpper.includes('ENCERRAMENTO DO EXERCIC') || descUpper.includes('RESULTADO DO EXERCIC') || descUpper.includes('LUCRO / PREJUIZO DO EXERCIC') || descUpper.includes('LUCRO/PREJUIZO DO EXERCIC') || descUpper.includes('APURACAO DO RESULTAD');
+          if ((isResultConta || isResultDesc) && conta !== '2.9.9.1.01.00002') {
             continue;
           }
 
