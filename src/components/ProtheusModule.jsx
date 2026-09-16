@@ -2332,7 +2332,22 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                 };
                 const ativoTot = getTotal(results.ativo);
                 const passivoTot = getTotal(results.passivo);
-                const comps = (selectedCompany === 'consolidado' || selectedCompany === 'custom_consolidado') ? ['consolidado'] : [selectedCompany];
+                const isCustomConsol = Boolean(activeCustom);
+                const isConsolView = selectedCompany === 'consolidado' || isCustomConsol;
+
+                const targetSubComps = isCustomConsol 
+                  ? (activeCustom?.companies || [])
+                  : (selectedCompany === 'consolidado' ? (results.companies || []).filter(c => c.id !== 'exclusoes').map(c => c.id) : []);
+
+                // Mostra o badge principal do consolidado e, se houver divergência, mostra também as empresas com diferença
+                const subCompsWithDiff = targetSubComps.filter(cid => {
+                  const a = ativoTot[cid] || 0;
+                  const p = passivoTot[cid] || 0;
+                  return Math.abs(a - p) >= 0.01;
+                });
+
+                const comps = isConsolView ? ['consolidado', ...subCompsWithDiff] : [selectedCompany];
+
                 return (
                   <div className="print-hide" style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
                     {comps.map(cid => {
@@ -2340,7 +2355,16 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                       const passivo = passivoTot[cid] || 0;
                       const diff = ativo - passivo;
                       const ok = Math.abs(diff) < 0.01; // Restaura exibição estrita para apontar qualquer diferença centesimal
-                      const label = selectedCompany === 'custom_consolidado' ? 'Consolidado Personalizado' : cid === 'consolidado' ? 'Consolidado' : results.companies.find(c => c.id === cid)?.name || cid;
+                      
+                      let label = '';
+                      if (cid === 'consolidado') {
+                        label = isCustomConsol 
+                          ? `Consolidado (${activeCustom?.name || 'Personalizado'})` 
+                          : 'Consolidado Geral';
+                      } else {
+                        label = results.companies.find(c => c.id === cid)?.name || companies.find(c => c.id === cid)?.name || cid;
+                      }
+
                       return (
                         <div key={cid} style={{
                           display: 'flex', alignItems: 'center', gap: '0.75rem',
@@ -2357,7 +2381,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                               Ativo: {ativo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })}
                               {' | '}
                               Passivo+PL: {passivo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })}
-                              {!ok && <span style={{ color: '#f44336', marginLeft: '0.5rem' }}>
+                              {!ok && <span style={{ color: '#f44336', marginLeft: '0.5rem', fontWeight: 'bold' }}>
                                 Dif: {diff.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                               </span>}
                             </div>
@@ -2369,54 +2393,68 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                 );
               })()}
 
-              {results.unmapped && results.unmapped.length > 0 && (
-                <div style={{ background: 'rgba(255,152,0,0.1)', border: '1px solid #FF9800', borderRadius: '10px', padding: '1rem', marginTop: '1rem' }}>
-                  <h3 style={{ color: '#FF9800', margin: '0 0 0.5rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <AlertTriangle size={18} />
-                    Contas Não Mapeadas Encontradas! ({results.unmapped.length})
-                  </h3>
-                  <p style={{ fontSize: '0.85rem', color: '#ccc', margin: '0 0 1rem 0' }}>
-                    As seguintes contas possuem saldo no banco de dados, mas não estão associadas a nenhum grupo no Balanço Patrimonial (mappingConfig.js). Isso causa diferença entre Ativo e Passivo.
-                  </p>
-                  <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
-                    <table className="data-table" style={{ fontSize: '0.8rem' }}>
-                      <thead>
-                        <tr>
-                          <th>Empresa</th>
-                          <th>Tipo</th>
-                          <th>Conta</th>
-                          <th>Descrição</th>
-                          <th style={{ textAlign: 'right' }}>Valor</th>
-                          <th style={{ textAlign: 'center' }}>Ações</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {results.unmapped.map((u, i) => (
-                          <tr key={i}>
-                            <td>{u.compId}</td>
-                            <td>{u.tipo.toUpperCase()}</td>
-                            <td>{u.conta}</td>
-                            <td>{u.descricao || '-'}</td>
-                            <td style={{ textAlign: 'right' }}>{Number(u.valor || u.saldoAcumulado || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
-                            <td style={{ textAlign: 'center' }}>
-                                <button 
-                                  className="btn-primary" 
-                                  style={{ padding: '0.2rem 0.6rem', fontSize: '0.7rem' }}
-                                  onClick={() => {
-                                      setMappingTarget({ conta: u.conta, tipo: u.tipo, relatorio: '', grupo: '', subgrupo: '' });
-                                      setIsMappingModalOpen(true);
-                                  }}
-                                >
-                                    Mapear
-                                </button>
-                            </td>
+              {(() => {
+                const isCustom = Boolean(activeCustom);
+                const filteredUnmapped = (results.unmapped || []).filter(u => {
+                  if (selectedCompany === 'consolidado') return true;
+                  if (isCustom) {
+                    const targetComps = activeCustom.companies || [];
+                    return targetComps.includes(u.compId) || u.compId === 'exclusoes';
+                  }
+                  return u.compId === selectedCompany;
+                });
+
+                if (filteredUnmapped.length === 0) return null;
+
+                return (
+                  <div style={{ background: 'rgba(255,152,0,0.1)', border: '1px solid #FF9800', borderRadius: '10px', padding: '1rem', marginTop: '1rem' }}>
+                    <h3 style={{ color: '#FF9800', margin: '0 0 0.5rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <AlertTriangle size={18} />
+                      Contas Não Mapeadas Encontradas! ({filteredUnmapped.length})
+                    </h3>
+                    <p style={{ fontSize: '0.85rem', color: '#ccc', margin: '0 0 1rem 0' }}>
+                      As seguintes contas possuem saldo no banco de dados, mas não estão associadas a nenhum grupo no Balanço Patrimonial (mappingConfig.js). Isso causa diferença entre Ativo e Passivo.
+                    </p>
+                    <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                      <table className="data-table" style={{ fontSize: '0.8rem' }}>
+                        <thead>
+                          <tr>
+                            <th>Empresa</th>
+                            <th>Tipo</th>
+                            <th>Conta</th>
+                            <th>Descrição</th>
+                            <th style={{ textAlign: 'right' }}>Valor</th>
+                            <th style={{ textAlign: 'center' }}>Ações</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {filteredUnmapped.map((u, i) => (
+                            <tr key={i}>
+                              <td>{u.compId}</td>
+                              <td>{u.tipo.toUpperCase()}</td>
+                              <td>{u.conta}</td>
+                              <td>{u.descricao || '-'}</td>
+                              <td style={{ textAlign: 'right' }}>{Number(u.valor || u.saldoAcumulado || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                              <td style={{ textAlign: 'center' }}>
+                                  <button 
+                                    className="btn-primary" 
+                                    style={{ padding: '0.2rem 0.6rem', fontSize: '0.7rem' }}
+                                    onClick={() => {
+                                        setMappingTarget({ conta: u.conta, tipo: u.tipo, relatorio: '', grupo: '', subgrupo: '' });
+                                        setIsMappingModalOpen(true);
+                                    }}
+                                  >
+                                      Mapear
+                                  </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
 
               {renderTable('Balanço Patrimonial - ATIVO', results.ativo, 'TOTAL DO ATIVO')}
