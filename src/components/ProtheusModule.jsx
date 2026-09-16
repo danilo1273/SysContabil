@@ -208,6 +208,12 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
         });
       });
     });
+
+    // Lucro do Exercício é SEMPRE uma linha calculada dinamicamente via DRE e nunca deve receber contas do balancete
+    if (merged.passivo?.['PATRIMONIO LIQUIDO']) {
+      merged.passivo['PATRIMONIO LIQUIDO']['Lucro do Exercício'] = [];
+    }
+
     return merged;
   }, [customMappings]);
 
