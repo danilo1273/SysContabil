@@ -480,6 +480,89 @@ export default function TaxModule({ companies }) {
         }
     };
 
+  const hasApuracao = useMemo(() => {
+    if (!selectedComp) return false;
+    return dreAnualTotal.some(r => r.mes === selectedMes && r.id?.startsWith('tax-dre-'));
+  }, [selectedComp, selectedMes, dreAnualTotal]);
+
+  const handleDeleteApuracao = async () => {
+    if (!selectedComp) return;
+    const mesNomes = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+    const mesNome = mesNomes[selectedMes - 1] || `Mês ${selectedMes}`;
+    const compObj = companies.find(c => c.id === selectedComp);
+    const compName = compObj?.name || selectedComp;
+
+    const confirmed = await window.$confirm(
+      `⚠️ Tem certeza que deseja EXCLUIR a apuração de IRPJ/CSLL de ${mesNome}/${selectedAno} para a empresa "${compName}"?\n\nEsta ação removerá as provisões tributárias lançadas na DRE e no Balanço Patrimonial deste mês.`,
+      { title: 'Excluir Apuração', type: 'danger' }
+    );
+    if (!confirmed) return;
+
+    setIsProcessing(true);
+    try {
+      await Promise.all([
+        supabase
+          .from('dre_history')
+          .delete()
+          .eq('empresaId', selectedComp)
+          .eq('ano', selectedAno)
+          .eq('mes', selectedMes)
+          .like('id', 'tax-%'),
+        supabase
+          .from('balanco_history')
+          .delete()
+          .eq('empresaId', selectedComp)
+          .eq('ano', selectedAno)
+          .eq('mes', selectedMes)
+          .like('id', 'tax-%')
+      ]);
+
+      // Limpar memória de cálculo do mês no state e settings
+      const key = `${selectedComp}_${selectedAno}_${selectedMes}`;
+      const newStore = { ...taxDataStore };
+      delete newStore[key];
+      setTaxDataStore(newStore);
+      try {
+        await saveSettings('agf_tax_store', newStore);
+      } catch (e) {
+        console.error(e);
+      }
+
+      // Resetar states locais de inputs
+      setLalurAdicoes(0);
+      setLalurExclusoes(0);
+      setLalurCompensacaoPrejuizo(0);
+      setLalurRetencoesIR(0);
+      setLalurRetencoesIR_AppFin(0);
+      setLalurRetencoesCS(0);
+      setLalurCambioRealizado(0);
+      setLalurAjusteIrpj('');
+      setLalurAjusteCsll('');
+
+      setPresumidoRetencoesIR(0);
+      setPresumidoRetencoesIR_AppFin(0);
+      setPresumidoRetencoesCS(0);
+      setPresumidoImpostosDevolucao('');
+      setPresumidoAjusteIrpj('');
+      setPresumidoAjusteCsll('');
+      setPresumidoOutrasReceitas('');
+      setPresumidoCambioRealizado(0);
+      setPresumidoIpi('');
+      setPresumidoIcmsSt('');
+      setPresumidoMajoracao(true);
+      setDarfIrpjReduzido('');
+      setDarfCsllReduzida('');
+
+      await loadFinancialData();
+      window.$toast(`Apuração de ${mesNome}/${selectedAno} excluída com sucesso!`, { type: 'success' });
+    } catch (err) {
+      console.error(err);
+      window.$alert('Erro ao excluir apuração: ' + err.message);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleGravar = async (vIrpj, vCsll, vIrpjGross, vCsllGross) => {
     if (!selectedComp) { window.$alert('Selecione uma empresa.'); return; }
     
@@ -1011,7 +1094,19 @@ export default function TaxModule({ companies }) {
 
 </div>
 
-        <div style={{ marginTop: '2rem', textAlign: 'right' }}>
+        <div style={{ marginTop: '2rem', display: 'flex', justifyContent: 'flex-end', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            {hasApuracao && (
+              <button 
+                type="button"
+                className="btn-secondary" 
+                onClick={handleDeleteApuracao} 
+                style={{ padding: '0.9rem 1.8rem', fontSize: '1rem', borderColor: '#f44336', color: '#ff6b6b', background: 'rgba(244, 67, 54, 0.1)', cursor: 'pointer', fontWeight: 600 }} 
+                disabled={isProcessing}
+                title="Excluir lançamentos da DRE e Balanço deste mês"
+              >
+                🗑️ Excluir Apuração deste Mês
+              </button>
+            )}
             <button className="btn-primary" onClick={() => isEstimativa ? handleSaveInputsOnly() : handleGravar(cA.irpjTotal, cA.csllTotal, cA.irpjNormal + cA.irpjAdicional, cA.csll)} style={{ padding: '1rem 2rem', fontSize: '1.1rem' }} disabled={isProcessing}>
                 {isProcessing ? 'Gravando...' : (isEstimativa ? '💾 Salvar Memória de Cálculo (Controle DARF)' : '💾 Lançar Apuração no DRE e Balanço')}
             </button>
@@ -1264,12 +1359,24 @@ const renderReal = () => {
           
         </div>
 
-        <div style={{ marginTop: '2rem', textAlign: 'right' }}>
+        <div style={{ marginTop: '2rem', display: 'flex', justifyContent: 'flex-end', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            {hasApuracao && (
+              <button 
+                type="button"
+                className="btn-secondary" 
+                onClick={handleDeleteApuracao} 
+                style={{ padding: '0.9rem 1.8rem', fontSize: '1rem', borderColor: '#f44336', color: '#ff6b6b', background: 'rgba(244, 67, 54, 0.1)', cursor: 'pointer', fontWeight: 600 }} 
+                disabled={isProcessing}
+                title="Excluir lançamentos da DRE e Balanço deste mês"
+              >
+                🗑️ Excluir Apuração deste Mês
+              </button>
+            )}
             <button className="btn-primary" onClick={() => handleGravar(calc.irpjTotal, calc.csllTotal, calc.irpjNormal + calc.irpjAdicional, calc.csll)} style={{ padding: '1rem 2rem', fontSize: '1.1rem' }} disabled={isProcessing}>
               {isProcessing ? 'Gravando...' : (isAnual ? '💾 Lançar Balanço de Suspensão/Redução no DRE e Balanço' : '💾 Lançar Apuração no DRE e Balanço')}
             </button>
             {isAnual && (
-                <p style={{ color: '#888', fontSize: '0.8rem', marginTop: '0.5rem' }}>
+                <p style={{ color: '#888', fontSize: '0.8rem', marginTop: '0.5rem', width: '100%', textAlign: 'right' }}>
                   Nota: O sistema deduzirá automaticamente o valor já provisionado nos meses anteriores no DRE, lançando apenas a variação no mês selecionado.
                 </p>
             )}
@@ -1353,6 +1460,31 @@ const renderReal = () => {
               <select value={selectedAno} onChange={(e) => handleYearChange(parseInt(e.target.value))} className="select-input" style={{ width: '110px' }}>
                 {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
               </select>
+
+              {selectedComp && (
+                hasApuracao ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                    <span style={{ padding: '0.4rem 0.8rem', borderRadius: '6px', background: 'rgba(76, 175, 80, 0.15)', color: '#81C784', border: '1px solid rgba(76, 175, 80, 0.3)', fontSize: '0.85rem', fontWeight: 600 }}>
+                      ✓ Apuração Lançada
+                    </span>
+                    <button 
+                      type="button"
+                      className="btn-secondary" 
+                      onClick={handleDeleteApuracao} 
+                      disabled={isProcessing}
+                      style={{ padding: '0.4rem 0.8rem', borderColor: '#f44336', color: '#ff6b6b', background: 'rgba(244, 67, 54, 0.1)', fontSize: '0.85rem', cursor: 'pointer', fontWeight: 600 }}
+                      title="Excluir lançamentos da DRE e Balanço deste mês"
+                    >
+                      🗑️ Excluir Apuração
+                    </button>
+                  </div>
+                ) : (
+                  <span style={{ padding: '0.4rem 0.8rem', borderRadius: '6px', background: 'rgba(255, 255, 255, 0.05)', color: '#888', border: '1px solid rgba(255, 255, 255, 0.1)', fontSize: '0.85rem' }}>
+                    ○ Não Apurado
+                  </span>
+                )
+              )}
+
               {isProcessing && <span style={{ padding: '0.5rem', color: 'var(--color-primary)' }}>Processando...</span>}
           </div>
 
