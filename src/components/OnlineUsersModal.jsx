@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { getSettings } from '../utils/db';
+import { getSettings, saveSettings } from '../utils/db';
 import { Users, RefreshCw, X, Clock, Shield, Search, Activity, Monitor } from 'lucide-react';
 
-const ONLINE_THRESHOLD_MS = 2.5 * 60 * 1000; // 2.5 minutos para ser considerado Online
-const IDLE_THRESHOLD_MS = 10 * 60 * 1000;    // 10 minutos para ser considerado Ausente/Ocioso
+const ONLINE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutos para ser considerado Online
+const IDLE_THRESHOLD_MS = 15 * 60 * 1000;  // 15 minutos para ser considerado Ausente/Ocioso
 
 export default function OnlineUsersModal({ onClose }) {
   const [users, setUsers] = useState([]);
@@ -22,9 +22,31 @@ export default function OnlineUsersModal({ onClose }) {
       if (storedUsers && Array.isArray(storedUsers)) {
         setUsers(storedUsers);
       }
-      if (storedPresence && typeof storedPresence === 'object') {
-        setPresenceMap(storedPresence);
-      }
+
+      let finalPresence = (storedPresence && typeof storedPresence === 'object') ? { ...storedPresence } : {};
+
+      // Se há um usuário na sessão atual ativa neste navegador, garantir que a presença dele seja renovada agora
+      try {
+        const saved = localStorage.getItem('agf_session');
+        if (saved) {
+          const currentSessionUser = JSON.parse(saved);
+          if (currentSessionUser && currentSessionUser.username) {
+            const nowIso = new Date().toISOString();
+            finalPresence[currentSessionUser.username] = {
+              ...(finalPresence[currentSessionUser.username] || {}),
+              username: currentSessionUser.username,
+              role: currentSessionUser.role || 'user',
+              last_active: nowIso,
+              last_login: finalPresence[currentSessionUser.username]?.last_login || currentSessionUser.last_login || nowIso,
+              module: finalPresence[currentSessionUser.username]?.module || 'Painel de Usuários'
+            };
+            // Salva a presença atualizada em segundo plano
+            saveSettings('agf_user_presence', finalPresence).catch(() => {});
+          }
+        }
+      } catch(e){}
+
+      setPresenceMap(finalPresence);
     } catch (e) {
       console.error('Erro ao carregar presença de usuários:', e);
     } finally {

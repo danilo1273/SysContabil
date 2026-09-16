@@ -6,6 +6,7 @@ import UserPanel from './components/UserPanel';
 import UserProfileModal from './components/UserProfileModal';
 import OnlineUsersModal from './components/OnlineUsersModal';
 import GlobalDialog from './components/GlobalDialog';
+import { getSettings, saveSettings } from './utils/db';
 import './utils/dialog';
 import './App.css';
 
@@ -50,7 +51,7 @@ function App() {
 
   // Heartbeat de Presença (quem está online e última atividade)
   useEffect(() => {
-    if (!user) return;
+    if (!user || !user.username) return;
 
     const pingPresence = async () => {
       try {
@@ -62,14 +63,15 @@ function App() {
 
         let currentPresence = {};
         try {
-          const res = await fetch('/api/settings?key=agf_user_presence');
-          if (res.ok) {
-            const data = await res.json();
-            currentPresence = data?.value || {};
+          const stored = await getSettings('agf_user_presence');
+          if (stored && typeof stored === 'object') {
+            currentPresence = stored;
           }
         } catch(e) {}
 
         const now = new Date();
+        const nowIso = now.toISOString();
+
         const updated = {
           ...currentPresence,
           [user.username]: {
@@ -77,21 +79,27 @@ function App() {
             role: user.role || 'user',
             module: pageLabel,
             currentPage: pageLabel,
-            last_active: now.toISOString(),
-            last_login: currentPresence[user.username]?.last_login || user.last_login || now.toISOString()
+            last_active: nowIso,
+            last_login: currentPresence[user.username]?.last_login || user.last_login || nowIso
           }
         };
 
-        await fetch('/api/settings', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: 'agf_user_presence', value: updated })
-        });
+        // Grava no Supabase (settings)
+        await saveSettings('agf_user_presence', updated);
+
+        // Também envia para SQLite local se houver server.cjs ativo
+        try {
+          fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'agf_user_presence', value: updated })
+          }).catch(() => {});
+        } catch(e) {}
 
         const activeUsersCount = Object.values(updated).filter(item => {
           if (!item?.last_active) return false;
           const diffMs = now.getTime() - new Date(item.last_active).getTime();
-          return diffMs < 2.5 * 60 * 1000;
+          return diffMs < 5 * 60 * 1000; // 5 minutos de tolerância para status online
         }).length;
 
         setOnlineCount(Math.max(1, activeUsersCount));
@@ -101,8 +109,15 @@ function App() {
     };
 
     pingPresence();
-    const presenceInterval = setInterval(pingPresence, 30000); // Heartbeat a cada 30s
-    return () => clearInterval(presenceInterval);
+    const presenceInterval = setInterval(pingPresence, 20000); // Heartbeat a cada 20s
+
+    const handleWindowFocus = () => pingPresence();
+    window.addEventListener('focus', handleWindowFocus);
+
+    return () => {
+      clearInterval(presenceInterval);
+      window.removeEventListener('focus', handleWindowFocus);
+    };
   }, [user, selectedModule]);
 
   const handleSetUser = (newUser) => {
