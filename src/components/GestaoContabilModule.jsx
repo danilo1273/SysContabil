@@ -1622,17 +1622,57 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                             </div>
                         )}
 
-                        {/* GRID DE CARDS ENXUTOS POR FILIAL (3 POR LINHA) */}
+                        {/* SEPARAÇÃO POR EMPRESA (CADA EMPRESA TEM SEU BLOCO E SUA PRÓPRIA LINHA DE CARDS) */}
                         {rotinas.length > 0 && (
-                            <div style={{
-                                display: 'grid',
-                                gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-                                gap: '1.2rem',
-                                alignItems: 'start'
-                            }}>
-                                {filteredFiliais.map(filial => {
-                                    const empConfig = EMPRESAS_CONFIG.find(e => e.id === filial.empresaId) || { name: filial.empresaId, color: '#FF9800' };
-                                    const filialRotinas = rotinas.filter(r => r.filialCode === filial.code);
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2.2rem' }}>
+                                {EMPRESAS_CONFIG.map(emp => {
+                                    const empFiliais = filteredFiliais.filter(f => f.empresaId === emp.id);
+                                    if (empFiliais.length === 0) return null;
+
+                                    return (
+                                        <div key={emp.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
+                                            {/* CABEÇALHO/SEPARADOR DA EMPRESA */}
+                                            <div style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '10px',
+                                                paddingBottom: '8px',
+                                                borderBottom: `2px solid ${emp.color}44`
+                                            }}>
+                                                <div style={{
+                                                    width: '10px',
+                                                    height: '10px',
+                                                    borderRadius: '50%',
+                                                    background: emp.color,
+                                                    boxShadow: `0 0 10px ${emp.color}`
+                                                }} />
+                                                <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#fff', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    {emp.name}
+                                                </h3>
+                                                <span style={{
+                                                    fontSize: '0.74rem',
+                                                    background: emp.color + '22',
+                                                    color: emp.color,
+                                                    border: `1px solid ${emp.color}55`,
+                                                    padding: '2px 8px',
+                                                    borderRadius: '10px',
+                                                    fontWeight: '600'
+                                                }}>
+                                                    {empFiliais.length} {empFiliais.length === 1 ? 'filial' : 'filiais'}
+                                                </span>
+                                                <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.06)', marginLeft: '6px' }} />
+                                            </div>
+
+                                            {/* GRID DE CARDS DA EMPRESA (3 POR LINHA) */}
+                                            <div style={{
+                                                display: 'grid',
+                                                gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                                                gap: '1.2rem',
+                                                alignItems: 'start'
+                                            }}>
+                                                {empFiliais.map(filial => {
+                                                    const empConfig = emp;
+                                                    const filialRotinas = rotinas.filter(r => r.filialCode === filial.code);
                                     
                                     const fEntradas = filialRotinas.find(r => r.tipo === 'entradas');
                                     const fSaidas = filialRotinas.find(r => r.tipo === 'saidas');
@@ -2009,11 +2049,15 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                                 </div>
                                             )}
 
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
 
                     </div>
                 );
