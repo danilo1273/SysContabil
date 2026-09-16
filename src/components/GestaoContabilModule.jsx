@@ -1391,15 +1391,6 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                 >
                                     <PlusCircle size={14} /> Nova Tarefa
                                 </button>
-
-                                <button
-                                    onClick={() => setShowSmtpModal(true)}
-                                    className="btn-secondary"
-                                    style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.78rem', padding: '0.45rem 0.8rem' }}
-                                    title="Configurações de envio de e-mail SMTP"
-                                >
-                                    <Settings size={14} /> E-mail (SMTP)
-                                </button>
                             </div>
                         </div>
 
@@ -3524,67 +3515,68 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                 />
                             </div>
 
-                            <div style={{ background: 'rgba(33, 150, 243, 0.08)', border: '1px solid rgba(33, 150, 243, 0.25)', borderRadius: '6px', padding: '0.6rem 0.8rem', fontSize: '0.76rem', color: '#90CAF9', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <span>💡</span>
+                            <div style={{ background: 'rgba(33, 150, 243, 0.08)', border: '1px solid rgba(33, 150, 243, 0.25)', borderRadius: '6px', padding: '0.65rem 0.85rem', fontSize: '0.78rem', color: '#90CAF9', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ fontSize: '1.1rem' }}>✉️</span>
                                 <span>
-                                    <strong>Dica:</strong> Se preferir enviar diretamente do seu e-mail corporativo (@agfequipamentos.com.br) sem depender de serviços externos, use o botão <strong>Abrir no Outlook / Gmail</strong> abaixo.
+                                    Ao clicar em <strong>Abrir no Outlook / Gmail</strong>, o e-mail será aberto diretamente no seu programa padrão com destinatário, assunto e mensagem preenchidos, registrando a cobrança no sistema.
                                 </span>
                             </div>
 
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.8rem', paddingTop: '0.8rem', borderTop: '1px solid rgba(255,255,255,0.1)', flexWrap: 'wrap', gap: '8px' }}>
-                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.1)', flexWrap: 'wrap', gap: '10px' }}>
+                                <button
+                                    type="button"
+                                    onClick={async () => {
+                                        if (emailModalData.rotina?.id) {
+                                            await handleRecordEmailSent(emailModalData.rotina.id, 'manual');
+                                            window.$toast('Marcado como cobrado no sistema!', { type: 'success' });
+                                        }
+                                        setEmailModalData(null);
+                                    }}
+                                    className="btn-secondary"
+                                    style={{ padding: '0.6rem 1rem', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px', borderColor: 'rgba(76, 175, 80, 0.4)', color: '#81C784', background: 'rgba(76, 175, 80, 0.08)' }}
+                                    title="Registra no card que você já cobrou o responsável (ex: por WhatsApp, Teams, ligação ou Outlook)"
+                                >
+                                    <Check size={14} /> Marcar como Cobrado
+                                </button>
+
+                                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setEmailModalData(null)}
+                                        className="btn-secondary"
+                                        style={{ padding: '0.6rem 1.2rem' }}
+                                    >
+                                        Cancelar
+                                    </button>
+
                                     <a
                                         href={`mailto:${emailModalData.to}?subject=${encodeURIComponent(emailModalData.subject)}&body=${encodeURIComponent(emailModalData.body)}`}
                                         onClick={async () => {
                                             if (emailModalData.rotina?.id) {
                                                 await handleRecordEmailSent(emailModalData.rotina.id, 'outlook');
-                                                window.$toast('Cobrança registrada no sistema!', { type: 'success' });
+                                                window.$toast('Abrindo no Outlook/Gmail e registrando cobrança...', { type: 'success' });
                                             }
+                                            setTimeout(() => setEmailModalData(null), 300);
                                         }}
-                                        className="btn-secondary"
-                                        style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', textDecoration: 'none', background: 'rgba(33, 150, 243, 0.15)', borderColor: '#2196F3', color: '#64B5F6' }}
-                                        target="_blank"
-                                        rel="noreferrer"
+                                        className="btn-primary"
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px',
+                                            fontSize: '0.9rem',
+                                            fontWeight: 'bold',
+                                            textDecoration: 'none',
+                                            padding: '0.6rem 1.4rem',
+                                            background: '#2196F3',
+                                            borderColor: '#1E88E5',
+                                            color: '#fff',
+                                            borderRadius: '6px',
+                                            boxShadow: '0 4px 12px rgba(33, 150, 243, 0.3)'
+                                        }}
                                         title="Abre seu Outlook ou Webmail corporativo já preenchido e registra a cobrança"
                                     >
-                                        <ExternalLink size={14} /> Abrir no Outlook / Gmail
+                                        <ExternalLink size={16} /> Abrir no Outlook / Gmail
                                     </a>
-
-                                    <button
-                                        type="button"
-                                        onClick={async () => {
-                                            if (emailModalData.rotina?.id) {
-                                                await handleRecordEmailSent(emailModalData.rotina.id, 'manual');
-                                                window.$toast('Marcado como cobrado no sistema!', { type: 'success' });
-                                            }
-                                            setEmailModalData(null);
-                                        }}
-                                        className="btn-secondary"
-                                        style={{ padding: '0.55rem 0.9rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '5px', borderColor: 'rgba(76, 175, 80, 0.4)', color: '#81C784', background: 'rgba(76, 175, 80, 0.1)' }}
-                                        title="Registra no card que você já cobrou o responsável (ex: por WhatsApp, Teams, ligação ou Outlook)"
-                                    >
-                                        <Check size={14} /> Marcar como Cobrado
-                                    </button>
-                                </div>
-
-                                <div style={{ display: 'flex', gap: '8px' }}>
-                                    <button
-                                        type="button"
-                                        onClick={() => setEmailModalData(null)}
-                                        className="btn-secondary"
-                                        style={{ padding: '0.55rem 1.2rem' }}
-                                    >
-                                        Cancelar
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={handleSendManualEmail}
-                                        disabled={isSendingEmail}
-                                        className="btn-primary"
-                                        style={{ padding: '0.55rem 1.4rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}
-                                    >
-                                        <Send size={15} /> {isSendingEmail ? 'Enviando...' : 'Enviar Agora'}
-                                    </button>
                                 </div>
                             </div>
                         </div>
