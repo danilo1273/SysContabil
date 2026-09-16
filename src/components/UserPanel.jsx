@@ -3,22 +3,56 @@ import { getSettings, saveSettings as dbSaveSettings } from '../utils/db';
 
 const UserPanel = ({ onClose }) => {
   const [users, setUsers] = useState([]);
+  const [presenceMap, setPresenceMap] = useState({});
   const [editingUser, setEditingUser] = useState(null);
   const [formData, setFormData] = useState({ username: '', email: '', password: '', role: 'viewer', permissions: ['dash'] });
 
   useEffect(() => {
-    const fetchUsers = async () => {
+    const fetchUsersAndPresence = async () => {
       try {
-        const stored = await getSettings('agf_users');
+        const [stored, storedPresence] = await Promise.all([
+          getSettings('agf_users'),
+          getSettings('agf_user_presence')
+        ]);
         if (stored && Array.isArray(stored)) {
           setUsers(stored);
+        }
+        if (storedPresence && typeof storedPresence === 'object') {
+          setPresenceMap(storedPresence);
         }
       } catch (e) {
         console.error(e);
       }
     };
-    fetchUsers();
+    fetchUsersAndPresence();
   }, []);
+
+  const getPresenceInfo = (username, u) => {
+    const p = presenceMap[username];
+    const lastActive = p?.last_active || u?.last_active;
+    const lastLogin = p?.last_login || u?.last_login;
+    if (!lastActive) return { label: '⚪ Nunca acessou', color: '#777', lastLogin: null, lastActive: null, module: null };
+    const diff = Date.now() - new Date(lastActive).getTime();
+    const moduleName = p?.module || p?.currentPage || null;
+    if (diff <= 2.5 * 60 * 1000) {
+      return { label: '🟢 Online', color: '#81C784', lastLogin, lastActive, module: moduleName };
+    } else if (diff <= 10 * 60 * 1000) {
+      const mins = Math.max(Math.round(diff / 60000), 1);
+      return { label: `🟡 Ausente (${mins}m)`, color: '#FFB74D', lastLogin, lastActive, module: moduleName };
+    } else {
+      return { label: '⚪ Offline', color: '#888', lastLogin, lastActive, module: null };
+    }
+  };
+
+  const formatDate = (iso) => {
+    if (!iso) return 'Nunca';
+    try {
+      const d = new Date(iso);
+      return `${d.toLocaleDateString('pt-BR')} às ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+    } catch(e) {
+      return iso;
+    }
+  };
 
   const saveUsers = async (newUsers) => {
     setUsers(newUsers);
@@ -159,12 +193,23 @@ const UserPanel = ({ onClose }) => {
           <div style={{ flex: 1, minWidth: '250px', borderLeft: '1px solid #333', paddingLeft: '2rem' }}>
             <h3 style={{ marginBottom: '1rem', color: '#ccc' }}>Lista de Usuários</h3>
             <div className="custom-scrollbar" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '350px', overflowY: 'auto', overflowX: 'hidden', paddingRight: '5px' }}>
-            {users.map(u => (
+            {users.map(u => {
+              const pres = getPresenceInfo(u.username, u);
+              return (
               <div key={u.username} style={{ background: '#2a2a2a', padding: '0.75rem', borderRadius: '6px', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
                   <div style={{ flex: 1, paddingRight: '0.5rem' }}>
-                    <strong style={{ color: (['danilo', 'ryan.santos'].includes(u.username)) ? 'var(--color-primary)' : '#fff', wordBreak: 'break-all' }}>{u.username}</strong>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      <strong style={{ color: (['danilo', 'ryan.santos'].includes(u.username)) ? 'var(--color-primary)' : '#fff', wordBreak: 'break-all' }}>{u.username}</strong>
+                      <span style={{ fontSize: '0.68rem', color: pres.color, border: `1px solid ${pres.color}40`, background: `${pres.color}15`, padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold' }}>
+                        {pres.label}
+                      </span>
+                    </div>
                     {u.email && <div style={{ fontSize: '0.72rem', color: '#888', marginTop: '2px' }}>✉️ {u.email}</div>}
+                    <div style={{ fontSize: '0.7rem', color: '#aaa', marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      <span>🕒 Último login: <strong style={{ color: '#ccc' }}>{formatDate(pres.lastLogin)}</strong></span>
+                      {pres.module && <span style={{ color: '#64B5F6' }}>📍 Módulo: {pres.module}</span>}
+                    </div>
                     <div style={{ marginTop: '0.4rem' }}>
                       {(['danilo', 'ryan.santos'].includes(u.username)) ? (
                         <span style={{ background: 'var(--color-primary)', color: '#000', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>Super Admin</span>
@@ -187,7 +232,8 @@ const UserPanel = ({ onClose }) => {
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
         </div>

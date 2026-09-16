@@ -4,6 +4,7 @@ import LoginScreen from './components/LoginScreen';
 import ModuleSelectionScreen from './components/ModuleSelectionScreen';
 import UserPanel from './components/UserPanel';
 import UserProfileModal from './components/UserProfileModal';
+import OnlineUsersModal from './components/OnlineUsersModal';
 import GlobalDialog from './components/GlobalDialog';
 import './utils/dialog';
 import './App.css';
@@ -25,6 +26,8 @@ function App() {
   const [showModuleMenu, setShowModuleMenu] = useState(false);
   const [showUserPanel, setShowUserPanel] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [showOnlineUsersModal, setShowOnlineUsersModal] = useState(false);
+  const [onlineCount, setOnlineCount] = useState(1);
   const [notifications, setNotifications] = useState([]);
   const [showNotifPanel, setShowNotifPanel] = useState(false);
 
@@ -42,6 +45,63 @@ function App() {
         return () => clearInterval(interval);
     }
   }, [user]);
+
+  // Heartbeat de Presença (quem está online e última atividade)
+  useEffect(() => {
+    if (!user) return;
+
+    const pingPresence = async () => {
+      try {
+        const pageLabel = !selectedModule 
+          ? 'Menu Principal' 
+          : selectedModule === 'indicadores' 
+            ? 'Indicadores Executivos' 
+            : 'Sistema Contábil';
+
+        let currentPresence = {};
+        try {
+          const res = await fetch('/api/settings?key=agf_user_presence');
+          if (res.ok) {
+            const data = await res.json();
+            currentPresence = data?.value || {};
+          }
+        } catch(e) {}
+
+        const now = new Date();
+        const updated = {
+          ...currentPresence,
+          [user.username]: {
+            username: user.username,
+            role: user.role || 'user',
+            module: pageLabel,
+            currentPage: pageLabel,
+            last_active: now.toISOString(),
+            last_login: currentPresence[user.username]?.last_login || user.last_login || now.toISOString()
+          }
+        };
+
+        await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'agf_user_presence', value: updated })
+        });
+
+        const activeUsersCount = Object.values(updated).filter(item => {
+          if (!item?.last_active) return false;
+          const diffMs = now.getTime() - new Date(item.last_active).getTime();
+          return diffMs < 2.5 * 60 * 1000;
+        }).length;
+
+        setOnlineCount(Math.max(1, activeUsersCount));
+      } catch (err) {
+        console.warn('Erro ao atualizar presença:', err);
+      }
+    };
+
+    pingPresence();
+    const presenceInterval = setInterval(pingPresence, 30000); // Heartbeat a cada 30s
+    return () => clearInterval(presenceInterval);
+  }, [user, selectedModule]);
 
   const handleSetUser = (newUser) => {
     setUser(newUser);
@@ -249,10 +309,41 @@ function App() {
             </div>
           )}
         </div>
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            {user.role === 'superadmin' && (
-              <button onClick={() => setShowUserPanel(true)} style={{ padding: '0.5rem 1rem', background: '#2196F3', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>👥 Gerenciar Usuários</button>
-            )}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          {/* Botão Usuários Online */}
+          <button 
+            onClick={() => setShowOnlineUsersModal(true)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '7px',
+              padding: '0.45rem 0.85rem',
+              background: 'rgba(76, 175, 80, 0.12)',
+              border: '1px solid rgba(76, 175, 80, 0.45)',
+              color: '#81C784',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontWeight: '600',
+              fontSize: '0.85rem',
+              transition: 'all 0.2s',
+              boxShadow: '0 2px 8px rgba(76, 175, 80, 0.15)'
+            }}
+            title="Ver usuários online agora e último acesso"
+          >
+            <span style={{ 
+              display: 'inline-block', 
+              width: '8px', 
+              height: '8px', 
+              borderRadius: '50%', 
+              background: '#4CAF50',
+              boxShadow: '0 0 8px #4CAF50'
+            }} />
+            <span>{onlineCount} Online</span>
+          </button>
+
+          {user.role === 'superadmin' && (
+            <button onClick={() => setShowUserPanel(true)} style={{ padding: '0.5rem 1rem', background: '#2196F3', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>👥 Gerenciar Usuários</button>
+          )}
             <div style={{ position: 'relative' }}>
           <button onClick={() => setShowNotifPanel(!showNotifPanel)} style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', position: 'relative', display: 'flex', alignItems: 'center' }}>
             <Bell size={24} />
@@ -320,6 +411,7 @@ function App() {
     </main>
     {showUserPanel && <UserPanel onClose={() => setShowUserPanel(false)} />}
     {showProfile && <UserProfileModal user={user} onClose={() => setShowProfile(false)} />}
+    {showOnlineUsersModal && <OnlineUsersModal onClose={() => setShowOnlineUsersModal(false)} />}
   </div>
   );
 }

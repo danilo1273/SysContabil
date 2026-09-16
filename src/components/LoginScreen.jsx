@@ -38,7 +38,27 @@ const LoginScreen = ({ onLogin }) => {
 
     const user = users.find(u => u.username === username && u.password === password);
     if (user) {
-      onLogin(user);
+      const nowIso = new Date().toISOString();
+      const updatedUser = { ...user, last_login: nowIso, last_active: nowIso };
+
+      // Atualiza no banco de usuários
+      const updatedList = users.map(u => u.username === username ? updatedUser : u);
+      saveSettings('agf_users', updatedList).catch(() => {});
+
+      // Registra presença inicial
+      getSettings('agf_user_presence').then(pMap => {
+        const presence = (pMap && typeof pMap === 'object') ? pMap : {};
+        presence[username] = {
+          username,
+          last_login: nowIso,
+          last_active: nowIso,
+          module: 'Menu Principal',
+          role: user.role
+        };
+        return saveSettings('agf_user_presence', presence);
+      }).catch(() => {});
+
+      onLogin(updatedUser);
     } else {
       setError('Usuário ou senha incorretos.');
     }
