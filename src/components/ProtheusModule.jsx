@@ -2176,85 +2176,123 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                 </button>
               )}
 
-              {period === 'mensal' && (
-                <select value={selectedMes} onChange={(e) => {
-                  const m = parseInt(e.target.value);
-                  setSelectedMes(m);
-                  loadPanelData(selectedAno, m, period);
-                }} className="select-input" style={{ width: '160px' }} title="Selecione o mês para consulta">
-                  {['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'].map((mNome, idx) => {
-                    const mNum = idx + 1;
-                    const hasData = (availableRecords || []).some(r => r.ano === selectedAno && r.mes === mNum);
+              {/* 1. SELETOR DE ANO */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <select 
+                  value={selectedAno} 
+                  onChange={(e) => handleDashboardAnoChange(e.target.value)} 
+                  className="select-input" 
+                  style={{ width: '105px' }} 
+                  title="Ano de exercício"
+                >
+                  {availableYears.map(y => {
+                    const hasData = (availableRecords || []).some(r => r.ano === y);
                     return (
-                      <option key={mNum} value={mNum}>
-                        {mNome} {hasData ? '•' : ''}
+                      <option key={y} value={y}>
+                        {y} {hasData ? '•' : ''}
                       </option>
                     );
                   })}
                 </select>
+              </div>
+
+              {/* 2. TIPO DE VISÃO */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <select 
+                  value={period} 
+                  onChange={(e) => { 
+                    const newPeriod = e.target.value;
+                    setPeriod(newPeriod); 
+                    loadPanelData(selectedAno, selectedMes, newPeriod); 
+                  }} 
+                  className="select-input" 
+                  style={{ width: '185px', borderColor: period === 'acumulado' ? 'var(--color-primary)' : '#444' }} 
+                  title="Tipo de período"
+                >
+                  <option value="mensal">Visão: Mensal</option>
+                  <option value="trimestre">Visão: Trimestral</option>
+                  <option value="acumulado">Visão: Acumulado YTD</option>
+                </select>
+              </div>
+
+              {/* 3. SELETOR CONTEXTUAL DE MÊS / TRIMESTRE / CORTE */}
+              {period === 'mensal' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '0.8rem', color: '#aaa', whiteSpace: 'nowrap' }}>Mês:</span>
+                  <select 
+                    value={selectedMes} 
+                    onChange={(e) => {
+                      const m = parseInt(e.target.value);
+                      setSelectedMes(m);
+                      loadPanelData(selectedAno, m, period);
+                    }} 
+                    className="select-input" 
+                    style={{ width: '150px' }} 
+                    title="Selecione o mês para consulta"
+                  >
+                    {['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'].map((mNome, idx) => {
+                      const mNum = idx + 1;
+                      const hasData = (availableRecords || []).some(r => r.ano === selectedAno && r.mes === mNum);
+                      return (
+                        <option key={mNum} value={mNum}>
+                          {mNome} {hasData ? '•' : ''}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
               )}
 
               {period === 'trimestre' && (
-                <select value={selectedTrimestre} onChange={(e) => {
-                  const t = parseInt(e.target.value);
-                  setSelectedTrimestre(t);
-                  // Sync selectedMes to the end of the quarter
-                  const m = t * 3; 
-                  setSelectedMes(m);
-                  loadPanelData(selectedAno, m, period);
-                }} className="select-input" style={{ width: '160px' }} title="Selecione o trimestre">
-                  <option value={1}>1º Trimestre (Jan-Mar)</option>
-                  <option value={2}>2º Trimestre (Abr-Jun)</option>
-                  <option value={3}>3º Trimestre (Jul-Set)</option>
-                  <option value={4}>4º Trimestre (Out-Dez)</option>
-                </select>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ fontSize: '0.8rem', color: '#aaa', whiteSpace: 'nowrap' }}>Tri:</span>
+                  <select 
+                    value={selectedTrimestre} 
+                    onChange={(e) => {
+                      const t = parseInt(e.target.value);
+                      setSelectedTrimestre(t);
+                      const m = t * 3; 
+                      setSelectedMes(m);
+                      loadPanelData(selectedAno, m, period);
+                    }} 
+                    className="select-input" 
+                    style={{ width: '175px' }} 
+                    title="Selecione o trimestre"
+                  >
+                    <option value={1}>1º Tri (Jan a Mar)</option>
+                    <option value={2}>2º Tri (Abr a Jun)</option>
+                    <option value={3}>3º Tri (Jul a Set)</option>
+                    <option value={4}>4º Tri (Out a Dez)</option>
+                  </select>
+                </div>
               )}
 
               {period === 'acumulado' && (
-                <select 
-                  value={selectedMes} 
-                  onChange={(e) => {
-                    const m = parseInt(e.target.value);
-                    setSelectedMes(m);
-                    loadPanelData(selectedAno, m, period);
-                  }} 
-                  className="select-input" 
-                  style={{ width: '210px', borderColor: 'var(--color-primary)', fontWeight: '500' }}
-                  title="Selecione até qual mês acumular os valores do ano (YTD)"
-                >
-                  {['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'].map((mNome, idx) => {
-                    const mNum = idx + 1;
-                    const hasData = (availableRecords || []).some(r => r.ano === selectedAno && r.mes === mNum);
-                    return (
-                      <option key={mNum} value={mNum}>
-                        Acumulado até {mNome} {hasData ? '•' : ''}
-                      </option>
-                    );
-                  })}
-                </select>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255,183,77,0.1)', padding: '2px 8px', borderRadius: '8px', border: '1px solid rgba(255,183,77,0.3)' }}>
+                  <span style={{ fontSize: '0.8rem', color: '#FFD54F', fontWeight: 'bold', whiteSpace: 'nowrap' }}>Até:</span>
+                  <select 
+                    value={selectedMes} 
+                    onChange={(e) => {
+                      const m = parseInt(e.target.value);
+                      setSelectedMes(m);
+                      loadPanelData(selectedAno, m, period);
+                    }} 
+                    className="select-input" 
+                    style={{ width: '165px', borderColor: '#FFB74D', color: '#FFD54F', fontWeight: 'bold' }}
+                    title="Selecione até qual mês deseja ver o acumulado (ex: Janeiro até Abril, Maio, Junho...)"
+                  >
+                    {['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'].map((mNome, idx) => {
+                      const mNum = idx + 1;
+                      const hasData = (availableRecords || []).some(r => r.ano === selectedAno && r.mes === mNum);
+                      return (
+                        <option key={mNum} value={mNum}>
+                          {mNome} (Jan a {mNome.slice(0,3)}) {hasData ? '•' : ''}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
               )}
-
-              <select value={selectedAno} onChange={(e) => {
-                handleDashboardAnoChange(e.target.value);
-              }} className="select-input" style={{ width: '115px' }} title="Selecione o ano">
-                {availableYears.map(y => {
-                  const hasData = (availableRecords || []).some(r => r.ano === y);
-                  return (
-                    <option key={y} value={y}>
-                      {y} {hasData ? '•' : ''}
-                    </option>
-                  );
-                })}
-              </select>
-              <select value={period} onChange={(e) => { 
-                const newPeriod = e.target.value;
-                setPeriod(newPeriod); 
-                loadPanelData(selectedAno, selectedMes, newPeriod); 
-              }} className="select-input" style={{ width: '190px' }} title="Tipo de visualização temporal">
-                <option value="mensal">Visão: Mês</option>
-                <option value="trimestre">Visão: Trimestre</option>
-                <option value="acumulado">Visão: YTD (Acumulado)</option>
-              </select>
             </div>
           </div>
 
