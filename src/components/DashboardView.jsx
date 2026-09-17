@@ -239,21 +239,23 @@ export default function DashboardView({ selectedCompany, selectedAno, selectedMe
       const qEnd = qStart + 2;
       return mes >= qStart && mes <= qEnd;
     }
-    if (period === 'acumulado') return true;
+    if (period === 'acumulado') return mes <= selectedMes;
     return true; // default
   };
 
+  const mesNomeCurto = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][selectedMes - 1] || '';
+
   const periodLabel = period === 'mensal' 
-    ? `${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][selectedMes - 1]} ${selectedAno}` 
+    ? `${mesNomeCurto} ${selectedAno}` 
     : period === 'trimestre' 
     ? `${selectedTrimestre}º Tri ${selectedAno}` 
-    : `Anual de ${selectedAno}`;
+    : `Acumulado até ${mesNomeCurto}/${selectedAno}`;
 
   const periodLabelAnt = period === 'mensal' 
-    ? `${selectedAno - 1}` 
+    ? `${mesNomeCurto} ${selectedAno - 1}` 
     : period === 'trimestre' 
     ? `${selectedTrimestre}º Tri ${selectedAno - 1}` 
-    : `Anual de ${selectedAno - 1}`;
+    : `Acumulado até ${mesNomeCurto}/${selectedAno - 1}`;
 
   const extractMetric = (dataArray, prefix, customMes = null) => {
     return dataArray.reduce((acc, row) => {

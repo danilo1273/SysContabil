@@ -1556,9 +1556,9 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
         const compNome = isConsol ? 'AGF Group (Consolidado)' : isCustomConsol ? `AGF Group (Consolidado: ${customNames})` : (compData ? compData.name : 'AGF');
         const mesNome = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][selectedMes-1];
         let periodText = '';
-        if (period === 'mensal') periodText = `${mesNome} ${selectedAno}`;
-        else if (period === 'trimestre') periodText = `${selectedTrimestre}º Trimestre ${selectedAno}`;
-        else periodText = `Acumulado ${selectedAno}`;
+        if (period === 'mensal') periodText = `${mesNome} / ${selectedAno}`;
+        else if (period === 'trimestre') periodText = `${selectedTrimestre}º Trimestre / ${selectedAno}`;
+        else periodText = `Acumulado até ${mesNome} / ${selectedAno}`;
         
         printReport({
             company: compNome,
@@ -1580,7 +1580,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
         let periodText = '';
         if (period === 'mensal') periodText = `Mês: ${mesNome} / ${selectedAno}`;
         else if (period === 'trimestre') periodText = `Trimestre: ${selectedTrimestre}º Trimestre / ${selectedAno}`;
-        else periodText = `Acumulado YTD: ${selectedAno}`;
+        else periodText = `Acumulado YTD (Jan a ${mesNome}) / ${selectedAno}`;
 
         return (
             <div className="print-only" style={{ display: 'none', alignItems: 'center', marginBottom: '1rem', color: '#000' }}>
@@ -2181,7 +2181,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                   const m = parseInt(e.target.value);
                   setSelectedMes(m);
                   loadPanelData(selectedAno, m, period);
-                }} className="select-input" style={{ width: '160px' }}>
+                }} className="select-input" style={{ width: '160px' }} title="Selecione o mês para consulta">
                   {['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'].map((mNome, idx) => {
                     const mNum = idx + 1;
                     const hasData = (availableRecords || []).some(r => r.ano === selectedAno && r.mes === mNum);
@@ -2202,17 +2202,41 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                   const m = t * 3; 
                   setSelectedMes(m);
                   loadPanelData(selectedAno, m, period);
-                }} className="select-input" style={{ width: '150px' }}>
-                  <option value={1}>1º Trimestre</option>
-                  <option value={2}>2º Trimestre</option>
-                  <option value={3}>3º Trimestre</option>
-                  <option value={4}>4º Trimestre</option>
+                }} className="select-input" style={{ width: '160px' }} title="Selecione o trimestre">
+                  <option value={1}>1º Trimestre (Jan-Mar)</option>
+                  <option value={2}>2º Trimestre (Abr-Jun)</option>
+                  <option value={3}>3º Trimestre (Jul-Set)</option>
+                  <option value={4}>4º Trimestre (Out-Dez)</option>
+                </select>
+              )}
+
+              {period === 'acumulado' && (
+                <select 
+                  value={selectedMes} 
+                  onChange={(e) => {
+                    const m = parseInt(e.target.value);
+                    setSelectedMes(m);
+                    loadPanelData(selectedAno, m, period);
+                  }} 
+                  className="select-input" 
+                  style={{ width: '210px', borderColor: 'var(--color-primary)', fontWeight: '500' }}
+                  title="Selecione até qual mês acumular os valores do ano (YTD)"
+                >
+                  {['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'].map((mNome, idx) => {
+                    const mNum = idx + 1;
+                    const hasData = (availableRecords || []).some(r => r.ano === selectedAno && r.mes === mNum);
+                    return (
+                      <option key={mNum} value={mNum}>
+                        Acumulado até {mNome} {hasData ? '•' : ''}
+                      </option>
+                    );
+                  })}
                 </select>
               )}
 
               <select value={selectedAno} onChange={(e) => {
                 handleDashboardAnoChange(e.target.value);
-              }} className="select-input" style={{ width: '115px' }}>
+              }} className="select-input" style={{ width: '115px' }} title="Selecione o ano">
                 {availableYears.map(y => {
                   const hasData = (availableRecords || []).some(r => r.ano === y);
                   return (
@@ -2226,10 +2250,10 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                 const newPeriod = e.target.value;
                 setPeriod(newPeriod); 
                 loadPanelData(selectedAno, selectedMes, newPeriod); 
-              }} className="select-input" style={{ width: '180px' }}>
+              }} className="select-input" style={{ width: '190px' }} title="Tipo de visualização temporal">
                 <option value="mensal">Visão: Mês</option>
                 <option value="trimestre">Visão: Trimestre</option>
-                <option value="acumulado">Visão: YTD (Ano)</option>
+                <option value="acumulado">Visão: YTD (Acumulado)</option>
               </select>
             </div>
           </div>
@@ -2295,7 +2319,15 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
               </div>
               <div className="printable-area">
                  <PrintHeader />
-                 {renderTable(`DRE - ${period.toUpperCase()}`, results.dre, 'RECEITA OPERACIONAL LÍQUIDA')}
+                 {renderTable(
+                   period === 'mensal'
+                     ? `DRE - ${['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][selectedMes-1].toUpperCase()} / ${selectedAno}`
+                     : period === 'trimestre'
+                     ? `DRE - ${selectedTrimestre}º TRIMESTRE / ${selectedAno}`
+                     : `DRE - ACUMULADO ATÉ ${['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][selectedMes-1].toUpperCase()} / ${selectedAno} (YTD)`,
+                   results.dre, 
+                   'RECEITA OPERACIONAL LÍQUIDA'
+                 )}
               </div>
             </div>
           )}
@@ -2477,7 +2509,14 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
 
           {secondaryTab === 'dfc' && (
             <div className="glass-panel" style={{ padding: '1.5rem' }}>
-              {renderTable(`Demonstração de Fluxo de Caixa (DFC) - ${period.toUpperCase()}`, results.dfc)}
+              {renderTable(
+                period === 'mensal'
+                  ? `Demonstração de Fluxo de Caixa (DFC) - ${['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][selectedMes-1].toUpperCase()} / ${selectedAno}`
+                  : period === 'trimestre'
+                  ? `Demonstração de Fluxo de Caixa (DFC) - ${selectedTrimestre}º TRIMESTRE / ${selectedAno}`
+                  : `Demonstração de Fluxo de Caixa (DFC) - ACUMULADO ATÉ ${['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][selectedMes-1].toUpperCase()} / ${selectedAno}`,
+                results.dfc
+              )}
             </div>
           )}
 
