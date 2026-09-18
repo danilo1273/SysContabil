@@ -155,12 +155,16 @@ export default function TaxModule({ companies }) {
     setIsProcessing(true);
     try {
       let anual = [];
+      let balAnual = [];
       for (let m = 1; m <= 12; m++) {
         const d = await getRawRecords(selectedAno, m);
-        const comp = d.dre.filter(r => r.empresaId === selectedComp);
+        const comp = (d.dre || []).filter(r => r.empresaId === selectedComp);
         comp.forEach(r => anual.push({ ...r, mes: m }));
+        const compBal = (d.balanco || []).filter(r => r.empresaId === selectedComp);
+        compBal.forEach(r => balAnual.push({ ...r, mes: m }));
       }
       setDreAnualTotal(anual);
+      setBalancoAnualTotal(balAnual);
 
       setDreMensal(anual.filter(r => r.mes === selectedMes));
 
