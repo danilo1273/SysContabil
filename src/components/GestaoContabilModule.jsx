@@ -36,6 +36,7 @@ const EMPRESAS_CONFIG = [
 ];
 
 function GestaoContabilModule({ userRole, userName, companies }) {
+    const isSuperAdmin = userRole === 'superadmin' || ['danilo', 'ryan.santos', 'carol.cons', 'talita.alves'].includes(userName);
     const [activeTab, setActiveTab] = useState('integracoes');
     const [taxDataStore, setTaxDataStore] = useState({});
     const [dreCambioRealizado, setDreCambioRealizado] = useState({});
@@ -353,6 +354,11 @@ function GestaoContabilModule({ userRole, userName, companies }) {
 
     // Abrir Modal de Cobrança para Integração (Entradas, Saídas, Financeiro)
     const handleOpenCobrancaIntegracao = (rot, filial, tipoNome) => {
+        if (!isSuperAdmin) {
+            if (window.$toast) window.$toast('Apenas Superadmin tem permissão para realizar cobranças.', { type: 'error' });
+            else window.$alert('Apenas Superadmin tem permissão para realizar cobranças.');
+            return;
+        }
         const respUser = users.find(u => u.username === rot.responsavel);
         const to = rot.responsavelEmail || respUser?.email || (rot.responsavel ? `${rot.responsavel}@agfequipamentos.com.br` : '');
         const subject = `[Cobrança] Integração de ${tipoNome} - Filial ${filial.code} (${selectedMes}/${selectedAno})`;
@@ -743,6 +749,11 @@ function GestaoContabilModule({ userRole, userName, companies }) {
 
     // Alterar Responsável de uma Rotina
     const handleUpdateRotinaResponsavel = async (rotinaId, newResp) => {
+        if (!isSuperAdmin) {
+            if (window.$toast) window.$toast('Apenas Superadmin tem permissão para alterar o responsável.', { type: 'error' });
+            else window.$alert('Apenas Superadmin tem permissão para alterar o responsável.');
+            return;
+        }
         const respUser = users.find(u => u.username === newResp);
         const email = respUser?.email || (newResp ? `${newResp}@agfequipamentos.com.br` : '');
         
@@ -823,6 +834,11 @@ function GestaoContabilModule({ userRole, userName, companies }) {
 
     // Abrir Modal de Envio Manual de E-mail
     const handleOpenManualEmail = (rotina) => {
+        if (!isSuperAdmin) {
+            if (window.$toast) window.$toast('Apenas Superadmin tem permissão para notificar / cobrar por e-mail.', { type: 'error' });
+            else window.$alert('Apenas Superadmin tem permissão para notificar / cobrar por e-mail.');
+            return;
+        }
         const respUser = users.find(u => u.username === rotina.responsavel);
         const to = rotina.responsavelEmail || respUser?.email || (rotina.responsavel ? `${rotina.responsavel}@agfequipamentos.com.br` : '');
         
@@ -841,6 +857,10 @@ function GestaoContabilModule({ userRole, userName, companies }) {
 
     // Enviar E-mail Manualmente
     const handleSendManualEmail = async () => {
+        if (!isSuperAdmin) {
+            window.$alert('Apenas Superadmin tem permissão para notificar / cobrar por e-mail.');
+            return;
+        }
         if (!emailModalData || !emailModalData.to) {
             window.$alert('Informe o e-mail do destinatário.');
             return;
@@ -1145,13 +1165,13 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                         <input type="number" min="0" max="31" value={data.dia_atual} 
                             onChange={(e) => handleSaveIntegracao(tipo, parseInt(e.target.value) || 0, data.responsavel)}
                             className="text-input" style={{ width: '80px' }}
-                            disabled={!(['danilo', 'ryan.santos'].includes(userName)) && userName !== data.responsavel}
+                            disabled={!isSuperAdmin && userName !== data.responsavel}
                         />
                         <span style={{ marginLeft: '10px', fontSize: '0.9rem', color: '#888' }}>de 31</span>
                     </div>
                     <div>
                         <label style={{ fontSize: '0.85rem', color: '#aaa', display: 'block', marginBottom: '0.3rem' }}>Responsável:</label>
-                        <select value={data.responsavel} onChange={(e) => handleSaveIntegracao(tipo, data.dia_atual, e.target.value)} className="select-input" style={{ width: '100%' }} disabled={!(['danilo', 'ryan.santos'].includes(userName))}>
+                        <select value={data.responsavel} onChange={(e) => handleSaveIntegracao(tipo, data.dia_atual, e.target.value)} className="select-input" style={{ width: '100%', opacity: !isSuperAdmin ? 0.6 : 1, cursor: !isSuperAdmin ? 'not-allowed' : 'pointer' }} disabled={!isSuperAdmin} title={!isSuperAdmin ? 'Apenas Superadmin pode alterar o responsável' : 'Alterar responsável'}>
                             <option value="">Selecione...</option>
                                 {contabilUsers.map(u => <option key={u.username} value={u.username}>{u.username}</option>)}
                         </select>
@@ -1176,8 +1196,8 @@ function GestaoContabilModule({ userRole, userName, companies }) {
             }
         };
 
-        const canEditStatus = (['danilo', 'ryan.santos'].includes(userName)) || userName === data.responsavel;
-        const canEditResp = (['danilo', 'ryan.santos'].includes(userName));
+        const canEditStatus = isSuperAdmin || userName === data.responsavel;
+        const canEditResp = isSuperAdmin;
 
         return (
             <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
@@ -1592,8 +1612,21 @@ function GestaoContabilModule({ userRole, userName, companies }) {
 
                                                     <button
                                                         onClick={() => handleOpenManualEmail(decl)}
-                                                        style={{ background: 'rgba(33, 150, 243, 0.15)', color: '#64B5F6', border: '1px solid rgba(33, 150, 243, 0.3)', borderRadius: '4px', padding: '3px 8px', cursor: 'pointer', fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: '4px' }}
-                                                        title="Notificar por e-mail"
+                                                        disabled={!isSuperAdmin}
+                                                        style={{
+                                                            background: !isSuperAdmin ? 'rgba(255,255,255,0.03)' : 'rgba(33, 150, 243, 0.15)',
+                                                            color: !isSuperAdmin ? '#555' : '#64B5F6',
+                                                            border: `1px solid ${!isSuperAdmin ? 'transparent' : 'rgba(33, 150, 243, 0.3)'}`,
+                                                            borderRadius: '4px',
+                                                            padding: '3px 8px',
+                                                            cursor: !isSuperAdmin ? 'not-allowed' : 'pointer',
+                                                            fontSize: '0.72rem',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '4px',
+                                                            opacity: !isSuperAdmin ? 0.5 : 1
+                                                        }}
+                                                        title={!isSuperAdmin ? "Apenas Superadmin pode notificar/cobrar por e-mail" : "Notificar por e-mail"}
                                                     >
                                                         <Mail size={12} /> E-mail
                                                     </button>
@@ -1832,9 +1865,16 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                                                     <select
                                                                         value={rot.responsavel || ''}
                                                                         onChange={(e) => handleUpdateRotinaResponsavel(rot.id, e.target.value)}
+                                                                        disabled={!isSuperAdmin}
                                                                         className="select-input"
-                                                                        style={{ padding: '2px 5px', fontSize: '0.72rem', maxWidth: '115px' }}
-                                                                        title="Responsável pela integração"
+                                                                        style={{
+                                                                            padding: '2px 5px',
+                                                                            fontSize: '0.72rem',
+                                                                            maxWidth: '115px',
+                                                                            opacity: !isSuperAdmin ? 0.6 : 1,
+                                                                            cursor: !isSuperAdmin ? 'not-allowed' : 'pointer'
+                                                                        }}
+                                                                        title={!isSuperAdmin ? "Apenas Superadmin pode alterar o responsável" : "Responsável pela integração"}
                                                                     >
                                                                         <option value="">Responsável...</option>
                                                                         {displayUsers.map(u => (
@@ -1844,21 +1884,22 @@ function GestaoContabilModule({ userRole, userName, companies }) {
 
                                                                     <button
                                                                         onClick={() => handleOpenCobrancaIntegracao(rot, filial, label)}
-                                                                        disabled={isDone}
+                                                                        disabled={isDone || !isSuperAdmin}
                                                                         style={{
-                                                                            background: isDone ? 'rgba(255,255,255,0.03)' : 'rgba(33, 150, 243, 0.15)',
-                                                                            color: isDone ? '#555' : '#64B5F6',
-                                                                            border: `1px solid ${isDone ? 'transparent' : 'rgba(33, 150, 243, 0.35)'}`,
+                                                                            background: (isDone || !isSuperAdmin) ? 'rgba(255,255,255,0.03)' : 'rgba(33, 150, 243, 0.15)',
+                                                                            color: (isDone || !isSuperAdmin) ? '#555' : '#64B5F6',
+                                                                            border: `1px solid ${(isDone || !isSuperAdmin) ? 'transparent' : 'rgba(33, 150, 243, 0.35)'}`,
                                                                             borderRadius: '4px',
                                                                             padding: '2px 6px',
-                                                                            cursor: isDone ? 'default' : 'pointer',
+                                                                            cursor: (isDone || !isSuperAdmin) ? 'not-allowed' : 'pointer',
                                                                             fontSize: '0.7rem',
                                                                             display: 'inline-flex',
                                                                             alignItems: 'center',
                                                                             gap: '3px',
-                                                                            fontWeight: '500'
+                                                                            fontWeight: '500',
+                                                                            opacity: !isSuperAdmin ? 0.5 : 1
                                                                         }}
-                                                                        title={isDone ? 'Integração já concluída' : 'Cobrar responsável por e-mail'}
+                                                                        title={!isSuperAdmin ? 'Apenas Superadmin pode cobrar responsáveis' : isDone ? 'Integração já concluída' : 'Cobrar responsável por e-mail'}
                                                                     >
                                                                         <Mail size={11} /> Cobrar
                                                                     </button>
@@ -1931,8 +1972,16 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                                             <select
                                                                 value={fApuracao.responsavel || ''}
                                                                 onChange={(e) => handleUpdateRotinaResponsavel(fApuracao.id, e.target.value)}
+                                                                disabled={!isSuperAdmin}
                                                                 className="select-input"
-                                                                style={{ padding: '2px 6px', fontSize: '0.74rem', maxWidth: '125px' }}
+                                                                style={{
+                                                                    padding: '2px 6px',
+                                                                    fontSize: '0.74rem',
+                                                                    maxWidth: '125px',
+                                                                    opacity: !isSuperAdmin ? 0.6 : 1,
+                                                                    cursor: !isSuperAdmin ? 'not-allowed' : 'pointer'
+                                                                }}
+                                                                title={!isSuperAdmin ? "Apenas Superadmin pode alterar o responsável" : "Responsável pela apuração"}
                                                             >
                                                                 <option value="">Responsável...</option>
                                                                 {displayUsers.map(u => (
@@ -1997,19 +2046,21 @@ function GestaoContabilModule({ userRole, userName, companies }) {
 
                                                             <button
                                                                 onClick={() => handleOpenManualEmail(fApuracao)}
+                                                                disabled={!isSuperAdmin}
                                                                 style={{
-                                                                    background: 'rgba(33, 150, 243, 0.12)',
-                                                                    color: '#64B5F6',
-                                                                    border: '1px solid rgba(33, 150, 243, 0.3)',
+                                                                    background: !isSuperAdmin ? 'rgba(255,255,255,0.03)' : 'rgba(33, 150, 243, 0.12)',
+                                                                    color: !isSuperAdmin ? '#555' : '#64B5F6',
+                                                                    border: `1px solid ${!isSuperAdmin ? 'transparent' : 'rgba(33, 150, 243, 0.3)'}`,
                                                                     borderRadius: '4px',
                                                                     padding: '3px 6px',
-                                                                    cursor: 'pointer',
+                                                                    cursor: !isSuperAdmin ? 'not-allowed' : 'pointer',
                                                                     fontSize: '0.7rem',
                                                                     display: 'flex',
                                                                     alignItems: 'center',
-                                                                    gap: '3px'
+                                                                    gap: '3px',
+                                                                    opacity: !isSuperAdmin ? 0.5 : 1
                                                                 }}
-                                                                title="Notificar responsável por e-mail"
+                                                                title={!isSuperAdmin ? "Apenas Superadmin pode notificar/cobrar por e-mail" : "Notificar responsável por e-mail"}
                                                             >
                                                                 <Mail size={11} /> E-mail
                                                             </button>
