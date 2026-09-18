@@ -170,6 +170,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
   const [showViewMappingModal, setShowViewMappingModal] = useState(false);
   const [mappingSearchText, setMappingSearchText] = useState('');
   const [mappingViewTab, setMappingViewTab] = useState('passivo');
+  const [avViewMode, setAvViewMode] = useState('all'); // 'all' (todas empresas), 'consol' (apenas consolidado), 'none' (ocultar)
   
   const [manualEmpresa, setManualEmpresa] = useState('');
   const [manualConta, setManualConta] = useState('');
@@ -1615,12 +1616,15 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
       return line[selectedCompany];
     };
     
+    const showCompAV = Boolean(avBaseRow && avViewMode === 'all');
+    const showConsolAV = Boolean(avBaseRow && avViewMode !== 'none');
+
     return (
-      <div className="table-wrapper" style={{ marginBottom: '3rem' }}>
+      <div className={`table-wrapper ${compArray.length >= 3 ? 'consolidado-dense' : ''}`} style={{ marginBottom: '3rem' }}>
         <h3 className="print-hide" style={{ padding: '1rem', background: 'rgba(0,0,0,0.4)', color: 'var(--color-primary)', borderBottom: '1px solid #333' }}>
           {title}
         </h3>
-        <table className="data-table">
+        <table className={`data-table ${compArray.length >= 3 ? 'consolidado-dense' : ''}`}>
           <thead>
             <tr>
                 <th colSpan={100} className="print-title-cell" style={{ background: '#e0e0e0', color: '#000', textAlign: 'center', padding: '0.75rem', fontWeight: 'bold', fontSize: '1.1rem', border: '1px solid #000' }}>
@@ -1632,13 +1636,13 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
               {compArray.map(c => (
                 <React.Fragment key={c.id}>
                   <th>{c.name.toUpperCase()}</th>
-                  {avBaseRow && <th className="av-col">AV %</th>}
+                  {showCompAV && <th className="av-col">AV %</th>}
                 </React.Fragment>
               ))}
               {isConsolView && (
                 <React.Fragment>
                   <th>{isCustomConsol ? `CONSOLIDADO (${activeCustom.name.toUpperCase()})` : 'CONSOLIDADO'}</th>
-                  {avBaseRow && <th className="av-col">AV %</th>}
+                  {showConsolAV && <th className="av-col">AV %</th>}
                 </React.Fragment>
               )}
             </tr>
@@ -1675,7 +1679,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                           <td style={{ color: (line[c.id] || 0) < 0 ? '#ff5252' : 'var(--color-success)', fontWeight: line.isSubtotal || line.isTotal ? 'bold' : 'normal' }}>
                             {line[c.id] !== undefined ? line[c.id].toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}
                           </td>
-                          {avBaseRow && (
+                          {showCompAV && (
                             <td className="av-cell">
                               {line.isGroupHeader || line.isZero ? '' : `${avPct.toFixed(1)}%`}
                             </td>
@@ -1691,7 +1695,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                           <td style={{ color: (line.consolidado || 0) < 0 ? '#ff5252' : 'var(--color-success)', fontWeight: 'bold' }}>
                             {line.consolidado !== undefined ? line.consolidado.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}
                           </td>
-                          {avBaseRow && (
+                          {showConsolAV && (
                             <td className="av-cell" style={{ fontWeight: 'bold' }}>
                               {line.isGroupHeader || line.isZero ? '' : `${avPctConsol.toFixed(1)}%`}
                             </td>
@@ -1717,7 +1721,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                               <td style={{ fontSize: '0.85em', color: '#ccc' }}>
                                 {det[c.id] !== undefined ? det[c.id].toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}
                               </td>
-                              {avBaseRow && (
+                              {showCompAV && (
                                 <td className="av-cell" style={{ fontSize: '0.85em' }}>
                                   {`${avPctDet.toFixed(1)}%`}
                                 </td>
@@ -1733,7 +1737,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                               <td style={{ fontSize: '0.85em', color: (det.consolidado || 0) < 0 ? '#ff5252' : 'var(--color-success)' }}>
                                 {det.consolidado !== undefined ? det.consolidado.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '-'}
                               </td>
-                              {avBaseRow && (
+                              {showConsolAV && (
                                 <td className="av-cell" style={{ fontSize: '0.85em' }}>
                                   {`${avPctConsolDet.toFixed(1)}%`}
                                 </td>
@@ -2332,7 +2336,21 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
 
           {secondaryTab === 'dre' && (
             <div className="glass-panel" style={{ padding: '1.5rem', position: 'relative' }}>
-              <div className="print-hide" style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginBottom: '1rem' }}>
+              <div className="print-hide" style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'rgba(255,255,255,0.05)', padding: '0.25rem 0.6rem', borderRadius: '6px', border: '1px solid #444', fontSize: '0.82rem' }}>
+                  <span style={{ color: '#aaa', fontWeight: 500 }}>📊 AV %:</span>
+                  <select 
+                    value={avViewMode} 
+                    onChange={e => setAvViewMode(e.target.value)} 
+                    className="select-input" 
+                    style={{ padding: '0.2rem 0.4rem', fontSize: '0.78rem', background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer' }}
+                    title="Controle das colunas de Análise Vertical (AV %)"
+                  >
+                    <option value="all" style={{ background: '#222' }}>Todas as Empresas</option>
+                    <option value="consol" style={{ background: '#222' }}>Apenas Consolidado (Compacto)</option>
+                    <option value="none" style={{ background: '#222' }}>Ocultar AV % (Mais Empresas)</option>
+                  </select>
+                </div>
                 <button 
                    onClick={() => { setMappingViewTab('dre'); setShowViewMappingModal(true); }} 
                    className="btn-secondary"
@@ -2373,8 +2391,22 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
 
           {secondaryTab === 'balanco' && (
             <div className="glass-panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '2rem', position: 'relative' }}>
-              <div className="print-hide" style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginBottom: '-1rem' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#ccc', cursor: 'pointer', marginRight: '1rem' }}>
+              <div className="print-hide" style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '-1rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'rgba(255,255,255,0.05)', padding: '0.25rem 0.6rem', borderRadius: '6px', border: '1px solid #444', fontSize: '0.82rem' }}>
+                  <span style={{ color: '#aaa', fontWeight: 500 }}>📊 AV %:</span>
+                  <select 
+                    value={avViewMode} 
+                    onChange={e => setAvViewMode(e.target.value)} 
+                    className="select-input" 
+                    style={{ padding: '0.2rem 0.4rem', fontSize: '0.78rem', background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer' }}
+                    title="Controle das colunas de Análise Vertical (AV %)"
+                  >
+                    <option value="all" style={{ background: '#222' }}>Todas as Empresas</option>
+                    <option value="consol" style={{ background: '#222' }}>Apenas Consolidado (Compacto)</option>
+                    <option value="none" style={{ background: '#222' }}>Ocultar AV % (Mais Empresas)</option>
+                  </select>
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#ccc', cursor: 'pointer' }}>
                   <input type="checkbox" checked={hideZeros} onChange={e => setHideZeros(e.target.checked)} />
                   Ocultar valores zerados
                 </label>

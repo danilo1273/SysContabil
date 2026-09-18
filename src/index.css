@@ -59,6 +59,11 @@ body {
   display: inline-block;
 }
 
+@page {
+  size: A4 landscape;
+  margin: 6mm 4mm;
+}
+
 @media print {
   * {
     -webkit-print-color-adjust: exact !important;
@@ -66,52 +71,123 @@ body {
   }
   .print-only { display: block !important; }
   .print-hide, .widget-pendencia, .app-header, .results-header-print-hide, .badge-conferencia { display: none !important; }
-  body {
+  
+  html, body {
     background: white !important;
     color: black !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
   }
+
   .glass-panel {
     box-shadow: none !important;
     border: none !important;
     background: transparent !important;
     padding: 0 !important;
+    margin: 0 !important;
   }
+
   .printable-area {
     width: 100% !important;
+    max-width: 100% !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
+
+  .table-wrapper {
+    overflow: visible !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+    border-radius: 0 !important;
+  }
+
   thead { display: table-header-group; }
   tr { page-break-inside: avoid; }
-  @page {
-    margin: 10mm;
-    size: landscape;
-  }
+
   nav, button, select, input, .header-panel {
     display: none !important;
   }
-  .table-container { overflow: visible !important; width: 100% !important; zoom: 0.7; }
-    table {
+
+  .table-container { overflow: visible !important; width: 100% !important; }
+
+  table, .data-table {
     width: 100% !important;
+    max-width: 100% !important;
     border-collapse: collapse !important;
     color: black !important;
     table-layout: auto !important;
+    font-size: 8px !important;
   }
+
   th, td {
-    border: 1px solid #000 !important;
-    padding: 3px !important;
+    border: 1px solid #444 !important;
+    padding: 2.5px 3px !important;
     color: black !important;
-    font-size: 9px !important;
+    font-size: 8px !important;
     background: white !important;
   }
+
+  /* Coluna de Conta / Descrição Gerencial */
+  .data-table th:first-child, .data-table td:first-child {
+    position: static !important;
+    white-space: normal !important;
+    min-width: 140px !important;
+    max-width: 220px !important;
+    line-height: 1.15 !important;
+    padding-left: 4px !important;
+  }
+
+  /* Colunas de valores numéricos */
+  .data-table td:not(:first-child) {
+    white-space: nowrap !important;
+    text-align: right !important;
+    font-variant-numeric: tabular-nums !important;
+    letter-spacing: -0.2px !important;
+  }
+
+  /* Colunas de AV % */
+  th.av-col, td.av-cell {
+    font-size: 7px !important;
+    padding: 2px 2px !important;
+    width: 30px !important;
+    max-width: 34px !important;
+    color: #444 !important;
+    text-align: right !important;
+  }
+
   th, .data-table th:first-child, .print-title-cell {
     background-color: #e8e8e8 !important;
     color: black !important;
     font-weight: bold !important;
   }
+
   .data-table td:first-child {
     background-color: white !important;
   }
+
   tr.isTotal td, .total-row td, .subtotal-row td {
     font-weight: bold !important;
     background-color: #f0f0f0 !important;
   }
+
+  /* Tabela densa para quando houver 4 ou mais empresas */
+  .consolidado-dense table, .consolidado-dense.data-table, .data-table.consolidado-dense {
+    font-size: 7.4px !important;
+  }
+  .consolidado-dense th, .consolidado-dense td {
+    padding: 1.5px 2px !important;
+    font-size: 7.4px !important;
+  }
+  .consolidado-dense th.av-col, .consolidado-dense td.av-cell {
+    font-size: 6.8px !important;
+    padding: 1px 1px !important;
+    width: 26px !important;
+    max-width: 30px !important;
+  }
 }
+

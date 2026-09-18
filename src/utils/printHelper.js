@@ -23,7 +23,8 @@ export function printReport({ company = '', reportName = 'Relatório', period = 
   let cleanupStyle = null;
   if (orientation) {
     cleanupStyle = document.createElement('style');
-    cleanupStyle.innerHTML = `@media print { @page { size: A4 ${orientation} !important; } }`;
+    cleanupStyle.id = 'dynamic-print-page-style';
+    cleanupStyle.textContent = `@page { size: A4 ${orientation}; margin: 6mm 4mm; }`;
     document.head.appendChild(cleanupStyle);
   }
 
