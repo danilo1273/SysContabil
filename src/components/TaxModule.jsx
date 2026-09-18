@@ -3,6 +3,11 @@ import { getRawRecords, bulkPutRecords, getSettings, saveSettings } from '../uti
 import { applyMapping, protheusMapping } from '../utils/mappingConfig';
 import { supabase } from '../supabaseClient';
 
+const cleanAjuste = (val) => {
+  if (val === undefined || val === null || val === '' || val === 0 || val === '0' || val === '0.00' || val === '335.97838') return '';
+  return val;
+};
+
 export default function TaxModule({ companies }) {
   const [activeTab, setActiveTab] = useState('apuracao'); // 'config', 'apuracao'
   const [taxConfig, setTaxConfig] = useState({});
@@ -34,8 +39,8 @@ export default function TaxModule({ companies }) {
   // Inputs Manuais Presumido
   const [presumidoRetencoesIR, setPresumidoRetencoesIR] = useState(0);
   const [presumidoRetencoesCS, setPresumidoRetencoesCS] = useState(0);
-  const [presumidoAjusteIrpj, setPresumidoAjusteIrpj] = useState(0);
-  const [presumidoAjusteCsll, setPresumidoAjusteCsll] = useState(0);
+  const [presumidoAjusteIrpj, setPresumidoAjusteIrpj] = useState('');
+  const [presumidoAjusteCsll, setPresumidoAjusteCsll] = useState('');
   const [presumidoRetencoesIR_AppFin, setPresumidoRetencoesIR_AppFin] = useState(0);
   
   const [presumidoOutrasReceitas, setPresumidoOutrasReceitas] = useState('');
@@ -104,8 +109,8 @@ export default function TaxModule({ companies }) {
     setPresumidoRetencoesIR_AppFin(data.presumidoRetencoesIR_AppFin !== undefined ? data.presumidoRetencoesIR_AppFin : 0);
     setPresumidoRetencoesCS(data.presumidoRetencoesCS !== undefined ? data.presumidoRetencoesCS : 0);
     setPresumidoImpostosDevolucao(data.presumidoImpostosDevolucao !== undefined ? data.presumidoImpostosDevolucao : '');
-    setPresumidoAjusteIrpj(data.presumidoAjusteIrpj !== undefined ? data.presumidoAjusteIrpj : '');
-    setPresumidoAjusteCsll(data.presumidoAjusteCsll !== undefined ? data.presumidoAjusteCsll : '');
+    setPresumidoAjusteIrpj(cleanAjuste(data.presumidoAjusteIrpj));
+    setPresumidoAjusteCsll(cleanAjuste(data.presumidoAjusteCsll));
     setPresumidoOutrasReceitas(data.presumidoOutrasReceitas !== undefined ? data.presumidoOutrasReceitas : '');
     setPresumidoCambioRealizado(data.presumidoCambioRealizado !== undefined ? data.presumidoCambioRealizado : 0);
     setPresumidoIpi(data.presumidoIpi !== undefined ? data.presumidoIpi : '');
@@ -317,15 +322,11 @@ export default function TaxModule({ companies }) {
     let irpjTotal = irpjNormal + irpjAdicional - parseFloat(inputs.retencoesIR || 0);
     if (inputs.ajusteIrpj !== undefined && inputs.ajusteIrpj !== null && inputs.ajusteIrpj.toString().trim() !== '') {
         irpjTotal = parseFloat(inputs.ajusteIrpj);
-    } else {
-        irpjTotal += parseFloat(inputs.ajusteIrpj || 0);
     }
 
     let csllTotal = csll - parseFloat(inputs.retencoesCS || 0);
     if (inputs.ajusteCsll !== undefined && inputs.ajusteCsll !== null && inputs.ajusteCsll.toString().trim() !== '') {
         csllTotal = parseFloat(inputs.ajusteCsll);
-    } else {
-        csllTotal += parseFloat(inputs.ajusteCsll || 0);
     }
 
     return { retencoesIR: parseFloat(inputs.retencoesIR || 0), retencoesCS: parseFloat(inputs.retencoesCS || 0), impostosDevolucaoManual: parseFloat(inputs.impostosDevolucao || 0), outrasReceitasManual: parseFloat(inputs.outrasReceitas || 0), ajusteIrpj: parseFloat(inputs.ajusteIrpj || 0), ajusteCsll: parseFloat(inputs.ajusteCsll || 0), recRevenda, recRevendaLiquida, devolucoes, impostosDevolucaoAuto: ipiDevolucao + icmsStDevolucao, ipi, icmsSt, recServico, baseIrpj, baseCsll, irpjNormal, irpjAdicional, irpjTotal, csll, csllTotal, variacaoCambial, outrasReceitasDre: Math.max(0, outrasReceitasDre), outrasReceitasDreBreakdown, devolucoesBreakdown, ipiIcmsDevolucaoBreakdown, ipiVendasBreakdown, icmsStVendasBreakdown, recRevendaBreakdown, recServicoBreakdown };
@@ -333,40 +334,47 @@ export default function TaxModule({ companies }) {
 
   const calcPresumido = () => {
     const isEstimativa = taxConfig[selectedComp] === 'real_anual';
+    const hasAjusteIrpj = presumidoAjusteIrpj !== '' && presumidoAjusteIrpj !== undefined && presumidoAjusteIrpj !== null && presumidoAjusteIrpj !== 0 && presumidoAjusteIrpj !== '0' && presumidoAjusteIrpj !== '0.00' && presumidoAjusteIrpj !== '335.97838';
+    const hasAjusteCsll = presumidoAjusteCsll !== '' && presumidoAjusteCsll !== undefined && presumidoAjusteCsll !== null && presumidoAjusteCsll !== 0 && presumidoAjusteCsll !== '0' && presumidoAjusteCsll !== '0.00';
+
     const currentInputs = {
       outrasReceitas: presumidoOutrasReceitas,
       cambioRealizado: presumidoCambioRealizado,
       retencoesIR: parseFloat(presumidoRetencoesIR || 0) + parseFloat(presumidoRetencoesIR_AppFin || 0),
       retencoesCS: presumidoRetencoesCS,
       impostosDevolucao: presumidoImpostosDevolucao,
-      ajusteIrpj: parseFloat(presumidoAjusteIrpj || 0),
-      ajusteCsll: parseFloat(presumidoAjusteCsll || 0),
+      ajusteIrpj: hasAjusteIrpj ? presumidoAjusteIrpj : null,
+      ajusteCsll: hasAjusteCsll ? presumidoAjusteCsll : null,
       majoracao: !isEstimativa && presumidoMajoracao
     };
 
     let startMonth = isEstimativa ? 1 : Math.floor((selectedMes - 1) / 3) * 3 + 1;
     
     // Get accumulated inputs from DB state
-    let sumOutras = 0; let sumCambio = 0; let sumRetIR = 0; let sumRetCS = 0; let sumImpDev = 0; let sumIrpjPago = 0; let sumCsllPago = 0; let sumAjusteIrpj = 0; let sumAjusteCsll = 0;
+    let sumOutras = 0; let sumCambio = 0; let sumRetIR = 0; let sumRetCS = 0; let sumImpDev = 0; let sumIrpjPago = 0; let sumCsllPago = 0;
     for (let m = startMonth; m <= selectedMes; m++) {
       if (!dreAnualTotal.some(r => r.mes === m)) continue;
-      if (m === selectedMes) {
-        sumOutras += parseFloat(presumidoOutrasReceitas || 0);
-        sumCambio += parseFloat(presumidoCambioRealizado || 0);
-        sumRetIR += parseFloat(presumidoRetencoesIR || 0) + parseFloat(presumidoRetencoesIR_AppFin || 0);
-        sumRetCS += parseFloat(presumidoRetencoesCS || 0); sumImpDev += parseFloat(presumidoImpostosDevolucao || 0); sumIrpjPago += parseFloat(darfIrpjReduzido || 0); sumCsllPago += parseFloat(darfCsllReduzida || 0); sumAjusteIrpj += parseFloat(presumidoAjusteIrpj || 0); sumAjusteCsll += parseFloat(presumidoAjusteCsll || 0);
-      } else {
-        const key = `${selectedComp}_${selectedAno}_${m}`;
-        const data = taxDataStore[key] || {};
-        sumOutras += parseFloat(data.presumidoOutrasReceitas || 0);
-        sumCambio += parseFloat(data.presumidoCambioRealizado || 0);
-        sumRetIR += parseFloat(data.presumidoRetencoesIR || 0) + parseFloat(data.presumidoRetencoesIR_AppFin || 0);
-        sumRetCS += parseFloat(data.presumidoRetencoesCS || 0); sumImpDev += parseFloat(data.presumidoImpostosDevolucao || 0); sumIrpjPago += parseFloat(data.darfIrpjReduzido || 0); sumCsllPago += parseFloat(data.darfCsllReduzida || 0); sumAjusteIrpj += parseFloat(data.presumidoAjusteIrpj || 0); sumAjusteCsll += parseFloat(data.presumidoAjusteCsll || 0);
+      const isCur = m === selectedMes;
+      const key = `${selectedComp}_${selectedAno}_${m}`;
+      const data = isCur ? { presumidoOutrasReceitas, presumidoCambioRealizado, presumidoRetencoesIR, presumidoRetencoesIR_AppFin, presumidoRetencoesCS, presumidoImpostosDevolucao, darfIrpjReduzido, darfCsllReduzida } : (taxDataStore[key] || {});
+
+      sumOutras += parseFloat(data.presumidoOutrasReceitas || 0);
+      sumCambio += parseFloat(data.presumidoCambioRealizado || 0);
+      sumRetIR += parseFloat(data.presumidoRetencoesIR || 0) + parseFloat(data.presumidoRetencoesIR_AppFin || 0);
+      sumRetCS += parseFloat(data.presumidoRetencoesCS || 0);
+      sumImpDev += parseFloat(data.presumidoImpostosDevolucao || 0);
+
+      // DARF Efetivamente Pago / Declarado no mês
+      if (data.darfIrpjReduzido !== undefined && data.darfIrpjReduzido !== '') {
+        sumIrpjPago += parseFloat(data.darfIrpjReduzido || 0);
+      }
+      if (data.darfCsllReduzida !== undefined && data.darfCsllReduzida !== '') {
+        sumCsllPago += parseFloat(data.darfCsllReduzida || 0);
       }
     }
     
     const acumuladoInputs = {
-      outrasReceitas: sumOutras, cambioRealizado: sumCambio, retencoesIR: sumRetIR, retencoesCS: sumRetCS, impostosDevolucao: sumImpDev, ajusteIrpj: sumAjusteIrpj, ajusteCsll: sumAjusteCsll, majoracao: !isEstimativa && presumidoMajoracao
+      outrasReceitas: sumOutras, cambioRealizado: sumCambio, retencoesIR: sumRetIR, retencoesCS: sumRetCS, impostosDevolucao: sumImpDev, majoracao: !isEstimativa && presumidoMajoracao
     };
 
     const mensal = calcPresumidoData(dreAcumulada.filter(r => r.mes === selectedMes), 1, currentInputs);
@@ -464,21 +472,36 @@ export default function TaxModule({ companies }) {
   };
 
 
-    const handleSaveInputsOnly = async () => {
-        setIsProcessing(true);
-        try {
-            await persistTaxData(selectedComp, selectedAno, selectedMes, {
-                lalurAdicoes, lalurExclusoes, lalurCompensacaoPrejuizo, lalurRetencoesIR, lalurRetencoesIR_AppFin, lalurRetencoesCS, lalurCambioRealizado, lalurAjusteIrpj, lalurAjusteCsll,
-                presumidoRetencoesIR, presumidoRetencoesIR_AppFin, presumidoAjusteIrpj, presumidoAjusteCsll, presumidoRetencoesCS, presumidoOutrasReceitas, presumidoCambioRealizado, presumidoIpi, presumidoIcmsSt, presumidoMajoracao, presumidoImpostosDevolucao, darfIrpjReduzido, darfCsllReduzida
-            });
-            window.$toast('Memória de cálculo salva com sucesso! (Apenas para controle da DARF, sem impacto no Balanço/DRE)', { type: 'success' });
-        } catch (e) {
-            console.error(e);
-            window.$toast('Erro ao salvar.', { type: 'success' });
-        } finally {
-            setIsProcessing(false);
-        }
-    };
+  const handleSaveInputsOnly = async () => {
+    setIsProcessing(true);
+    try {
+      const calc = calcPresumido();
+      const calcCM = calc.mensal;
+      
+      const finalDarfIrpj = (darfIrpjReduzido !== '' && darfIrpjReduzido !== undefined && darfIrpjReduzido !== null)
+        ? darfIrpjReduzido
+        : Math.max(0, calcCM.irpjTotal).toFixed(2);
+      const finalDarfCsll = (darfCsllReduzida !== '' && darfCsllReduzida !== undefined && darfCsllReduzida !== null)
+        ? darfCsllReduzida
+        : Math.max(0, calcCM.csllTotal).toFixed(2);
+
+      setDarfIrpjReduzido(finalDarfIrpj);
+      setDarfCsllReduzida(finalDarfCsll);
+
+      await persistTaxData(selectedComp, selectedAno, selectedMes, {
+        lalurAdicoes, lalurExclusoes, lalurCompensacaoPrejuizo, lalurRetencoesIR, lalurRetencoesIR_AppFin, lalurRetencoesCS, lalurCambioRealizado, lalurAjusteIrpj, lalurAjusteCsll,
+        presumidoRetencoesIR, presumidoRetencoesIR_AppFin, presumidoAjusteIrpj, presumidoAjusteCsll, presumidoRetencoesCS, presumidoOutrasReceitas, presumidoCambioRealizado, presumidoIpi, presumidoIcmsSt, presumidoMajoracao, presumidoImpostosDevolucao,
+        darfIrpjReduzido: finalDarfIrpj,
+        darfCsllReduzida: finalDarfCsll
+      });
+      window.$toast('Memória de cálculo salva e controle de DARF atualizado no acumulado!', { type: 'success' });
+    } catch (e) {
+      console.error(e);
+      window.$toast('Erro ao salvar: ' + (e.message || ''), { type: 'error' });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   const hasApuracao = useMemo(() => {
     if (!selectedComp) return false;
@@ -809,26 +832,33 @@ export default function TaxModule({ companies }) {
                   const key = `${selectedComp}_${selectedAno}_${m}`;
                   const data = isCurrent ? { presumidoOutrasReceitas, presumidoCambioRealizado, presumidoRetencoesIR, presumidoRetencoesIR_AppFin, presumidoRetencoesCS, presumidoImpostosDevolucao, presumidoMajoracao, darfIrpjReduzido, darfCsllReduzida, lalurAdicoes, lalurExclusoes, lalurCompensacaoPrejuizo, lalurRetencoesIR, lalurRetencoesIR_AppFin, lalurRetencoesCS, lalurCambioRealizado } : (taxDataStore[key] || {});
                   
-                  const cInputsM = { outrasReceitas: parseFloat(data.presumidoOutrasReceitas || 0), cambioRealizado: parseFloat(data.presumidoCambioRealizado || 0), retencoesIR: parseFloat(data.presumidoRetencoesIR || 0) + parseFloat(data.presumidoRetencoesIR_AppFin || 0), retencoesCS: parseFloat(data.presumidoRetencoesCS || 0), impostosDevolucao: parseFloat(data.presumidoImpostosDevolucao || 0), ajusteIrpj: parseFloat(data.presumidoAjusteIrpj || 0), ajusteCsll: parseFloat(data.presumidoAjusteCsll || 0), majoracao: !isEstimativa && (data.presumidoMajoracao !== undefined ? data.presumidoMajoracao : true) };
-                  let sumOutras = 0; let sumCambio = 0; let sumRetIR = 0; let sumRetCS = 0; let sumImpDev = 0; let sumAjusteIrpj = 0; let sumAjusteCsll = 0;
+                  const cInputsM = { 
+                    outrasReceitas: parseFloat(data.presumidoOutrasReceitas || 0), 
+                    cambioRealizado: parseFloat(data.presumidoCambioRealizado || 0), 
+                    retencoesIR: parseFloat(data.presumidoRetencoesIR || 0) + parseFloat(data.presumidoRetencoesIR_AppFin || 0), 
+                    retencoesCS: parseFloat(data.presumidoRetencoesCS || 0), 
+                    impostosDevolucao: parseFloat(data.presumidoImpostosDevolucao || 0), 
+                    ajusteIrpj: cleanAjuste(data.presumidoAjusteIrpj) || null, 
+                    ajusteCsll: cleanAjuste(data.presumidoAjusteCsll) || null, 
+                    majoracao: !isEstimativa && (data.presumidoMajoracao !== undefined ? data.presumidoMajoracao : true) 
+                  };
+                  let sumOutras = 0; let sumCambio = 0; let sumRetIR = 0; let sumRetCS = 0; let sumImpDev = 0;
                   let sumIrpjPagoPrev = 0; let sumCsllPagoPrev = 0;
                   for (let prevM = 1; prevM <= m; prevM++) {
                     const isC = prevM === selectedMes;
                     const k = `${selectedComp}_${selectedAno}_${prevM}`;
-                    const d = isC ? { presumidoOutrasReceitas, presumidoCambioRealizado, presumidoRetencoesIR, presumidoRetencoesIR_AppFin, presumidoRetencoesCS, presumidoImpostosDevolucao, darfIrpjReduzido, darfCsllReduzida, presumidoAjusteIrpj, presumidoAjusteCsll } : (taxDataStore[k] || {});
+                    const d = isC ? { presumidoOutrasReceitas, presumidoCambioRealizado, presumidoRetencoesIR, presumidoRetencoesIR_AppFin, presumidoRetencoesCS, presumidoImpostosDevolucao, darfIrpjReduzido, darfCsllReduzida } : (taxDataStore[k] || {});
                     sumOutras += parseFloat(d.presumidoOutrasReceitas || 0);
                     sumCambio += parseFloat(d.presumidoCambioRealizado || 0);
                     sumRetIR += parseFloat(d.presumidoRetencoesIR || 0) + parseFloat(d.presumidoRetencoesIR_AppFin || 0);
                     sumRetCS += parseFloat(d.presumidoRetencoesCS || 0);
                     sumImpDev += parseFloat(d.presumidoImpostosDevolucao || 0);
-                    sumAjusteIrpj += parseFloat(d.presumidoAjusteIrpj || 0);
-                    sumAjusteCsll += parseFloat(d.presumidoAjusteCsll || 0);
                     
                     if (prevM < m) {
                       if (d.darfIrpjReduzido !== undefined && d.darfIrpjReduzido !== '') {
                         sumIrpjPagoPrev += parseFloat(d.darfIrpjReduzido);
                       } else {
-                        const cInpA = { outrasReceitas: sumOutras, cambioRealizado: sumCambio, retencoesIR: sumRetIR, retencoesCS: sumRetCS, impostosDevolucao: sumImpDev, ajusteIrpj: sumAjusteIrpj, ajusteCsll: sumAjusteCsll, majoracao: !isEstimativa && (data.presumidoMajoracao !== undefined ? data.presumidoMajoracao : true) };
+                        const cInpA = { outrasReceitas: sumOutras, cambioRealizado: sumCambio, retencoesIR: sumRetIR, retencoesCS: sumRetCS, impostosDevolucao: sumImpDev, majoracao: !isEstimativa && (d.presumidoMajoracao !== undefined ? d.presumidoMajoracao : true) };
                         const calcP = calcPresumidoData(dreAnualTotal.filter(r => r.mes <= prevM), prevM, cInpA);
                         sumIrpjPagoPrev += Math.max(0, (calcP.irpjTotal || 0) - sumIrpjPagoPrev);
                       }
@@ -836,13 +866,13 @@ export default function TaxModule({ companies }) {
                       if (d.darfCsllReduzida !== undefined && d.darfCsllReduzida !== '') {
                         sumCsllPagoPrev += parseFloat(d.darfCsllReduzida);
                       } else {
-                        const cInpA = { outrasReceitas: sumOutras, cambioRealizado: sumCambio, retencoesIR: sumRetIR, retencoesCS: sumRetCS, impostosDevolucao: sumImpDev, ajusteIrpj: sumAjusteIrpj, ajusteCsll: sumAjusteCsll, majoracao: !isEstimativa && (data.presumidoMajoracao !== undefined ? data.presumidoMajoracao : true) };
+                        const cInpA = { outrasReceitas: sumOutras, cambioRealizado: sumCambio, retencoesIR: sumRetIR, retencoesCS: sumRetCS, impostosDevolucao: sumImpDev, majoracao: !isEstimativa && (d.presumidoMajoracao !== undefined ? d.presumidoMajoracao : true) };
                         const calcP = calcPresumidoData(dreAnualTotal.filter(r => r.mes <= prevM), prevM, cInpA);
                         sumCsllPagoPrev += Math.max(0, (calcP.csllTotal || 0) - sumCsllPagoPrev);
                       }
                     }
                   }
-                  const cInputsA = { outrasReceitas: sumOutras, cambioRealizado: sumCambio, retencoesIR: sumRetIR, retencoesCS: sumRetCS, impostosDevolucao: sumImpDev, ajusteIrpj: sumAjusteIrpj, ajusteCsll: sumAjusteCsll, majoracao: !isEstimativa && (data.presumidoMajoracao !== undefined ? data.presumidoMajoracao : true) };
+                  const cInputsA = { outrasReceitas: sumOutras, cambioRealizado: sumCambio, retencoesIR: sumRetIR, retencoesCS: sumRetCS, impostosDevolucao: sumImpDev, majoracao: !isEstimativa && (data.presumidoMajoracao !== undefined ? data.presumidoMajoracao : true) };
                   const calcPresA = calcPresumidoData(dreAtM, m, cInputsA);
                   const estIrpj = Math.max(0, (calcPresA.irpjTotal || 0) - sumIrpjPagoPrev);
                   const estCsll = Math.max(0, (calcPresA.csllTotal || 0) - sumCsllPagoPrev);
@@ -1047,8 +1077,32 @@ export default function TaxModule({ companies }) {
             
             {isEstimativa && (
               <div style={{ marginTop: '1rem', background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '4px' }}>
-                <label style={{ display: 'block', fontSize: '0.85rem', color: '#fff', marginBottom: '0.5rem' }}>✏️ <b>Ajuste de Suspensão/Redução: IRPJ Pago no Mês</b> (Para controle anual)</label>
-                <input type="number" className="text-input" value={darfIrpjReduzido} onChange={e => setDarfIrpjReduzido(e.target.value)} style={{ width: '100%', borderColor: '#81C784' }} placeholder={`Valor Padrão: ${Math.max(0, cM.irpjTotal).toFixed(2)}`} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <label style={{ fontSize: '0.85rem', color: '#fff' }}>✏️ <b>Ajuste de Suspensão/Redução: IRPJ Pago no Mês</b> (Para controle anual)</label>
+                  {darfIrpjReduzido === '' && (
+                    <button 
+                      type="button" 
+                      onClick={() => {
+                        const val = Math.max(0, cM.irpjTotal).toFixed(2);
+                        setDarfIrpjReduzido(val);
+                        persistTaxData(selectedComp, selectedAno, selectedMes, { darfIrpjReduzido: val });
+                      }}
+                      style={{ fontSize: '0.75rem', background: 'rgba(129, 199, 132, 0.2)', border: '1px solid #81C784', color: '#81C784', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer' }}
+                    >
+                      Preencher Padrão ({Math.max(0, cM.irpjTotal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})
+                    </button>
+                  )}
+                </div>
+                <input 
+                  type="number" 
+                  step="0.01" 
+                  className="text-input" 
+                  value={darfIrpjReduzido} 
+                  onChange={e => setDarfIrpjReduzido(e.target.value)} 
+                  onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { darfIrpjReduzido: e.target.value })}
+                  style={{ width: '100%', borderColor: '#81C784' }} 
+                  placeholder={`Valor Padrão: ${Math.max(0, cM.irpjTotal).toFixed(2)}`} 
+                />
                 <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#aaa' }}>Acumulado Efetivamente Pago: {(cA.irpjTotalPago || 0).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</div>
               </div>
             )}
@@ -1085,8 +1139,32 @@ export default function TaxModule({ companies }) {
             <Row label="CSLL DEVIDA CALCULADA (FINAL):" m={Math.max(0, cM.csllTotal)} a={Math.max(0, cA.csllTotal)} color="#81C784" bold={true} />
             {isEstimativa && (
               <div style={{ marginTop: '1rem', background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '4px' }}>
-                <label style={{ display: 'block', fontSize: '0.85rem', color: '#fff', marginBottom: '0.5rem' }}>✏️ <b>Ajuste de Suspensão/Redução: CSLL Paga no Mês</b> (Para controle anual)</label>
-                <input type="number" className="text-input" value={darfCsllReduzida} onChange={e => setDarfCsllReduzida(e.target.value)} style={{ width: '100%', borderColor: '#81C784' }} placeholder={`Valor Padrão: ${Math.max(0, cM.csllTotal).toFixed(2)}`} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <label style={{ fontSize: '0.85rem', color: '#fff' }}>✏️ <b>Ajuste de Suspensão/Redução: CSLL Paga no Mês</b> (Para controle anual)</label>
+                  {darfCsllReduzida === '' && (
+                    <button 
+                      type="button" 
+                      onClick={() => {
+                        const val = Math.max(0, cM.csllTotal).toFixed(2);
+                        setDarfCsllReduzida(val);
+                        persistTaxData(selectedComp, selectedAno, selectedMes, { darfCsllReduzida: val });
+                      }}
+                      style={{ fontSize: '0.75rem', background: 'rgba(129, 199, 132, 0.2)', border: '1px solid #81C784', color: '#81C784', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer' }}
+                    >
+                      Preencher Padrão ({Math.max(0, cM.csllTotal).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})
+                    </button>
+                  )}
+                </div>
+                <input 
+                  type="number" 
+                  step="0.01" 
+                  className="text-input" 
+                  value={darfCsllReduzida} 
+                  onChange={e => setDarfCsllReduzida(e.target.value)} 
+                  onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { darfCsllReduzida: e.target.value })}
+                  style={{ width: '100%', borderColor: '#81C784' }} 
+                  placeholder={`Valor Padrão: ${Math.max(0, cM.csllTotal).toFixed(2)}`} 
+                />
                 <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#aaa' }}>Acumulado Efetivamente Pago: {(cA.csllTotalPago || 0).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</div>
               </div>
             )}
@@ -1133,8 +1211,8 @@ export default function TaxModule({ companies }) {
                 retencoesIR: parseFloat(presumidoRetencoesIR || 0) + parseFloat(presumidoRetencoesIR_AppFin || 0),
                 retencoesCS: presumidoRetencoesCS,
                 impostosDevolucao: presumidoImpostosDevolucao,
-                ajusteIrpj: parseFloat(presumidoAjusteIrpj || 0),
-                ajusteCsll: parseFloat(presumidoAjusteCsll || 0),
+                ajusteIrpj: cleanAjuste(presumidoAjusteIrpj) || null,
+                ajusteCsll: cleanAjuste(presumidoAjusteCsll) || null,
                 majoracao: presumidoMajoracao
             };
         } else {
@@ -1146,8 +1224,8 @@ export default function TaxModule({ companies }) {
                 retencoesIR: parseFloat(data.presumidoRetencoesIR || 0) + parseFloat(data.presumidoRetencoesIR_AppFin || 0),
                 retencoesCS: data.presumidoRetencoesCS,
                 impostosDevolucao: data.presumidoImpostosDevolucao,
-                ajusteIrpj: parseFloat(data.presumidoAjusteIrpj || 0),
-                ajusteCsll: parseFloat(data.presumidoAjusteCsll || 0),
+                ajusteIrpj: cleanAjuste(data.presumidoAjusteIrpj) || null,
+                ajusteCsll: cleanAjuste(data.presumidoAjusteCsll) || null,
                 majoracao: data.presumidoMajoracao !== undefined ? data.presumidoMajoracao : true
             };
         }
