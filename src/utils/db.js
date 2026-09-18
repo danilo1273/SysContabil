@@ -54,9 +54,9 @@ export async function saveBalanceteToDB(fileData, empresaId, ano, mes, userConfi
     }
   }
 
-  // Delete existing records for this month to avoid duplicates
-  await supabase.from("dre_history").delete().match({ empresaId, ano, mes });
-  await supabase.from("balanco_history").delete().match({ empresaId, ano, mes });
+  // Delete existing records for this month to avoid duplicates (preservando apurações fiscais e lançamentos manuais)
+  await supabase.from("dre_history").delete().match({ empresaId, ano, mes }).not("id", "like", "tax-%").not("id", "like", "manual_%");
+  await supabase.from("balanco_history").delete().match({ empresaId, ano, mes }).not("id", "like", "tax-%").not("id", "like", "manual_%");
 
   // Insert in chunks
   const insertChunks = async (table, entries) => {
