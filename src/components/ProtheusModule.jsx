@@ -2702,13 +2702,14 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
           {secondaryTab === 'faturamento' && (
             <div style={{ marginTop: '1rem' }}>
               <FaturamentoModule
-              companies={companies}
-              selectedCompany={selectedCompany}
-              selectedAno={selectedAno}
-              selectedMes={selectedMes}
-            />
-          </div>
-        )}
+                key={`${selectedCompany}_${selectedAno}_${selectedMes}`}
+                companies={companies}
+                selectedCompany={selectedCompany}
+                selectedAno={selectedAno}
+                selectedMes={selectedMes}
+              />
+            </div>
+          )}
 
         {secondaryTab === 'perdcomp' && (
           <PerdcompModule 

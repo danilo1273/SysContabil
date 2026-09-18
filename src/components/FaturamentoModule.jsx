@@ -77,6 +77,7 @@ function FaturamentoModule({ companies = [], selectedCompany, selectedAno, selec
   const [customHeaderCnpj, setCustomHeaderCnpj] = useState('');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [customConsolidations, setCustomConsolidations] = useState([]);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     getCustomConsolidations().then(list => {
@@ -216,7 +217,7 @@ function FaturamentoModule({ companies = [], selectedCompany, selectedAno, selec
     }
 
     loadLTMData();
-  }, [selectedCompany, selectedAno, selectedMes, companies, overrides]);
+  }, [selectedCompany, selectedAno, selectedMes, companies, overrides, refreshKey]);
 
   const handleValueChange = (monthKey, newVal) => {
     setOverrides(prev => ({
@@ -308,6 +309,24 @@ function FaturamentoModule({ companies = [], selectedCompany, selectedAno, selec
             }}
           >
             {isEditing ? '✓ Concluir Edição' : '✏️ Ajustar / Complementar Valores'}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setRefreshKey(k => k + 1)}
+            style={{
+              padding: '0.55rem 1rem',
+              borderRadius: '6px',
+              border: '1px solid #4CAF50',
+              background: 'rgba(76, 175, 80, 0.1)',
+              color: '#2E7D32',
+              fontWeight: 700,
+              fontSize: '0.85rem',
+              cursor: 'pointer'
+            }}
+            title="Recalcular dados e atualizar tela"
+          >
+            🔄 Recalcular / Atualizar
           </button>
 
           {isEditing && (
