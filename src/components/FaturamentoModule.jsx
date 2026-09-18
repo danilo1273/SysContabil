@@ -125,7 +125,7 @@ function FaturamentoModule({ companies = [], selectedCompany, selectedAno, selec
       try {
         // Contas exatas de Receita e Devoluções
         const accReceita = '3.1.1.1.01'; // Receita Bruta de Vendas / Serviços
-        const accDevolucao = '3.1.1.2.02'; // Devoluções de Vendas
+        const accDevolucao = '3.1.1.2.02.00001'; // Devoluções - Terceiros (apenas o valor das devoluções e não os impostos)
 
         let totalCurrentYear = [];
         let totalPreviousYear = [];
@@ -137,12 +137,14 @@ function FaturamentoModule({ companies = [], selectedCompany, selectedAno, selec
           if (isNaN(val) || val === 0) return;
 
           if (row.conta && row.conta.endsWith('.EXC')) {
-            valueToAdd = -Math.abs(val);
-          } else if (row.conta && row.conta.startsWith(accReceita)) {
+            if (row.conta.startsWith('3.1.1.1')) {
+              valueToAdd = -Math.abs(val);
+            }
+          } else if (row.conta && (row.conta.startsWith(accReceita) || row.conta.startsWith('3.1.1.1'))) {
             // Receita bruta (valor positivo)
             valueToAdd = Math.abs(val);
-          } else if (row.conta && row.conta.startsWith(accDevolucao)) {
-            // Devoluções (reduz a receita bruta)
+          } else if (row.conta && (row.conta === accDevolucao || row.conta.startsWith(accDevolucao))) {
+            // Devoluções: excluir apenas o valor das devoluções conta 3.1.1.2.02.00001 e não os impostos
             valueToAdd = -Math.abs(val);
           }
 
