@@ -3,7 +3,8 @@ import { supabase } from "../supabaseClient";
 import { 
   Plus, Trash2, Edit2, Save, X, DollarSign, FileText, 
   TrendingUp, ArrowRight, Percent, Clock, Layers, 
-  Search, Download, RefreshCw, Calculator, Copy, Check, Sparkles
+  Search, Download, RefreshCw, Calculator, Copy, Check, Sparkles,
+  ChevronDown, ChevronRight, ChevronsUpDown
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -247,6 +248,7 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
   // Filtros
   const [filterEmpresa, setFilterEmpresa] = useState("todas");
   const [searchTerm, setSearchTerm] = useState("");
+  const [expandedTributos, setExpandedTributos] = useState({});
 
   // Modais
   const [isCreditModalOpen, setIsCreditModalOpen] = useState(false);
@@ -399,6 +401,71 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
       return true;
     });
   }, [creditosComSaldos, filterEmpresa, searchTerm]);
+
+  // Agrupamento dos créditos por tipo de tributo para visualização sumarizada e expansível
+  const creditosAgrupadosPorTributo = useMemo(() => {
+    const map = {};
+    creditosFiltrados.forEach(c => {
+      const tipo = (c.tipoCredito || "OUTROS").toUpperCase();
+      if (!map[tipo]) {
+        map[tipo] = {
+          tipo,
+          creditos: [],
+          totalCreditoOriginal: 0,
+          totalPrincipalCompensado: 0,
+          totalSaldoDisponivel: 0,
+          totalJurosRealizados: 0,
+          qtdCreditos: 0
+        };
+      }
+      map[tipo].creditos.push(c);
+      map[tipo].totalCreditoOriginal += Number(c.valorCredito || 0);
+      map[tipo].totalPrincipalCompensado += Number(c.totalPrincipalCompensado || 0);
+      map[tipo].totalSaldoDisponivel += Number(c.saldoDisponivel || 0);
+      map[tipo].totalJurosRealizados += Number(c.totalJurosRealizados || 0);
+      map[tipo].qtdCreditos += 1;
+    });
+
+    return Object.values(map).map(g => {
+      const percUtilizado = g.totalCreditoOriginal > 0 ? (g.totalPrincipalCompensado / g.totalCreditoOriginal) * 100 : 0;
+      const percDisponivel = g.totalCreditoOriginal > 0 ? (g.totalSaldoDisponivel / g.totalCreditoOriginal) * 100 : 0;
+      let status = "DISPONÍVEL";
+      let statusColor = "#10B981";
+      let statusBg = "rgba(16, 185, 129, 0.15)";
+      if (g.totalSaldoDisponivel <= 0) {
+        status = "ESGOTADO";
+        statusColor = "#F59E0B";
+        statusBg = "rgba(245, 158, 11, 0.15)";
+      }
+      return {
+        ...g,
+        percUtilizado,
+        percDisponivel,
+        status,
+        statusColor,
+        statusBg
+      };
+    });
+  }, [creditosFiltrados]);
+
+  const toggleTributo = (tipo) => {
+    setExpandedTributos(prev => ({
+      ...prev,
+      [tipo]: !prev[tipo]
+    }));
+  };
+
+  const expandAllTributos = () => {
+    const next = {};
+    creditosAgrupadosPorTributo.forEach(g => {
+      next[g.tipo] = true;
+    });
+    setExpandedTributos(next);
+  };
+
+  const collapseAllTributos = () => {
+    setExpandedTributos({});
+  };
 
   // Compensações enriquecidas com o saldo do principal restante após cada compensação
   const compensacoesEnriquecidas = useMemo(() => {
@@ -1176,8 +1243,9 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
       {/* ABA 2: BASE DE CRÉDITOS */}
       {activeTab === "creditos" && (
         <div>
+          {/* Barra de Busca e Ações Rápidas */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "10px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", flex: 1, maxWidth: "400px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", flex: 1, maxWidth: "450px" }}>
               <div style={{ position: "relative", width: "100%" }}>
                 <Search size={16} style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", color: "#64748b" }} />
                 <input
@@ -1193,156 +1261,317 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
               </div>
             </div>
 
-            {canEdit && (
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+              {/* Botões Expandir / Recolher Todos */}
               <button
-                onClick={() => handleOpenCreditModal()}
+                onClick={expandAllTributos}
                 style={{
-                  display: "flex", alignItems: "center", gap: "6px",
-                  padding: "8px 16px", background: "#10b981", border: "none",
-                  color: "#fff", borderRadius: "8px", cursor: "pointer", fontSize: "0.85rem",
-                  fontWeight: "600", boxShadow: "0 2px 8px rgba(16, 185, 129, 0.3)"
+                  display: "flex", alignItems: "center", gap: "5px",
+                  padding: "7px 12px", background: "#1e293b", border: "1px solid #334155",
+                  color: "#cbd5e1", borderRadius: "8px", cursor: "pointer", fontSize: "0.82rem",
+                  transition: "all 0.15s"
                 }}
+                title="Expandir todos os grupos de tributos para ver detalhamento"
               >
-                <Plus size={16} /> Novo Crédito / Pedido
+                <ChevronDown size={14} /> Expandir Todos
               </button>
-            )}
+              <button
+                onClick={collapseAllTributos}
+                style={{
+                  display: "flex", alignItems: "center", gap: "5px",
+                  padding: "7px 12px", background: "#1e293b", border: "1px solid #334155",
+                  color: "#cbd5e1", borderRadius: "8px", cursor: "pointer", fontSize: "0.82rem",
+                  transition: "all 0.15s"
+                }}
+                title="Recolher todos os grupos e ver apenas o resumo dos tributos"
+              >
+                <ChevronRight size={14} /> Recolher Todos
+              </button>
+
+              {canEdit && (
+                <button
+                  onClick={() => handleOpenCreditModal()}
+                  style={{
+                    display: "flex", alignItems: "center", gap: "6px",
+                    padding: "8px 16px", background: "#10b981", border: "none",
+                    color: "#fff", borderRadius: "8px", cursor: "pointer", fontSize: "0.85rem",
+                    fontWeight: "600", boxShadow: "0 2px 8px rgba(16, 185, 129, 0.3)"
+                  }}
+                >
+                  <Plus size={16} /> Novo Crédito / Pedido
+                </button>
+              )}
+            </div>
           </div>
 
-          <div style={{
-            background: "#1e293b", borderRadius: "12px", border: "1px solid #334155",
-            overflow: "hidden", boxShadow: "0 4px 15px rgba(0,0,0,0.2)"
-          }}>
-            <div className="table-container" style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "0.85rem" }}>
-                <thead>
-                  <tr style={{ background: "#0f172a", color: "#94a3b8", borderBottom: "2px solid #334155" }}>
-                    <th style={{ padding: "10px 14px", width: "50px" }}>ID</th>
-                    <th style={{ padding: "10px 14px" }}>Tipo</th>
-                    <th style={{ padding: "10px 14px" }}>Nº PER/DCOMP Origem</th>
-                    <th style={{ padding: "10px 14px" }}>Data Transm.</th>
-                    <th style={{ padding: "10px 14px", textAlign: "right" }}>Valor Crédito</th>
-                    <th style={{ padding: "10px 14px", textAlign: "right", color: "#fbbf24" }}>Baixa Principal</th>
-                    <th style={{ padding: "10px 14px", textAlign: "right", color: "#34d399" }}>Saldo Disponível</th>
-                    <th style={{ padding: "10px 14px", textAlign: "right", color: "#a5b4fc" }}>Ganho Juros DCOMPs</th>
-                    <th style={{ padding: "10px 14px" }}>Período Apuração</th>
-                    <th style={{ padding: "10px 14px" }}>Descrição / Origem</th>
-                    <th style={{ padding: "10px 14px" }}>Observação</th>
-                    {canEdit && <th style={{ padding: "10px 14px", textAlign: "center", width: "120px" }}>Ações</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {creditosFiltrados.map((cred) => (
-                    <tr 
-                      key={cred.id}
-                      style={{ 
-                        borderBottom: "1px solid #334155",
-                        background: cred.saldoDisponivel <= 0 ? "rgba(15, 23, 42, 0.4)" : "transparent"
-                      }}
-                    >
-                      <td style={{ padding: "10px 14px", fontWeight: "700", color: "#94a3b8" }}>
-                        #{cred.id}
-                      </td>
-                      <td style={{ padding: "10px 14px" }}>
+          {/* Dica / Info de navegação */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem", padding: "0 4px", fontSize: "0.8rem", color: "#94a3b8" }}>
+            <span>
+              Mostrando <strong>{creditosAgrupadosPorTributo.length}</strong> tributos cadastrados ({creditosFiltrados.length} créditos no total). Clique em um tributo para abrir ou recolher os detalhes.
+            </span>
+          </div>
+
+          {/* LISTAGEM DOS GRUPOS POR TRIBUTO (ACCORDION) */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+            {creditosAgrupadosPorTributo.map((grupo) => {
+              const isExpanded = Boolean(expandedTributos[grupo.tipo] || searchTerm);
+              const badgeBg = grupo.tipo === "IPI" ? "rgba(59, 130, 246, 0.2)" : grupo.tipo === "IRPJ" ? "rgba(16, 185, 129, 0.2)" : grupo.tipo === "CSLL" ? "rgba(168, 85, 247, 0.2)" : grupo.tipo === "PIS" ? "rgba(6, 182, 212, 0.2)" : grupo.tipo === "COFINS" ? "rgba(249, 115, 22, 0.2)" : "rgba(148, 163, 184, 0.15)";
+              const badgeColor = grupo.tipo === "IPI" ? "#60a5fa" : grupo.tipo === "IRPJ" ? "#34d399" : grupo.tipo === "CSLL" ? "#c084fc" : grupo.tipo === "PIS" ? "#38bdf8" : grupo.tipo === "COFINS" ? "#fb923c" : "#94a3b8";
+
+              return (
+                <div
+                  key={grupo.tipo}
+                  style={{
+                    background: "#1e293b",
+                    borderRadius: "12px",
+                    border: isExpanded ? "1px solid #475569" : "1px solid #334155",
+                    overflow: "hidden",
+                    boxShadow: "0 4px 15px rgba(0,0,0,0.2)",
+                    transition: "border 0.2s"
+                  }}
+                >
+                  {/* BARRA DE CABEÇALHO / RESUMO DO TRIBUTO (CLICÁVEL) */}
+                  <div
+                    onClick={() => toggleTributo(grupo.tipo)}
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "1rem 1.25rem",
+                      cursor: "pointer",
+                      background: isExpanded ? "rgba(30, 41, 59, 0.95)" : "#1e293b",
+                      borderBottom: isExpanded ? "1px solid #334155" : "none",
+                      gap: "1rem",
+                      userSelect: "none",
+                      transition: "background 0.15s"
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = isExpanded ? "rgba(30, 41, 59, 0.95)" : "rgba(30, 41, 59, 0.7)"}
+                    onMouseLeave={(e) => e.currentTarget.style.background = isExpanded ? "rgba(30, 41, 59, 0.95)" : "#1e293b"}
+                  >
+                    {/* Identificação do Tributo */}
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px", minWidth: "220px" }}>
+                      <div style={{
+                        color: isExpanded ? "#60a5fa" : "#94a3b8",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        transition: "transform 0.2s"
+                      }}>
+                        {isExpanded ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
+                      </div>
+
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                         <span style={{
-                          padding: "3px 8px", borderRadius: "6px", fontWeight: "700", fontSize: "0.78rem",
-                          background: cred.tipoCredito === "IPI" ? "rgba(59, 130, 246, 0.2)" : cred.tipoCredito === "IRPJ" ? "rgba(16, 185, 129, 0.2)" : cred.tipoCredito === "CSLL" ? "rgba(168, 85, 247, 0.2)" : "rgba(148, 163, 184, 0.15)",
-                          color: cred.tipoCredito === "IPI" ? "#60a5fa" : cred.tipoCredito === "IRPJ" ? "#34d399" : cred.tipoCredito === "CSLL" ? "#c084fc" : "#94a3b8"
+                          padding: "5px 12px",
+                          borderRadius: "8px",
+                          fontWeight: "800",
+                          fontSize: "0.95rem",
+                          letterSpacing: "0.02em",
+                          background: badgeBg,
+                          color: badgeColor,
+                          border: `1px solid ${badgeColor}33`
                         }}>
-                          {cred.tipoCredito}
+                          {grupo.tipo}
                         </span>
-                      </td>
-                      <td style={{ padding: "10px 14px", fontFamily: "monospace", color: "#f8fafc" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                          <span>{cred.numeroPerdcomp || "-"}</span>
-                          {cred.numeroPerdcomp && (
-                            <button
-                              onClick={() => handleCopy(cred.numeroPerdcomp, `cred-${cred.id}`)}
-                              style={{ background: "transparent", border: "none", color: "#64748b", cursor: "pointer", padding: "2px" }}
-                              title="Copiar número"
-                            >
-                              {copiedId === `cred-${cred.id}` ? <Check size={13} color="#34d399" /> : <Copy size={13} />}
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                      <td style={{ padding: "10px 14px", color: "#cbd5e1" }}>
-                        {formatDate(cred.dataTransmissao)}
-                      </td>
-                      <td style={{ padding: "10px 14px", textAlign: "right", color: "#f1f5f9", fontWeight: "600" }}>
-                        {formatCurrency(cred.valorCredito)}
-                      </td>
-                      <td style={{ padding: "10px 14px", textAlign: "right", color: cred.totalPrincipalCompensado > 0 ? "#fbbf24" : "#64748b" }}>
-                        {formatCurrency(cred.totalPrincipalCompensado)}
-                      </td>
-                      <td style={{ padding: "10px 14px", textAlign: "right", fontWeight: "700", color: cred.saldoDisponivel > 0 ? "#34d399" : "#64748b" }}>
-                        <div>{formatCurrency(cred.saldoDisponivel)}</div>
-                        <div style={{ fontSize: "0.72rem", color: cred.saldoDisponivel > 0 ? "#a7f3d0" : "#64748b" }}>
-                          ({formatPercent(cred.valorCredito > 0 ? ((cred.saldoDisponivel / cred.valorCredito) * 100) : 0)} disp.)
-                        </div>
-                      </td>
-                      <td style={{ padding: "10px 14px", textAlign: "right", color: cred.totalJurosRealizados > 0 ? "#a5b4fc" : "#64748b", fontWeight: "600" }}>
-                        {cred.totalJurosRealizados > 0 ? `+ ${formatCurrency(cred.totalJurosRealizados)}` : "-"}
-                      </td>
-                      <td style={{ padding: "10px 14px", color: "#cbd5e1" }}>
-                        {cred.periodoApuracao || "-"}
-                      </td>
-                      <td style={{ padding: "10px 14px", color: "#94a3b8" }}>
-                        {cred.descricaoOrigem || "-"}
-                      </td>
-                      <td style={{ padding: "10px 14px" }}>
-                        <span style={{
-                          padding: "3px 8px", borderRadius: "6px", fontSize: "0.75rem",
-                          background: cred.observacao?.includes("ACABOU") ? "rgba(239, 68, 68, 0.15)" : cred.observacao?.includes("100%") ? "rgba(16, 185, 129, 0.15)" : "rgba(245, 158, 11, 0.15)",
-                          color: cred.observacao?.includes("ACABOU") ? "#f87171" : cred.observacao?.includes("100%") ? "#34d399" : "#fbbf24"
-                        }}>
-                          {cred.observacao || "-"}
+                        <span style={{ fontSize: "0.82rem", color: "#94a3b8" }}>
+                          ({grupo.qtdCreditos} {grupo.qtdCreditos === 1 ? "crédito" : "créditos"})
                         </span>
-                      </td>
-                      {canEdit && (
-                        <td style={{ padding: "10px 14px", textAlign: "center" }}>
-                          <div style={{ display: "flex", gap: "6px", justifyContent: "center", alignItems: "center" }}>
-                            {cred.saldoDisponivel > 0 && (
-                              <button
-                                onClick={() => handleOpenCompModal(null, cred.id)}
-                                style={{
-                                  background: "#2563eb", border: "none", color: "#fff",
-                                  padding: "4px 8px", borderRadius: "4px", cursor: "pointer",
-                                  fontSize: "0.75rem", fontWeight: "600", display: "flex", alignItems: "center", gap: "3px"
-                                }}
-                                title="Lançar compensação com este crédito"
-                              >
-                                <Plus size={12} /> Comp.
-                              </button>
-                            )}
-                            <button
-                              onClick={() => handleOpenCreditModal(cred)}
-                              style={{ background: "transparent", border: "none", color: "#60a5fa", cursor: "pointer", padding: "4px" }}
-                              title="Editar crédito"
-                            >
-                              <Edit2 size={15} />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteCredit(cred.id)}
-                              style={{ background: "transparent", border: "none", color: "#ef4444", cursor: "pointer", padding: "4px" }}
-                              title="Excluir crédito"
-                            >
-                              <Trash2 size={15} />
-                            </button>
+                      </div>
+                    </div>
+
+                    {/* Resumo Consolidado do Tributo */}
+                    <div style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "1.5rem",
+                      flexWrap: "wrap",
+                      fontSize: "0.86rem"
+                    }}>
+                      {/* Crédito Original */}
+                      <div>
+                        <div style={{ fontSize: "0.72rem", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Crédito Original</div>
+                        <div style={{ fontWeight: "700", color: "#f8fafc" }}>
+                          {formatCurrency(grupo.totalCreditoOriginal)}
+                        </div>
+                      </div>
+
+                      {/* Principal Baixado */}
+                      <div>
+                        <div style={{ fontSize: "0.72rem", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Principal Baixado</div>
+                        <div style={{ fontWeight: "700", color: grupo.totalPrincipalCompensado > 0 ? "#fbbf24" : "#64748b" }}>
+                          {formatCurrency(grupo.totalPrincipalCompensado)}
+                        </div>
+                      </div>
+
+                      {/* Saldo Disponível */}
+                      <div>
+                        <div style={{ fontSize: "0.72rem", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Saldo Disponível</div>
+                        <div style={{ fontWeight: "800", color: grupo.totalSaldoDisponivel > 0 ? "#34d399" : "#64748b" }}>
+                          {formatCurrency(grupo.totalSaldoDisponivel)}
+                          <span style={{ fontSize: "0.74rem", fontWeight: "600", marginLeft: "5px", color: grupo.totalSaldoDisponivel > 0 ? "#a7f3d0" : "#64748b" }}>
+                            ({formatPercent(grupo.percDisponivel)} disp.)
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Ganho de Juros SELIC Realizado (se houver) */}
+                      {grupo.totalJurosRealizados > 0 && (
+                        <div>
+                          <div style={{ fontSize: "0.72rem", color: "#c7d2fe", textTransform: "uppercase", letterSpacing: "0.05em" }}>Ganho SELIC</div>
+                          <div style={{ fontWeight: "700", color: "#a5b4fc" }}>
+                            + {formatCurrency(grupo.totalJurosRealizados)}
                           </div>
-                        </td>
+                        </div>
                       )}
-                    </tr>
-                  ))}
-                  {creditosFiltrados.length === 0 && (
-                    <tr>
-                      <td colSpan={12} style={{ textAlign: "center", padding: "2rem", color: "#64748b" }}>
-                        Nenhum crédito localizado com os filtros aplicados.
-                      </td>
-                    </tr>
+
+                      {/* Status */}
+                      <div>
+                        <span style={{
+                          padding: "4px 10px", borderRadius: "12px", fontSize: "0.74rem", fontWeight: "800",
+                          background: grupo.statusBg, color: grupo.statusColor
+                        }}>
+                          {grupo.status}
+                        </span>
+                      </div>
+
+                      {/* Ação textual indicativa */}
+                      <span style={{
+                        fontSize: "0.78rem", color: "#60a5fa", display: "flex", alignItems: "center", gap: "4px",
+                        padding: "3px 8px", background: "rgba(59, 130, 246, 0.1)", borderRadius: "6px"
+                      }}>
+                        {isExpanded ? "Ocultar detalhes" : "Ver detalhado"}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* TABELA DETALHADA DO TRIBUTO (QUANDO EXPANDIDO) */}
+                  {isExpanded && (
+                    <div className="table-container" style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "0.85rem" }}>
+                        <thead>
+                          <tr style={{ background: "#0f172a", color: "#94a3b8", borderBottom: "2px solid #334155" }}>
+                            <th style={{ padding: "10px 14px", width: "50px" }}>ID</th>
+                            <th style={{ padding: "10px 14px" }}>Nº PER/DCOMP Origem</th>
+                            <th style={{ padding: "10px 14px" }}>Data Transm.</th>
+                            <th style={{ padding: "10px 14px", textAlign: "right" }}>Valor Crédito</th>
+                            <th style={{ padding: "10px 14px", textAlign: "right", color: "#fbbf24" }}>Baixa Principal</th>
+                            <th style={{ padding: "10px 14px", textAlign: "right", color: "#34d399" }}>Saldo Disponível</th>
+                            <th style={{ padding: "10px 14px", textAlign: "right", color: "#a5b4fc" }}>Ganho Juros DCOMPs</th>
+                            <th style={{ padding: "10px 14px" }}>Período Apuração</th>
+                            <th style={{ padding: "10px 14px" }}>Descrição / Origem</th>
+                            <th style={{ padding: "10px 14px" }}>Observação</th>
+                            {canEdit && <th style={{ padding: "10px 14px", textAlign: "center", width: "120px" }}>Ações</th>}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {grupo.creditos.map((cred) => (
+                            <tr 
+                              key={cred.id}
+                              style={{ 
+                                borderBottom: "1px solid #334155",
+                                background: cred.saldoDisponivel <= 0 ? "rgba(15, 23, 42, 0.4)" : "transparent"
+                              }}
+                            >
+                              <td style={{ padding: "10px 14px", fontWeight: "700", color: "#94a3b8" }}>
+                                #{cred.id}
+                              </td>
+                              <td style={{ padding: "10px 14px", fontFamily: "monospace", color: "#f8fafc" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                  <span>{cred.numeroPerdcomp || "-"}</span>
+                                  {cred.numeroPerdcomp && (
+                                    <button
+                                      onClick={() => handleCopy(cred.numeroPerdcomp, `cred-${cred.id}`)}
+                                      style={{ background: "transparent", border: "none", color: "#64748b", cursor: "pointer", padding: "2px" }}
+                                      title="Copiar número"
+                                    >
+                                      {copiedId === `cred-${cred.id}` ? <Check size={13} color="#34d399" /> : <Copy size={13} />}
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                              <td style={{ padding: "10px 14px", color: "#cbd5e1" }}>
+                                {formatDate(cred.dataTransmissao)}
+                              </td>
+                              <td style={{ padding: "10px 14px", textAlign: "right", color: "#f1f5f9", fontWeight: "600" }}>
+                                {formatCurrency(cred.valorCredito)}
+                              </td>
+                              <td style={{ padding: "10px 14px", textAlign: "right", color: cred.totalPrincipalCompensado > 0 ? "#fbbf24" : "#64748b" }}>
+                                {formatCurrency(cred.totalPrincipalCompensado)}
+                              </td>
+                              <td style={{ padding: "10px 14px", textAlign: "right", fontWeight: "700", color: cred.saldoDisponivel > 0 ? "#34d399" : "#64748b" }}>
+                                <div>{formatCurrency(cred.saldoDisponivel)}</div>
+                                <div style={{ fontSize: "0.72rem", color: cred.saldoDisponivel > 0 ? "#a7f3d0" : "#64748b" }}>
+                                  ({formatPercent(cred.valorCredito > 0 ? ((cred.saldoDisponivel / cred.valorCredito) * 100) : 0)} disp.)
+                                </div>
+                              </td>
+                              <td style={{ padding: "10px 14px", textAlign: "right", color: cred.totalJurosRealizados > 0 ? "#a5b4fc" : "#64748b", fontWeight: "600" }}>
+                                {cred.totalJurosRealizados > 0 ? `+ ${formatCurrency(cred.totalJurosRealizados)}` : "-"}
+                              </td>
+                              <td style={{ padding: "10px 14px", color: "#cbd5e1" }}>
+                                {cred.periodoApuracao || "-"}
+                              </td>
+                              <td style={{ padding: "10px 14px", color: "#94a3b8" }}>
+                                {cred.descricaoOrigem || "-"}
+                              </td>
+                              <td style={{ padding: "10px 14px" }}>
+                                <span style={{
+                                  padding: "3px 8px", borderRadius: "6px", fontSize: "0.75rem",
+                                  background: cred.observacao?.includes("ACABOU") ? "rgba(239, 68, 68, 0.15)" : cred.observacao?.includes("100%") ? "rgba(16, 185, 129, 0.15)" : "rgba(245, 158, 11, 0.15)",
+                                  color: cred.observacao?.includes("ACABOU") ? "#f87171" : cred.observacao?.includes("100%") ? "#34d399" : "#fbbf24"
+                                }}>
+                                  {cred.observacao || "-"}
+                                </span>
+                              </td>
+                              {canEdit && (
+                                <td style={{ padding: "10px 14px", textAlign: "center" }}>
+                                  <div style={{ display: "flex", gap: "6px", justifyContent: "center", alignItems: "center" }}>
+                                    {cred.saldoDisponivel > 0 && (
+                                      <button
+                                        onClick={() => handleOpenCompModal(null, cred.id)}
+                                        style={{
+                                          background: "#2563eb", border: "none", color: "#fff",
+                                          padding: "4px 8px", borderRadius: "4px", cursor: "pointer",
+                                          fontSize: "0.75rem", fontWeight: "600", display: "flex", alignItems: "center", gap: "3px"
+                                        }}
+                                        title="Lançar compensação com este crédito"
+                                      >
+                                        <Plus size={12} /> Comp.
+                                      </button>
+                                    )}
+                                    <button
+                                      onClick={() => handleOpenCreditModal(cred)}
+                                      style={{ background: "transparent", border: "none", color: "#60a5fa", cursor: "pointer", padding: "4px" }}
+                                      title="Editar crédito"
+                                    >
+                                      <Edit2 size={15} />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteCredit(cred.id)}
+                                      style={{ background: "transparent", border: "none", color: "#ef4444", cursor: "pointer", padding: "4px" }}
+                                      title="Excluir crédito"
+                                    >
+                                      <Trash2 size={15} />
+                                    </button>
+                                  </div>
+                                </td>
+                              )}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   )}
-                </tbody>
-              </table>
-            </div>
+                </div>
+              );
+            })}
+
+            {creditosAgrupadosPorTributo.length === 0 && (
+              <div style={{
+                background: "#1e293b", borderRadius: "12px", border: "1px solid #334155",
+                padding: "3rem", textAlign: "center", color: "#64748b"
+              }}>
+                Nenhum crédito localizado com os filtros aplicados.
+              </div>
+            )}
           </div>
         </div>
       )}
