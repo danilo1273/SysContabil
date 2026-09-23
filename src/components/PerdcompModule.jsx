@@ -462,6 +462,7 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
   const [filterEmpresa, setFilterEmpresa] = useState("todas");
   const [searchTerm, setSearchTerm] = useState("");
   const [expandedTributos, setExpandedTributos] = useState({});
+  const [expandedCompsTributos, setExpandedCompsTributos] = useState({});
 
   // Modais
   const [isCreditModalOpen, setIsCreditModalOpen] = useState(false);
@@ -727,6 +728,58 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
       return true;
     });
   }, [compensacoesEnriquecidas, filterEmpresa, searchTerm, creditos]);
+
+  // Agrupamento das compensações por tipo de crédito de origem para visualização resumida/expansível
+  const compensacoesAgrupadasPorTipo = useMemo(() => {
+    const map = {};
+    compensacoesFiltradas.forEach(c => {
+      const tipo = (c.tipoCredito || "OUTROS").toUpperCase();
+      if (!map[tipo]) {
+        map[tipo] = {
+          tipo,
+          compensacoes: [],
+          totalQuitado: 0,
+          totalPrincipal: 0,
+          totalJuros: 0,
+          qtdCompensacoes: 0
+        };
+      }
+      map[tipo].compensacoes.push(c);
+      map[tipo].totalQuitado += Number(c.valorTotalCompensado || 0);
+      map[tipo].totalPrincipal += Number(c.valorPrincipal || 0);
+      map[tipo].totalJuros += Number(c.valorJuros || 0);
+      map[tipo].qtdCompensacoes += 1;
+    });
+
+    const ordemPreferencial = ["IPI", "IRPJ", "CSLL", "IRRF", "PIS", "COFINS"];
+    return Object.values(map).sort((a, b) => {
+      const idxA = ordemPreferencial.indexOf(a.tipo);
+      const idxB = ordemPreferencial.indexOf(b.tipo);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.tipo.localeCompare(b.tipo);
+    });
+  }, [compensacoesFiltradas]);
+
+  const toggleCompTributo = (tipo) => {
+    setExpandedCompsTributos(prev => ({
+      ...prev,
+      [tipo]: !prev[tipo]
+    }));
+  };
+
+  const expandAllCompTributos = () => {
+    const next = {};
+    compensacoesAgrupadasPorTipo.forEach(g => {
+      next[g.tipo] = true;
+    });
+    setExpandedCompsTributos(next);
+  };
+
+  const collapseAllCompTributos = () => {
+    setExpandedCompsTributos({});
+  };
 
   // Dados consolidados do Painel de Saldos (Apenas tributos com créditos cadastrados)
   const painelResumo = useMemo(() => {
@@ -1810,11 +1863,12 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
         </div>
       )}
 
-      {/* ABA 3: COMPENSAÇÕES */}
+      {/* ABA 3: COMPENSAÇÕES AGRUPADAS POR TIPO DE CRÉDITO */}
       {activeTab === "compensacoes" && (
         <div>
+          {/* Barra de Busca e Ações Rápidas */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "10px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", flex: 1, maxWidth: "400px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", flex: 1, maxWidth: "450px" }}>
               <div style={{ position: "relative", width: "100%" }}>
                 <Search size={16} style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", color: "#64748b" }} />
                 <input
@@ -1830,155 +1884,295 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
               </div>
             </div>
 
-            {canEdit && (
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+              {/* Botões Expandir / Recolher Todos */}
               <button
-                onClick={() => handleOpenCompModal()}
+                onClick={expandAllCompTributos}
                 style={{
-                  display: "flex", alignItems: "center", gap: "6px",
-                  padding: "8px 16px", background: "#2563eb", border: "none",
-                  color: "#fff", borderRadius: "8px", cursor: "pointer", fontSize: "0.85rem",
-                  fontWeight: "600", boxShadow: "0 2px 8px rgba(37, 99, 235, 0.3)"
+                  display: "flex", alignItems: "center", gap: "5px",
+                  padding: "7px 12px", background: "#1e293b", border: "1px solid #334155",
+                  color: "#cbd5e1", borderRadius: "8px", cursor: "pointer", fontSize: "0.82rem",
+                  transition: "all 0.15s"
                 }}
+                title="Expandir todos os grupos de compensações"
               >
-                <Plus size={16} /> Nova Compensação (DCOMP)
+                <ChevronDown size={14} /> Expandir Todos
               </button>
-            )}
+              <button
+                onClick={collapseAllCompTributos}
+                style={{
+                  display: "flex", alignItems: "center", gap: "5px",
+                  padding: "7px 12px", background: "#1e293b", border: "1px solid #334155",
+                  color: "#cbd5e1", borderRadius: "8px", cursor: "pointer", fontSize: "0.82rem",
+                  transition: "all 0.15s"
+                }}
+                title="Recolher todos os grupos e ver apenas os totais"
+              >
+                <ChevronRight size={14} /> Recolher Todos
+              </button>
+
+              {canEdit && (
+                <button
+                  onClick={() => handleOpenCompModal()}
+                  style={{
+                    display: "flex", alignItems: "center", gap: "6px",
+                    padding: "8px 16px", background: "#2563eb", border: "none",
+                    color: "#fff", borderRadius: "8px", cursor: "pointer", fontSize: "0.85rem",
+                    fontWeight: "600", boxShadow: "0 2px 8px rgba(37, 99, 235, 0.3)"
+                  }}
+                >
+                  <Plus size={16} /> Nova Compensação (DCOMP)
+                </button>
+              )}
+            </div>
           </div>
 
-          <div style={{
-            background: "#1e293b", borderRadius: "12px", border: "1px solid #334155",
-            overflow: "hidden", boxShadow: "0 4px 15px rgba(0,0,0,0.2)"
-          }}>
-            <div className="table-container" style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "0.85rem" }}>
-                <thead>
-                  <tr style={{ background: "#0f172a", color: "#94a3b8", borderBottom: "2px solid #334155" }}>
-                    <th style={{ padding: "10px 14px", width: "60px" }}>ID Comp.</th>
-                    <th style={{ padding: "10px 14px" }}>Tipo Crédito</th>
-                    <th style={{ padding: "10px 14px" }}>Nº PER/DCOMP Origem</th>
-                    <th style={{ padding: "10px 14px" }}>Data Comp.</th>
-                    <th style={{ padding: "10px 14px" }}>Nº PER/DCOMP Comp.</th>
-                    <th style={{ padding: "10px 14px" }}>Tributo Débito</th>
-                    <th style={{ padding: "10px 14px", textAlign: "right" }}>Total Quitado</th>
-                    <th style={{ padding: "10px 14px", textAlign: "right", color: "#fbbf24" }}>Baixa Principal</th>
-                    <th style={{ padding: "10px 14px", textAlign: "right", color: "#a5b4fc" }}>Ganho Juros SELIC</th>
-                    <th style={{ padding: "10px 14px" }}>Período Débito</th>
-                    <th style={{ padding: "10px 14px", textAlign: "right" }}>Saldo Principal Restante</th>
-                    <th style={{ padding: "10px 14px", textAlign: "center" }}>Status</th>
-                    {canEdit && <th style={{ padding: "10px 14px", textAlign: "center", width: "90px" }}>Ações</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {compensacoesFiltradas.map((comp) => (
-                    <tr key={comp.id} style={{ borderBottom: "1px solid #334155" }}>
-                      <td style={{ padding: "10px 14px", fontWeight: "700", color: "#94a3b8" }}>
-                        #{comp.id}
-                      </td>
-                      <td style={{ padding: "10px 14px" }}>
+          {/* Dica / Info de navegação */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem", padding: "0 4px", fontSize: "0.8rem", color: "#94a3b8" }}>
+            <span>
+              Mostrando <strong>{compensacoesAgrupadasPorTipo.length}</strong> tipos de crédito com compensações ({compensacoesFiltradas.length} compensações no total). Clique para abrir ou recolher os detalhes.
+            </span>
+          </div>
+
+          {/* LISTAGEM DOS GRUPOS DE COMPENSAÇÃO POR TIPO DE CRÉDITO (ACCORDION) */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+            {compensacoesAgrupadasPorTipo.map((grupo) => {
+              const isExpanded = Boolean(expandedCompsTributos[grupo.tipo] || searchTerm);
+              const badgeBg = grupo.tipo === "IPI" ? "rgba(59, 130, 246, 0.2)" : grupo.tipo === "IRPJ" ? "rgba(16, 185, 129, 0.2)" : grupo.tipo === "CSLL" ? "rgba(168, 85, 247, 0.2)" : grupo.tipo === "PIS" ? "rgba(6, 182, 212, 0.2)" : grupo.tipo === "COFINS" ? "rgba(249, 115, 22, 0.2)" : "rgba(148, 163, 184, 0.15)";
+              const badgeColor = grupo.tipo === "IPI" ? "#60a5fa" : grupo.tipo === "IRPJ" ? "#34d399" : grupo.tipo === "CSLL" ? "#c084fc" : grupo.tipo === "PIS" ? "#38bdf8" : grupo.tipo === "COFINS" ? "#fb923c" : "#94a3b8";
+
+              return (
+                <div
+                  key={grupo.tipo}
+                  style={{
+                    background: "#1e293b",
+                    borderRadius: "12px",
+                    border: isExpanded ? "1px solid #475569" : "1px solid #334155",
+                    overflow: "hidden",
+                    boxShadow: "0 4px 15px rgba(0,0,0,0.2)",
+                    transition: "border 0.2s"
+                  }}
+                >
+                  {/* BARRA DE CABEÇALHO / RESUMO DA COMPENSAÇÃO POR TRIBUTO (CLICÁVEL) */}
+                  <div
+                    onClick={() => toggleCompTributo(grupo.tipo)}
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "1rem 1.25rem",
+                      cursor: "pointer",
+                      background: isExpanded ? "rgba(30, 41, 59, 0.95)" : "#1e293b",
+                      borderBottom: isExpanded ? "1px solid #334155" : "none",
+                      gap: "1rem",
+                      userSelect: "none",
+                      transition: "background 0.15s"
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = isExpanded ? "rgba(30, 41, 59, 0.95)" : "rgba(30, 41, 59, 0.7)"}
+                    onMouseLeave={(e) => e.currentTarget.style.background = isExpanded ? "rgba(30, 41, 59, 0.95)" : "#1e293b"}
+                  >
+                    {/* Identificação do Tipo de Crédito */}
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px", minWidth: "240px" }}>
+                      <div style={{
+                        color: isExpanded ? "#60a5fa" : "#94a3b8",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        transition: "transform 0.2s"
+                      }}>
+                        {isExpanded ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
+                      </div>
+
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                         <span style={{
-                          padding: "3px 8px", borderRadius: "6px", fontWeight: "700", fontSize: "0.78rem",
-                          background: comp.tipoCredito === "IPI" ? "rgba(59, 130, 246, 0.2)" : comp.tipoCredito === "IRPJ" ? "rgba(16, 185, 129, 0.2)" : "rgba(168, 85, 247, 0.2)",
-                          color: comp.tipoCredito === "IPI" ? "#60a5fa" : comp.tipoCredito === "IRPJ" ? "#34d399" : "#c084fc"
+                          padding: "5px 12px",
+                          borderRadius: "8px",
+                          fontWeight: "800",
+                          fontSize: "0.95rem",
+                          letterSpacing: "0.02em",
+                          background: badgeBg,
+                          color: badgeColor,
+                          border: `1px solid ${badgeColor}33`
                         }}>
-                          {comp.tipoCredito}
+                          Créditos {grupo.tipo}
                         </span>
-                      </td>
-                      <td style={{ padding: "10px 14px", fontFamily: "monospace", color: "#94a3b8" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                          <span>{comp.numeroPerdcompOrigem || "-"}</span>
-                          {comp.numeroPerdcompOrigem && (
-                            <button
-                              onClick={() => handleCopy(comp.numeroPerdcompOrigem, `orig-${comp.id}`)}
-                              style={{ background: "transparent", border: "none", color: "#64748b", cursor: "pointer", padding: "2px" }}
-                              title="Copiar número de origem"
-                            >
-                              {copiedId === `orig-${comp.id}` ? <Check size={13} color="#34d399" /> : <Copy size={13} />}
-                            </button>
-                          )}
+                        <span style={{ fontSize: "0.82rem", color: "#94a3b8" }}>
+                          ({grupo.qtdCompensacoes} {grupo.qtdCompensacoes === 1 ? "compensação" : "compensações"})
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Resumo Consolidado das Compensações deste Tipo */}
+                    <div style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "1.5rem",
+                      flexWrap: "wrap",
+                      fontSize: "0.86rem"
+                    }}>
+                      {/* Total Quitado */}
+                      <div>
+                        <div style={{ fontSize: "0.72rem", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Total Quitado</div>
+                        <div style={{ fontWeight: "700", color: "#f8fafc" }}>
+                          {formatCurrency(grupo.totalQuitado)}
                         </div>
-                      </td>
-                      <td style={{ padding: "10px 14px", color: "#cbd5e1" }}>
-                        {formatDate(comp.dataCompensacao)}
-                      </td>
-                      <td style={{ padding: "10px 14px", fontFamily: "monospace", color: "#fbbf24", fontWeight: "600" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                          <span>{comp.numeroPerdcompCompensacao || "-"}</span>
-                          {comp.numeroPerdcompCompensacao && (
-                            <button
-                              onClick={() => handleCopy(comp.numeroPerdcompCompensacao, `comp-${comp.id}`)}
-                              style={{ background: "transparent", border: "none", color: "#64748b", cursor: "pointer", padding: "2px" }}
-                              title="Copiar número da compensação"
-                            >
-                              {copiedId === `comp-${comp.id}` ? <Check size={13} color="#34d399" /> : <Copy size={13} />}
-                            </button>
-                          )}
+                      </div>
+
+                      {/* Baixa do Principal */}
+                      <div>
+                        <div style={{ fontSize: "0.72rem", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em" }}>Baixa Principal</div>
+                        <div style={{ fontWeight: "700", color: "#fbbf24" }}>
+                          {formatCurrency(grupo.totalPrincipal)}
                         </div>
-                      </td>
-                      <td style={{ padding: "10px 14px", fontWeight: "700", color: "#f8fafc" }}>
-                        <span style={{
-                          padding: "3px 8px", borderRadius: "6px", fontSize: "0.78rem",
-                          background: comp.tributoCompensado === "COFINS" ? "rgba(14, 165, 233, 0.2)" : comp.tributoCompensado === "PIS" ? "rgba(249, 115, 22, 0.2)" : "rgba(148, 163, 184, 0.15)",
-                          color: comp.tributoCompensado === "COFINS" ? "#38bdf8" : comp.tributoCompensado === "PIS" ? "#fb923c" : "#cbd5e1"
-                        }}>
-                          {comp.tributoCompensado}
-                        </span>
-                      </td>
-                      <td style={{ padding: "10px 14px", textAlign: "right", color: "#f8fafc", fontWeight: "700" }}>
-                        {formatCurrency(comp.valorTotalCompensado)}
-                      </td>
-                      <td style={{ padding: "10px 14px", textAlign: "right", color: "#fbbf24", fontWeight: "700" }}>
-                        {formatCurrency(comp.valorPrincipal)}
-                      </td>
-                      <td style={{ padding: "10px 14px", textAlign: "right", color: comp.valorJuros > 0 ? "#a5b4fc" : "#64748b", fontWeight: "600" }}>
-                        {comp.valorJuros > 0 ? `+ ${formatCurrency(comp.valorJuros)}` : "-"}
-                      </td>
-                      <td style={{ padding: "10px 14px", color: "#cbd5e1" }}>
-                        {comp.periodoApuracao || "-"}
-                      </td>
-                      <td style={{ padding: "10px 14px", textAlign: "right", color: comp.saldoPrincipalApos > 0 ? "#34d399" : "#64748b", fontWeight: "600" }}>
-                        {formatCurrency(comp.saldoPrincipalApos)}
-                      </td>
-                      <td style={{ padding: "10px 14px", textAlign: "center" }}>
-                        <span style={{
-                          padding: "3px 8px", borderRadius: "6px", fontSize: "0.75rem", fontWeight: "700",
-                          background: comp.status === "Homologado" || comp.status === "OK" ? "rgba(16, 185, 129, 0.15)" : "rgba(245, 158, 11, 0.15)",
-                          color: comp.status === "Homologado" || comp.status === "OK" ? "#34d399" : "#fbbf24"
-                        }}>
-                          {comp.status || "OK"}
-                        </span>
-                      </td>
-                      {canEdit && (
-                        <td style={{ padding: "10px 14px", textAlign: "center" }}>
-                          <div style={{ display: "flex", gap: "6px", justifyContent: "center" }}>
-                            <button
-                              onClick={() => handleOpenCompModal(comp)}
-                              style={{ background: "transparent", border: "none", color: "#60a5fa", cursor: "pointer", padding: "4px" }}
-                              title="Editar compensação"
-                            >
-                              <Edit2 size={15} />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteComp(comp.id)}
-                              style={{ background: "transparent", border: "none", color: "#ef4444", cursor: "pointer", padding: "4px" }}
-                              title="Excluir compensação"
-                            >
-                              <Trash2 size={15} />
-                            </button>
+                      </div>
+
+                      {/* Ganho SELIC Realizado (se houver) */}
+                      {grupo.totalJuros > 0 && (
+                        <div>
+                          <div style={{ fontSize: "0.72rem", color: "#c7d2fe", textTransform: "uppercase", letterSpacing: "0.05em" }}>Ganho SELIC</div>
+                          <div style={{ fontWeight: "700", color: "#a5b4fc" }}>
+                            + {formatCurrency(grupo.totalJuros)}
                           </div>
-                        </td>
+                        </div>
                       )}
-                    </tr>
-                  ))}
-                  {compensacoesFiltradas.length === 0 && (
-                    <tr>
-                      <td colSpan={13} style={{ textAlign: "center", padding: "2rem", color: "#64748b" }}>
-                        Nenhuma compensação localizada.
-                      </td>
-                    </tr>
+
+                      {/* Ação textual indicativa */}
+                      <span style={{
+                        fontSize: "0.78rem", color: "#60a5fa", display: "flex", alignItems: "center", gap: "4px",
+                        padding: "3px 8px", background: "rgba(59, 130, 246, 0.1)", borderRadius: "6px"
+                      }}>
+                        {isExpanded ? "Ocultar detalhes" : "Ver detalhado"}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* TABELA DETALHADA DAS COMPENSAÇÕES (QUANDO EXPANDIDO) */}
+                  {isExpanded && (
+                    <div className="table-container" style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "0.85rem" }}>
+                        <thead>
+                          <tr style={{ background: "#0f172a", color: "#94a3b8", borderBottom: "2px solid #334155" }}>
+                            <th style={{ padding: "10px 14px", width: "60px" }}>ID Comp.</th>
+                            <th style={{ padding: "10px 14px" }}>Nº PER/DCOMP Origem</th>
+                            <th style={{ padding: "10px 14px" }}>Data Comp.</th>
+                            <th style={{ padding: "10px 14px" }}>Nº PER/DCOMP Comp.</th>
+                            <th style={{ padding: "10px 14px" }}>Tributo Débito</th>
+                            <th style={{ padding: "10px 14px", textAlign: "right" }}>Total Quitado</th>
+                            <th style={{ padding: "10px 14px", textAlign: "right", color: "#fbbf24" }}>Baixa Principal</th>
+                            <th style={{ padding: "10px 14px", textAlign: "right", color: "#a5b4fc" }}>Ganho Juros SELIC</th>
+                            <th style={{ padding: "10px 14px" }}>Período Débito</th>
+                            <th style={{ padding: "10px 14px", textAlign: "right" }}>Saldo Principal Restante</th>
+                            <th style={{ padding: "10px 14px", textAlign: "center" }}>Status</th>
+                            {canEdit && <th style={{ padding: "10px 14px", textAlign: "center", width: "90px" }}>Ações</th>}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {grupo.compensacoes.map((comp) => (
+                            <tr key={comp.id} style={{ borderBottom: "1px solid #334155" }}>
+                              <td style={{ padding: "10px 14px", fontWeight: "700", color: "#94a3b8" }}>
+                                #{comp.id}
+                              </td>
+                              <td style={{ padding: "10px 14px", fontFamily: "monospace", color: "#94a3b8" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                  <span>{comp.numeroPerdcompOrigem || "-"}</span>
+                                  {comp.numeroPerdcompOrigem && (
+                                    <button
+                                      onClick={() => handleCopy(comp.numeroPerdcompOrigem, `orig-${comp.id}`)}
+                                      style={{ background: "transparent", border: "none", color: "#64748b", cursor: "pointer", padding: "2px" }}
+                                      title="Copiar número de origem"
+                                    >
+                                      {copiedId === `orig-${comp.id}` ? <Check size={13} color="#34d399" /> : <Copy size={13} />}
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                              <td style={{ padding: "10px 14px", color: "#cbd5e1" }}>
+                                {formatDate(comp.dataCompensacao)}
+                              </td>
+                              <td style={{ padding: "10px 14px", fontFamily: "monospace", color: "#fbbf24", fontWeight: "600" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                  <span>{comp.numeroPerdcompCompensacao || "-"}</span>
+                                  {comp.numeroPerdcompCompensacao && (
+                                    <button
+                                      onClick={() => handleCopy(comp.numeroPerdcompCompensacao, `comp-${comp.id}`)}
+                                      style={{ background: "transparent", border: "none", color: "#64748b", cursor: "pointer", padding: "2px" }}
+                                      title="Copiar número da compensação"
+                                    >
+                                      {copiedId === `comp-${comp.id}` ? <Check size={13} color="#34d399" /> : <Copy size={13} />}
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                              <td style={{ padding: "10px 14px", fontWeight: "700", color: "#f8fafc" }}>
+                                <span style={{
+                                  padding: "3px 8px", borderRadius: "6px", fontSize: "0.78rem",
+                                  background: comp.tributoCompensado === "COFINS" ? "rgba(14, 165, 233, 0.2)" : comp.tributoCompensado === "PIS" ? "rgba(249, 115, 22, 0.2)" : "rgba(148, 163, 184, 0.15)",
+                                  color: comp.tributoCompensado === "COFINS" ? "#38bdf8" : comp.tributoCompensado === "PIS" ? "#fb923c" : "#cbd5e1"
+                                }}>
+                                  {comp.tributoCompensado}
+                                </span>
+                              </td>
+                              <td style={{ padding: "10px 14px", textAlign: "right", color: "#f8fafc", fontWeight: "700" }}>
+                                {formatCurrency(comp.valorTotalCompensado)}
+                              </td>
+                              <td style={{ padding: "10px 14px", textAlign: "right", color: "#fbbf24", fontWeight: "700" }}>
+                                {formatCurrency(comp.valorPrincipal)}
+                              </td>
+                              <td style={{ padding: "10px 14px", textAlign: "right", color: comp.valorJuros > 0 ? "#a5b4fc" : "#64748b", fontWeight: "600" }}>
+                                {comp.valorJuros > 0 ? `+ ${formatCurrency(comp.valorJuros)}` : "-"}
+                              </td>
+                              <td style={{ padding: "10px 14px", color: "#cbd5e1" }}>
+                                {comp.periodoApuracao || "-"}
+                              </td>
+                              <td style={{ padding: "10px 14px", textAlign: "right", color: comp.saldoPrincipalApos > 0 ? "#34d399" : "#64748b", fontWeight: "600" }}>
+                                {formatCurrency(comp.saldoPrincipalApos)}
+                              </td>
+                              <td style={{ padding: "10px 14px", textAlign: "center" }}>
+                                <span style={{
+                                  padding: "3px 8px", borderRadius: "6px", fontSize: "0.75rem", fontWeight: "700",
+                                  background: comp.status === "Homologado" || comp.status === "OK" ? "rgba(16, 185, 129, 0.15)" : "rgba(245, 158, 11, 0.15)",
+                                  color: comp.status === "Homologado" || comp.status === "OK" ? "#34d399" : "#fbbf24"
+                                }}>
+                                  {comp.status || "OK"}
+                                </span>
+                              </td>
+                              {canEdit && (
+                                <td style={{ padding: "10px 14px", textAlign: "center" }}>
+                                  <div style={{ display: "flex", gap: "6px", justifyContent: "center" }}>
+                                    <button
+                                      onClick={() => handleOpenCompModal(comp)}
+                                      style={{ background: "transparent", border: "none", color: "#60a5fa", cursor: "pointer", padding: "4px" }}
+                                      title="Editar compensação"
+                                    >
+                                      <Edit2 size={15} />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteComp(comp.id)}
+                                      style={{ background: "transparent", border: "none", color: "#ef4444", cursor: "pointer", padding: "4px" }}
+                                      title="Excluir compensação"
+                                    >
+                                      <Trash2 size={15} />
+                                    </button>
+                                  </div>
+                                </td>
+                              )}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   )}
-                </tbody>
-              </table>
-            </div>
+                </div>
+              );
+            })}
+
+            {compensacoesAgrupadasPorTipo.length === 0 && (
+              <div style={{
+                background: "#1e293b", borderRadius: "12px", border: "1px solid #334155",
+                padding: "3rem", textAlign: "center", color: "#64748b"
+              }}>
+                Nenhuma compensação localizada com os filtros aplicados.
+              </div>
+            )}
           </div>
         </div>
       )}
