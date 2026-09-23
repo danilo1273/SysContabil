@@ -676,10 +676,10 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
         valorJuros: valJuros,
         temJuros: valJuros > 0
       });
-    } else {
       const nextId = compensacoes.length > 0 ? Math.max(...compensacoes.map(c => Number(c.id) || 0)) + 1 : 1;
-      const initialCredId = preSelectedCreditoId || (creditos[0]?.id || "");
-      const selectedCred = creditos.find(c => String(c.id) === String(initialCredId));
+      const primeiroComSaldo = creditosComSaldos.find(c => c.saldoDisponivel > 0);
+      const initialCredId = preSelectedCreditoId || (primeiroComSaldo?.id || "");
+      const selectedCred = creditosComSaldos.find(c => String(c.id) === String(initialCredId));
 
       setCompFormData({
         id: nextId,
@@ -2150,7 +2150,7 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
               marginBottom: "1.2rem"
             }}>
               <label style={{ display: "block", marginBottom: "0.4rem", color: "#38bdf8", fontWeight: "600", fontSize: "0.9rem" }}>
-                Selecione o Crédito de Origem a ser utilizado:
+                Selecione o Crédito de Origem a ser utilizado (Apenas com Saldo Disponível):
               </label>
               <select
                 className="text-input"
@@ -2167,12 +2167,14 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
                 }}
                 style={{ width: "100%", padding: "10px", background: "#1e293b", border: "1px solid #475569", color: "#f8fafc", borderRadius: "6px", fontSize: "0.9rem" }}
               >
-                <option value="">Selecione um crédito disponível...</option>
-                {creditosComSaldos.map(c => (
-                  <option key={c.id} value={c.id}>
-                    #{c.id} - {c.tipoCredito} | Saldo Disponível: {formatCurrency(c.saldoDisponivel)} ({c.descricaoOrigem || c.periodoApuracao} - {c.numeroPerdcomp})
-                  </option>
-                ))}
+                <option value="">Selecione um crédito com saldo disponível...</option>
+                {creditosComSaldos
+                  .filter(c => c.saldoDisponivel > 0 || (compFormData.creditoId && String(c.id) === String(compFormData.creditoId)))
+                  .map(c => (
+                    <option key={c.id} value={c.id}>
+                      #{c.id} - {c.tipoCredito} | Saldo Disponível: {formatCurrency(c.saldoDisponivel)} ({c.descricaoOrigem || c.periodoApuracao} - {c.numeroPerdcomp})
+                    </option>
+                  ))}
               </select>
 
               {/* Informação do Saldo do Crédito Selecionado */}
