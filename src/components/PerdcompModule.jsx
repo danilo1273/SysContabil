@@ -955,6 +955,7 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
         valorJuros: valJuros,
         temJuros: valJuros > 0
       });
+    } else {
       const nextId = compensacoes.length > 0 ? Math.max(...compensacoes.map(c => Number(c.id) || 0)) + 1 : 1;
       const primeiroComSaldo = creditosComSaldos.find(c => c.saldoDisponivel > 0);
       const initialCredId = preSelectedCreditoId || (primeiroComSaldo?.id || "");
