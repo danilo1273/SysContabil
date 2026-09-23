@@ -3,7 +3,7 @@ import { supabase } from "../supabaseClient";
 import { 
   Plus, Trash2, Edit2, Save, X, DollarSign, FileText, 
   TrendingUp, ArrowRight, Percent, Clock, Layers, 
-  Search, Download, RefreshCw, Calculator, Copy, Check 
+  Search, Download, RefreshCw, Calculator, Copy, Check, Sparkles
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -59,7 +59,7 @@ const CurrencyInput = ({ value, onChange, placeholder, style }) => {
   );
 };
 
-// Base inicial padrão baseada fielmente na planilha real do usuário
+// Base inicial de créditos baseada na planilha real do usuário
 const INITIAL_CREDITOS = [
   {
     id: 1,
@@ -150,6 +150,7 @@ const INITIAL_CREDITOS = [
   }
 ];
 
+// Base inicial de compensações com distinção de Principal vs Juros
 const INITIAL_COMPENSACOES = [
   {
     id: 1,
@@ -159,7 +160,9 @@ const INITIAL_COMPENSACOES = [
     dataCompensacao: "2026-08-25",
     numeroPerdcompCompensacao: "25886.65282.250826.1.3.01-4600",
     tributoCompensado: "COFINS",
-    valorCompensado: 73425.42,
+    valorTotalCompensado: 73425.42,
+    valorPrincipal: 73425.42,
+    valorJuros: 0,
     periodoApuracao: "jul/26",
     status: "Homologado",
     observacao: ""
@@ -172,7 +175,9 @@ const INITIAL_COMPENSACOES = [
     dataCompensacao: "2026-08-25",
     numeroPerdcompCompensacao: "25886.65282.250826.1.3.01-4600",
     tributoCompensado: "PIS",
-    valorCompensado: 14756.52,
+    valorTotalCompensado: 14756.52,
+    valorPrincipal: 14756.52,
+    valorJuros: 0,
     periodoApuracao: "jul/26",
     status: "Homologado",
     observacao: ""
@@ -185,7 +190,9 @@ const INITIAL_COMPENSACOES = [
     dataCompensacao: "2026-07-24",
     numeroPerdcompCompensacao: "23462.57163.240726.1.3.01-4988",
     tributoCompensado: "COFINS",
-    valorCompensado: 161186.20,
+    valorTotalCompensado: 161186.20,
+    valorPrincipal: 161186.20,
+    valorJuros: 0,
     periodoApuracao: "jun/26",
     status: "Homologado",
     observacao: ""
@@ -198,7 +205,9 @@ const INITIAL_COMPENSACOES = [
     dataCompensacao: "2026-07-24",
     numeroPerdcompCompensacao: "23462.57163.240726.1.3.01-4988",
     tributoCompensado: "PIS",
-    valorCompensado: 79189.79,
+    valorTotalCompensado: 79189.79,
+    valorPrincipal: 79189.79,
+    valorJuros: 0,
     periodoApuracao: "jun/26",
     status: "Homologado",
     observacao: ""
@@ -211,7 +220,9 @@ const INITIAL_COMPENSACOES = [
     dataCompensacao: "2026-02-25",
     numeroPerdcompCompensacao: "29405.64762.250226.1.3.01-6180",
     tributoCompensado: "COFINS",
-    valorCompensado: 102010.30,
+    valorTotalCompensado: 102010.30,
+    valorPrincipal: 102010.30,
+    valorJuros: 0,
     periodoApuracao: "jan/26",
     status: "Homologado",
     observacao: ""
@@ -249,7 +260,7 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
     async function loadData() {
       setLoading(true);
       try {
-        const { data, error } = await supabase
+        const { data } = await supabase
           .from("settings")
           .select("value")
           .eq("key", "agf_perdcomp_store_v2")
@@ -263,7 +274,19 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
             setCreditos(INITIAL_CREDITOS);
           }
           if (parsed.compensacoes && Array.isArray(parsed.compensacoes)) {
-            setCompensacoes(parsed.compensacoes);
+            // Normalizar compensações garantindo campos de principal e juros
+            const compsNormalizadas = parsed.compensacoes.map(c => {
+              const valTotal = Number(c.valorTotalCompensado !== undefined ? c.valorTotalCompensado : (c.valorCompensado || 0));
+              const valJuros = Number(c.valorJuros || 0);
+              const valPrincipal = Number(c.valorPrincipal !== undefined ? c.valorPrincipal : (valTotal - valJuros));
+              return {
+                ...c,
+                valorTotalCompensado: valTotal,
+                valorPrincipal: valPrincipal,
+                valorJuros: valJuros
+              };
+            });
+            setCompensacoes(compsNormalizadas);
           } else {
             setCompensacoes(INITIAL_COMPENSACOES);
           }
@@ -271,7 +294,7 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
             setTaxaSelicGlobal(Number(parsed.taxaSelicGlobal));
           }
         } else {
-          // Primeira inicialização com dados oficiais
+          // Inicialização com a base oficial da planilha
           setCreditos(INITIAL_CREDITOS);
           setCompensacoes(INITIAL_COMPENSACOES);
           await supabase.from("settings").upsert({
@@ -325,25 +348,45 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
     }
   };
 
-  // Cálculo relacional dos créditos com compensações abatidas
+  // REGRA FUNDAMENTAL: Apenas a parcela de PRINCIPAL baixa o saldo do crédito original!
   const creditosComSaldos = useMemo(() => {
     return creditos.map(cred => {
       const comps = compensacoes.filter(c => String(c.creditoId) === String(cred.id));
-      const totalCompensado = comps.reduce((acc, c) => acc + Number(c.valorCompensado || 0), 0);
-      const saldoDisponivel = Math.max(0, Number(cred.valorCredito || 0) - totalCompensado);
-      const percUtilizado = cred.valorCredito > 0 ? (totalCompensado / cred.valorCredito) * 100 : 0;
+      
+      // Soma APENAS a parcela de principal que baixa o crédito original
+      const totalPrincipalCompensado = comps.reduce((acc, c) => {
+        const p = c.valorPrincipal !== undefined ? Number(c.valorPrincipal) : Number(c.valorCompensado || 0);
+        return acc + p;
+      }, 0);
+
+      // Soma a parcela de juros aproveitada nas DCOMPs deste crédito (Ganho Financeiro Realizado)
+      const totalJurosRealizados = comps.reduce((acc, c) => acc + Number(c.valorJuros || 0), 0);
+
+      // Soma o total de débitos quitados (Principal Baixado + Juros Aproveitados)
+      const totalDebitosQuitados = comps.reduce((acc, c) => {
+        const t = c.valorTotalCompensado !== undefined ? Number(c.valorTotalCompensado) : Number(c.valorCompensado || 0);
+        return acc + t;
+      }, 0);
+
+      // Saldo Disponível do Principal (Crédito Original - Principal Compensado)
+      const saldoDisponivel = Math.max(0, Number(cred.valorCredito || 0) - totalPrincipalCompensado);
+      const percUtilizado = cred.valorCredito > 0 ? (totalPrincipalCompensado / cred.valorCredito) * 100 : 0;
+
+      // Juros Selic Projetados sobre o Saldo Disponível Restante (a realizar no futuro)
       const taxaJuros = cred.incideJuros ? (cred.taxaJurosCustom !== undefined && cred.taxaJurosCustom !== null && cred.taxaJurosCustom !== 0 ? cred.taxaJurosCustom : taxaSelicGlobal) : 0;
-      const jurosEstimados = cred.incideJuros ? (saldoDisponivel * (taxaJuros / 100)) : 0;
-      const saldoComJuros = saldoDisponivel + jurosEstimados;
+      const jurosEstimadosFuturos = cred.incideJuros ? (saldoDisponivel * (taxaJuros / 100)) : 0;
+      const saldoComJurosFuturos = saldoDisponivel + jurosEstimadosFuturos;
 
       return {
         ...cred,
-        totalCompensado,
+        totalPrincipalCompensado,
+        totalJurosRealizados,
+        totalDebitosQuitados,
         saldoDisponivel,
         percUtilizado,
         taxaJuros,
-        jurosEstimados,
-        saldoComJuros,
+        jurosEstimadosFuturos,
+        saldoComJurosFuturos,
         qtdCompensacoes: comps.length
       };
     });
@@ -365,23 +408,32 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
     });
   }, [creditosComSaldos, filterEmpresa, searchTerm]);
 
-  // Compensações enriquecidas com o saldo restante após cada compensação
+  // Compensações enriquecidas com o saldo do principal restante após cada compensação
   const compensacoesEnriquecidas = useMemo(() => {
     const list = [...compensacoes];
-    // Calcular saldo cumulativo para cada compensação
     return list.map(comp => {
       const cred = creditos.find(c => String(c.id) === String(comp.creditoId));
       const valorCreditoOriginal = cred ? Number(cred.valorCredito || 0) : 0;
       
-      // Soma de todas as compensações deste mesmo crédito até este ID
+      // Soma de todas as parcelas de principal deste mesmo crédito até este lançamento
       const compsDoCredito = list.filter(c => String(c.creditoId) === String(comp.creditoId));
       const idx = compsDoCredito.findIndex(c => String(c.id) === String(comp.id));
-      const compensadoAteAqui = compsDoCredito.slice(0, idx + 1).reduce((sum, c) => sum + Number(c.valorCompensado || 0), 0);
-      const saldoApos = Math.max(0, valorCreditoOriginal - compensadoAteAqui);
+      const principalBaixadoAteAqui = compsDoCredito.slice(0, idx + 1).reduce((sum, c) => {
+        const p = c.valorPrincipal !== undefined ? Number(c.valorPrincipal) : Number(c.valorCompensado || 0);
+        return sum + p;
+      }, 0);
+      const saldoPrincipalApos = Math.max(0, valorCreditoOriginal - principalBaixadoAteAqui);
+
+      const valTotal = Number(comp.valorTotalCompensado !== undefined ? comp.valorTotalCompensado : (comp.valorCompensado || 0));
+      const valJuros = Number(comp.valorJuros || 0);
+      const valPrincipal = Number(comp.valorPrincipal !== undefined ? comp.valorPrincipal : (valTotal - valJuros));
 
       return {
         ...comp,
-        saldoApos,
+        valorTotalCompensado: valTotal,
+        valorPrincipal: valPrincipal,
+        valorJuros: valJuros,
+        saldoPrincipalApos,
         nomeCredito: cred ? `${cred.tipoCredito} - ${cred.descricaoOrigem || cred.periodoApuracao}` : "Crédito não localizado"
       };
     });
@@ -404,7 +456,7 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
     });
   }, [compensacoesEnriquecidas, filterEmpresa, searchTerm, creditos]);
 
-  // Dados consolidados do Painel de Saldos por Tipo de Crédito
+  // Dados consolidados do Painel de Saldos
   const painelResumo = useMemo(() => {
     const rows = TIPOS_TRIBUTOS.map(tipo => {
       const credsTipo = creditosComSaldos.filter(c => {
@@ -413,11 +465,16 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
       });
 
       const creditoOriginal = credsTipo.reduce((sum, c) => sum + Number(c.valorCredito || 0), 0);
-      const totalCompensado = credsTipo.reduce((sum, c) => sum + Number(c.totalCompensado || 0), 0);
-      const saldoDisponivel = Math.max(0, creditoOriginal - totalCompensado);
-      const percUtilizado = creditoOriginal > 0 ? (totalCompensado / creditoOriginal) * 100 : 0;
-      const jurosEstimados = credsTipo.reduce((sum, c) => sum + Number(c.jurosEstimados || 0), 0);
-      const saldoComJuros = saldoDisponivel + jurosEstimados;
+      const principalCompensado = credsTipo.reduce((sum, c) => sum + Number(c.totalPrincipalCompensado || 0), 0);
+      const ganhoJurosRealizado = credsTipo.reduce((sum, c) => sum + Number(c.totalJurosRealizados || 0), 0);
+      const totalDebitosQuitados = credsTipo.reduce((sum, c) => sum + Number(c.totalDebitosQuitados || 0), 0);
+      
+      // Saldo Disponível do Principal (Crédito Original - Principal Compensado)
+      const saldoDisponivel = Math.max(0, creditoOriginal - principalCompensado);
+      const percUtilizado = creditoOriginal > 0 ? (principalCompensado / creditoOriginal) * 100 : 0;
+      
+      const jurosProjetadosFuturos = credsTipo.reduce((sum, c) => sum + Number(c.jurosEstimadosFuturos || 0), 0);
+      const saldoComJurosFuturos = saldoDisponivel + jurosProjetadosFuturos;
 
       let status = "SEM CRÉDITO";
       let statusColor = "#888";
@@ -438,38 +495,44 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
       return {
         tipo,
         creditoOriginal,
-        totalCompensado,
+        principalCompensado,
+        ganhoJurosRealizado,
+        totalDebitosQuitados,
         saldoDisponivel,
         percUtilizado,
         status,
         statusColor,
         statusBg,
-        jurosEstimados,
-        saldoComJuros,
+        jurosProjetadosFuturos,
+        saldoComJurosFuturos,
         qtdCreditos: credsTipo.length
       };
     });
 
     const totalOriginal = rows.reduce((sum, r) => sum + r.creditoOriginal, 0);
-    const totalComp = rows.reduce((sum, r) => sum + r.totalCompensado, 0);
+    const totalPrincipal = rows.reduce((sum, r) => sum + r.principalCompensado, 0);
+    const totalJurosRealiz = rows.reduce((sum, r) => sum + r.ganhoJurosRealizado, 0);
+    const totalDebitos = rows.reduce((sum, r) => sum + r.totalDebitosQuitados, 0);
     const totalSaldo = rows.reduce((sum, r) => sum + r.saldoDisponivel, 0);
-    const totalPerc = totalOriginal > 0 ? (totalComp / totalOriginal) * 100 : 0;
-    const totalJuros = rows.reduce((sum, r) => sum + r.jurosEstimados, 0);
-    const totalSaldoComJuros = totalSaldo + totalJuros;
+    const totalPerc = totalOriginal > 0 ? (totalPrincipal / totalOriginal) * 100 : 0;
+    const totalJurosProj = rows.reduce((sum, r) => sum + r.jurosProjetadosFuturos, 0);
+    const totalSaldoComJuros = totalSaldo + totalJurosProj;
 
     return {
       rows,
       total: {
         tipo: "TOTAL",
         creditoOriginal: totalOriginal,
-        totalCompensado: totalComp,
+        principalCompensado: totalPrincipal,
+        ganhoJurosRealizado: totalJurosRealiz,
+        totalDebitosQuitados: totalDebitos,
         saldoDisponivel: totalSaldo,
         percUtilizado: totalPerc,
         status: "CONSOLIDADO",
         statusColor: "#3B82F6",
         statusBg: "rgba(59, 130, 246, 0.2)",
-        jurosEstimados: totalJuros,
-        saldoComJuros: totalSaldoComJuros
+        jurosProjetadosFuturos: totalJurosProj,
+        saldoComJurosFuturos: totalSaldoComJuros
       }
     };
   }, [creditosComSaldos, filterEmpresa]);
@@ -544,7 +607,16 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
   // Abrir Modal de Compensação (DCOMP)
   const handleOpenCompModal = (comp = null, preSelectedCreditoId = null) => {
     if (comp) {
-      setCompFormData({ ...comp });
+      const valTotal = Number(comp.valorTotalCompensado !== undefined ? comp.valorTotalCompensado : (comp.valorCompensado || 0));
+      const valJuros = Number(comp.valorJuros || 0);
+      const valPrincipal = Number(comp.valorPrincipal !== undefined ? comp.valorPrincipal : (valTotal - valJuros));
+      setCompFormData({
+        ...comp,
+        valorTotalCompensado: valTotal,
+        valorPrincipal: valPrincipal,
+        valorJuros: valJuros,
+        temJuros: valJuros > 0
+      });
     } else {
       const nextId = compensacoes.length > 0 ? Math.max(...compensacoes.map(c => Number(c.id) || 0)) + 1 : 1;
       const initialCredId = preSelectedCreditoId || (creditos[0]?.id || "");
@@ -558,7 +630,10 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
         dataCompensacao: new Date().toISOString().split("T")[0],
         numeroPerdcompCompensacao: "",
         tributoCompensado: "COFINS",
-        valorCompensado: 0,
+        valorTotalCompensado: 0,
+        valorPrincipal: 0,
+        valorJuros: 0,
+        temJuros: false,
         periodoApuracao: "",
         status: "Homologado",
         observacao: ""
@@ -573,32 +648,49 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
       alert("Selecione o crédito de origem.");
       return;
     }
-    if (!compFormData.valorCompensado || compFormData.valorCompensado <= 0) {
-      alert("Informe um valor válido de compensação.");
+    if (!compFormData.valorTotalCompensado || compFormData.valorTotalCompensado <= 0) {
+      alert("Informe um valor total de compensação válido.");
       return;
     }
 
-    // Validação de saldo disponível
+    // Calcula os valores finais garantindo a coerência Principal + Juros = Total
+    const valTotal = Number(compFormData.valorTotalCompensado);
+    let valJuros = compFormData.temJuros ? Number(compFormData.valorJuros || 0) : 0;
+    if (valJuros > valTotal) {
+      alert("A parcela de juros não pode ser maior do que o valor total compensado.");
+      return;
+    }
+    const valPrincipal = Number(compFormData.valorPrincipal !== undefined && compFormData.valorPrincipal !== null && compFormData.temJuros 
+      ? compFormData.valorPrincipal 
+      : (valTotal - valJuros));
+
+    // Validação de saldo disponível do principal
     const cred = creditosComSaldos.find(c => String(c.id) === String(compFormData.creditoId));
     if (cred) {
-      // Se for edição, desconsidera o valor antigo da própria compensação
-      const valAntigo = compFormData.id ? (compensacoes.find(c => String(c.id) === String(compFormData.id))?.valorCompensado || 0) : 0;
-      const saldoMaximo = cred.saldoDisponivel + valAntigo;
+      const valPrincipalAntigo = compFormData.id ? (compensacoes.find(c => String(c.id) === String(compFormData.id))?.valorPrincipal || 0) : 0;
+      const saldoMaximo = cred.saldoDisponivel + valPrincipalAntigo;
 
-      if (compFormData.valorCompensado > saldoMaximo + 0.01) {
+      if (valPrincipal > saldoMaximo + 0.01) {
         const proceed = window.confirm(
-          `AVISO: O valor informado (${formatCurrency(compFormData.valorCompensado)}) é maior que o saldo disponível deste crédito (${formatCurrency(saldoMaximo)}).\nDeseja salvar mesmo assim?`
+          `AVISO: A parcela de principal a baixar (${formatCurrency(valPrincipal)}) é maior que o saldo disponível deste crédito (${formatCurrency(saldoMaximo)}).\nDeseja salvar mesmo assim?`
         );
         if (!proceed) return;
       }
     }
 
+    const payload = {
+      ...compFormData,
+      valorTotalCompensado: valTotal,
+      valorPrincipal: valPrincipal,
+      valorJuros: valJuros
+    };
+
     let updated;
     const exists = compensacoes.find(c => String(c.id) === String(compFormData.id));
     if (exists) {
-      updated = compensacoes.map(c => String(c.id) === String(compFormData.id) ? compFormData : c);
+      updated = compensacoes.map(c => String(c.id) === String(compFormData.id) ? payload : c);
     } else {
-      updated = [...compensacoes, compFormData];
+      updated = [...compensacoes, payload];
     }
 
     setCompensacoes(updated);
@@ -623,20 +715,24 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
     const painelData = painelResumo.rows.map(r => ({
       "Tipo de Crédito": r.tipo,
       "Crédito Original (R$)": r.creditoOriginal,
-      "Total Compensado (R$)": r.totalCompensado,
-      "Saldo Disponível (R$)": r.saldoDisponivel,
-      "% Utilizado": (r.percUtilizado / 100),
+      "Baixa do Principal (R$)": r.principalCompensado,
+      "Saldo Disponível Principal (R$)": r.saldoDisponivel,
+      "Ganho Juros SELIC Realizada (R$)": r.ganhoJurosRealizado,
+      "Total Débitos Quitados (R$)": r.totalDebitosQuitados,
+      "% Utilizado Principal": (r.percUtilizado / 100),
       "Status": r.status,
-      "Saldo com Juros Selic (R$)": r.saldoComJuros
+      "Saldo c/ Previsão Selic (R$)": r.saldoComJurosFuturos
     }));
     painelData.push({
       "Tipo de Crédito": "TOTAL CONSOLIDADO",
       "Crédito Original (R$)": painelResumo.total.creditoOriginal,
-      "Total Compensado (R$)": painelResumo.total.totalCompensado,
-      "Saldo Disponível (R$)": painelResumo.total.saldoDisponivel,
-      "% Utilizado": (painelResumo.total.percUtilizado / 100),
+      "Baixa do Principal (R$)": painelResumo.total.principalCompensado,
+      "Saldo Disponível Principal (R$)": painelResumo.total.saldoDisponivel,
+      "Ganho Juros SELIC Realizada (R$)": painelResumo.total.ganhoJurosRealizado,
+      "Total Débitos Quitados (R$)": painelResumo.total.totalDebitosQuitados,
+      "% Utilizado Principal": (painelResumo.total.percUtilizado / 100),
       "Status": "CONSOLIDADO",
-      "Saldo com Juros Selic (R$)": painelResumo.total.saldoComJuros
+      "Saldo c/ Previsão Selic (R$)": painelResumo.total.saldoComJurosFuturos
     });
     const wsPainel = XLSX.utils.json_to_sheet(painelData);
     XLSX.utils.book_append_sheet(wb, wsPainel, "Painel de Saldos");
@@ -648,15 +744,16 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
       "Nº PER/DCOMP Origem": c.numeroPerdcomp,
       "Data Transmissão": formatDate(c.dataTransmissao),
       "Valor do Crédito (R$)": c.valorCredito,
-      "Total Compensado (R$)": c.totalCompensado,
+      "Baixa Principal (R$)": c.totalPrincipalCompensado,
       "Saldo Disponível (R$)": c.saldoDisponivel,
+      "Ganho Juros DCOMPs (R$)": c.totalJurosRealizados,
       "% Disponível": (100 - c.percUtilizado) / 100,
       "Período de Apuração": c.periodoApuracao,
       "Descrição/Origem": c.descricaoOrigem,
       "Observação": c.observacao,
       "Incide Juros Selic": c.incideJuros ? "SIM" : "NÃO",
-      "Juros Estimados (R$)": c.jurosEstimados,
-      "Saldo c/ Juros (R$)": c.saldoComJuros,
+      "Juros Projetados Futuros (R$)": c.jurosEstimadosFuturos,
+      "Saldo Total Projetado (R$)": c.saldoComJurosFuturos,
       "Atualizado Em": formatDate(c.dataAtualizacao)
     }));
     const wsCred = XLSX.utils.json_to_sheet(credData);
@@ -671,9 +768,11 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
       "Data Compensação": formatDate(c.dataCompensacao),
       "Nº PER/DCOMP Compensação": c.numeroPerdcompCompensacao,
       "Tributo Compensado": c.tributoCompensado,
-      "Valor Compensado (R$)": c.valorCompensado,
+      "Total Débito Quitado (R$)": c.valorTotalCompensado,
+      "Baixa do Principal (R$)": c.valorPrincipal,
+      "Ganho Juros SELIC (R$)": c.valorJuros,
       "Período de Apuração Débito": c.periodoApuracao,
-      "Saldo do Crédito Após Comp. (R$)": c.saldoApos,
+      "Saldo do Principal Após Comp. (R$)": c.saldoPrincipalApos,
       "Status": c.status
     }));
     const wsComp = XLSX.utils.json_to_sheet(compData);
@@ -713,7 +812,7 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
                 Controle de Créditos e Compensações PER/DCOMP
               </h2>
               <span style={{ fontSize: "0.85rem", color: "#94a3b8" }}>
-                Gestão integrada de pedidos de restituição, ressarcimento, saldos negativos e DCOMPs com cálculo de SELIC
+                Gestão com segregação contábil de <strong>Baixa do Principal</strong> e <strong>Ganho de Juros SELIC</strong>
               </span>
             </div>
           </div>
@@ -788,7 +887,7 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
         <div style={{
           background: "linear-gradient(145deg, #1e293b 0%, #0f172a 100%)",
           padding: "1.25rem", borderRadius: "12px", border: "1px solid #334155",
-          boxShadow: "0 4px 15px rgba(0,0,0,0.2)", position: "relative", overflow: "hidden"
+          boxShadow: "0 4px 15px rgba(0,0,0,0.2)"
         }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
             <span style={{ fontSize: "0.82rem", fontWeight: "600", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em" }}>
@@ -806,7 +905,7 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
           </div>
         </div>
 
-        {/* Card 2: Total Compensado */}
+        {/* Card 2: Baixa do Principal */}
         <div style={{
           background: "linear-gradient(145deg, #1e293b 0%, #0f172a 100%)",
           padding: "1.25rem", borderRadius: "12px", border: "1px solid #334155",
@@ -814,21 +913,21 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
         }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
             <span style={{ fontSize: "0.82rem", fontWeight: "600", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-              Total Compensado (DCOMPs)
+              Principal Compensado (Baixado)
             </span>
             <div style={{ padding: "6px", background: "rgba(245, 158, 11, 0.15)", borderRadius: "8px" }}>
               <ArrowRight size={18} color="#fbbf24" />
             </div>
           </div>
           <div style={{ fontSize: "1.65rem", fontWeight: "800", color: "#fbbf24" }}>
-            {formatCurrency(painelResumo.total.totalCompensado)}
+            {formatCurrency(painelResumo.total.principalCompensado)}
           </div>
           <div style={{ fontSize: "0.78rem", color: "#f59e0b", marginTop: "0.4rem", display: "flex", alignItems: "center", gap: "4px" }}>
-            <Percent size={13} /> {formatPercent(painelResumo.total.percUtilizado)} do crédito já utilizado
+            <Percent size={13} /> {formatPercent(painelResumo.total.percUtilizado)} do principal original baixado
           </div>
         </div>
 
-        {/* Card 3: Saldo Disponível */}
+        {/* Card 3: Saldo Disponível do Principal */}
         <div style={{
           background: "linear-gradient(145deg, #064e3b 0%, #022c22 100%)",
           padding: "1.25rem", borderRadius: "12px", border: "1px solid #059669",
@@ -836,7 +935,7 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
         }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
             <span style={{ fontSize: "0.82rem", fontWeight: "600", color: "#a7f3d0", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-              Saldo Disponível Principal
+              Saldo Disponível do Principal
             </span>
             <div style={{ padding: "6px", background: "rgba(16, 185, 129, 0.25)", borderRadius: "8px" }}>
               <DollarSign size={18} color="#34d399" />
@@ -846,11 +945,11 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
             {formatCurrency(painelResumo.total.saldoDisponivel)}
           </div>
           <div style={{ fontSize: "0.78rem", color: "#6ee7b7", marginTop: "0.4rem" }}>
-            Disponível para compensação com novos tributos
+            Livre para novas compensações de tributos
           </div>
         </div>
 
-        {/* Card 4: Projeção com Selic */}
+        {/* Card 4: Ganho de Juros SELIC Realizado + Previsão */}
         <div style={{
           background: "linear-gradient(145deg, #312e81 0%, #1e1b4b 100%)",
           padding: "1.25rem", borderRadius: "12px", border: "1px solid #4f46e5",
@@ -858,17 +957,17 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
         }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
             <span style={{ fontSize: "0.82rem", fontWeight: "600", color: "#c7d2fe", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-              Saldo c/ Atualização SELIC
+              Ganho SELIC (Realizado + Previsto)
             </span>
             <div style={{ padding: "6px", background: "rgba(99, 102, 241, 0.25)", borderRadius: "8px" }}>
-              <TrendingUp size={18} color="#a5b4fc" />
+              <Sparkles size={18} color="#a5b4fc" />
             </div>
           </div>
           <div style={{ fontSize: "1.75rem", fontWeight: "800", color: "#818cf8" }}>
-            {formatCurrency(painelResumo.total.saldoComJuros)}
+            {formatCurrency(painelResumo.total.ganhoJurosRealizado + painelResumo.total.jurosProjetadosFuturos)}
           </div>
           <div style={{ fontSize: "0.78rem", color: "#a5b4fc", marginTop: "0.4rem" }}>
-            + {formatCurrency(painelResumo.total.jurosEstimados)} de juros estimados
+            Realizado em DCOMPs: {formatCurrency(painelResumo.total.ganhoJurosRealizado)} | A Realizar: {formatCurrency(painelResumo.total.jurosProjetadosFuturos)}
           </div>
         </div>
       </div>
@@ -931,7 +1030,7 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
             cursor: "pointer", fontSize: "0.95rem", transition: "all 0.2s"
           }}
         >
-          <Calculator size={18} /> Previsão de Juros (SELIC)
+          <Calculator size={18} /> Gestão de Juros SELIC
         </button>
       </div>
 
@@ -944,14 +1043,14 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
           }}>
             <div style={{
               padding: "1rem 1.25rem", background: "linear-gradient(90deg, #1e3a8a 0%, #1e293b 100%)",
-              display: "flex", justifyContent: "space-between", alignItems: "center"
+              display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px"
             }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: "700", color: "#fff" }}>
                   CONTROLE DE CRÉDITOS PER/DCOMP – PAINEL CONSOLIDADO
                 </h3>
                 <span style={{ fontSize: "0.8rem", color: "#93c5fd" }}>
-                  Cálculo automático em tempo real a partir das abas Base de Créditos e Compensações
+                  Baixa exclusivamente da parcela de principal do crédito com apuração isolada do ganho de juros
                 </span>
               </div>
               <div style={{ display: "flex", gap: "8px" }}>
@@ -972,16 +1071,17 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
             </div>
 
             <div className="table-container" style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "0.9rem" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "0.88rem" }}>
                 <thead>
                   <tr style={{ background: "#0f172a", color: "#94a3b8", borderBottom: "2px solid #334155" }}>
-                    <th style={{ padding: "12px 16px", fontWeight: "700" }}>Tipo de crédito</th>
-                    <th style={{ padding: "12px 16px", textAlign: "right", fontWeight: "700" }}>Crédito original</th>
-                    <th style={{ padding: "12px 16px", textAlign: "right", fontWeight: "700" }}>Total compensado</th>
-                    <th style={{ padding: "12px 16px", textAlign: "right", fontWeight: "700" }}>Saldo disponível</th>
-                    <th style={{ padding: "12px 16px", textAlign: "center", fontWeight: "700", width: "160px" }}>% utilizado</th>
-                    <th style={{ padding: "12px 16px", textAlign: "center", fontWeight: "700" }}>Status</th>
-                    <th style={{ padding: "12px 16px", textAlign: "right", fontWeight: "700", color: "#818cf8" }}>Saldo c/ Selic</th>
+                    <th style={{ padding: "12px 14px", fontWeight: "700" }}>Tipo de crédito</th>
+                    <th style={{ padding: "12px 14px", textAlign: "right", fontWeight: "700" }}>Crédito Original</th>
+                    <th style={{ padding: "12px 14px", textAlign: "right", fontWeight: "700", color: "#fbbf24" }}>Principal Baixado</th>
+                    <th style={{ padding: "12px 14px", textAlign: "right", fontWeight: "700", color: "#34d399" }}>Saldo Disponível</th>
+                    <th style={{ padding: "12px 14px", textAlign: "right", fontWeight: "700", color: "#a5b4fc" }}>Ganho de Juros (SELIC)</th>
+                    <th style={{ padding: "12px 14px", textAlign: "right", fontWeight: "700" }}>Total Quitado</th>
+                    <th style={{ padding: "12px 14px", textAlign: "center", fontWeight: "700", width: "140px" }}>% Utilizado</th>
+                    <th style={{ padding: "12px 14px", textAlign: "center", fontWeight: "700" }}>Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -994,7 +1094,7 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
                         transition: "background 0.15s"
                       }}
                     >
-                      <td style={{ padding: "12px 16px", fontWeight: "700", color: row.creditoOriginal > 0 ? "#f8fafc" : "#64748b" }}>
+                      <td style={{ padding: "12px 14px", fontWeight: "700", color: row.creditoOriginal > 0 ? "#f8fafc" : "#64748b" }}>
                         <span style={{
                           padding: "3px 8px", borderRadius: "6px",
                           background: row.tipo === "IPI" ? "rgba(59, 130, 246, 0.2)" : row.tipo === "IRPJ" ? "rgba(16, 185, 129, 0.2)" : row.tipo === "CSLL" ? "rgba(168, 85, 247, 0.2)" : "rgba(148, 163, 184, 0.15)",
@@ -1003,22 +1103,28 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
                           {row.tipo}
                         </span>
                       </td>
-                      <td style={{ padding: "12px 16px", textAlign: "right", color: row.creditoOriginal > 0 ? "#f1f5f9" : "#64748b" }}>
+                      <td style={{ padding: "12px 14px", textAlign: "right", color: row.creditoOriginal > 0 ? "#f1f5f9" : "#64748b" }}>
                         {formatCurrency(row.creditoOriginal)}
                       </td>
-                      <td style={{ padding: "12px 16px", textAlign: "right", color: row.totalCompensado > 0 ? "#fbbf24" : "#64748b" }}>
-                        {formatCurrency(row.totalCompensado)}
+                      <td style={{ padding: "12px 14px", textAlign: "right", color: row.principalCompensado > 0 ? "#fbbf24" : "#64748b" }}>
+                        {formatCurrency(row.principalCompensado)}
                       </td>
                       <td style={{ 
-                        padding: "12px 16px", textAlign: "right", fontWeight: "700",
+                        padding: "12px 14px", textAlign: "right", fontWeight: "700",
                         color: row.saldoDisponivel > 0 ? "#34d399" : "#64748b"
                       }}>
                         {formatCurrency(row.saldoDisponivel)}
                       </td>
-                      <td style={{ padding: "12px 16px", textAlign: "center" }}>
+                      <td style={{ padding: "12px 14px", textAlign: "right", color: row.ganhoJurosRealizado > 0 ? "#a5b4fc" : "#64748b", fontWeight: "600" }}>
+                        {row.ganhoJurosRealizado > 0 ? `+ ${formatCurrency(row.ganhoJurosRealizado)}` : "R$ 0,00"}
+                      </td>
+                      <td style={{ padding: "12px 14px", textAlign: "right", color: row.totalDebitosQuitados > 0 ? "#f8fafc" : "#64748b" }}>
+                        {formatCurrency(row.totalDebitosQuitados)}
+                      </td>
+                      <td style={{ padding: "12px 14px", textAlign: "center" }}>
                         {row.creditoOriginal > 0 ? (
-                          <div style={{ display: "flex", alignItems: "center", gap: "8px", justifyContent: "center" }}>
-                            <div style={{ flex: 1, height: "7px", background: "#334155", borderRadius: "4px", overflow: "hidden", maxWidth: "80px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px", justifyContent: "center" }}>
+                            <div style={{ flex: 1, height: "7px", background: "#334155", borderRadius: "4px", overflow: "hidden", maxWidth: "70px" }}>
                               <div style={{
                                 width: `${Math.min(100, row.percUtilizado)}%`,
                                 height: "100%",
@@ -1034,16 +1140,13 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
                           <span style={{ color: "#64748b", fontSize: "0.8rem" }}>0,00%</span>
                         )}
                       </td>
-                      <td style={{ padding: "12px 16px", textAlign: "center" }}>
+                      <td style={{ padding: "12px 14px", textAlign: "center" }}>
                         <span style={{
                           padding: "4px 10px", borderRadius: "12px", fontSize: "0.75rem", fontWeight: "700",
                           background: row.statusBg, color: row.statusColor
                         }}>
                           {row.status}
                         </span>
-                      </td>
-                      <td style={{ padding: "12px 16px", textAlign: "right", color: row.saldoComJuros > 0 ? "#a5b4fc" : "#64748b", fontWeight: "600" }}>
-                        {formatCurrency(row.saldoComJuros)}
                       </td>
                     </tr>
                   ))}
@@ -1057,10 +1160,16 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
                       {formatCurrency(painelResumo.total.creditoOriginal)}
                     </td>
                     <td style={{ padding: "14px 16px", textAlign: "right", fontSize: "1rem", color: "#fbbf24" }}>
-                      {formatCurrency(painelResumo.total.totalCompensado)}
+                      {formatCurrency(painelResumo.total.principalCompensado)}
                     </td>
                     <td style={{ padding: "14px 16px", textAlign: "right", fontSize: "1.05rem", color: "#34d399" }}>
                       {formatCurrency(painelResumo.total.saldoDisponivel)}
+                    </td>
+                    <td style={{ padding: "14px 16px", textAlign: "right", fontSize: "1rem", color: "#a5b4fc" }}>
+                      + {formatCurrency(painelResumo.total.ganhoJurosRealizado)}
+                    </td>
+                    <td style={{ padding: "14px 16px", textAlign: "right", fontSize: "1rem", color: "#f8fafc" }}>
+                      {formatCurrency(painelResumo.total.totalDebitosQuitados)}
                     </td>
                     <td style={{ padding: "14px 16px", textAlign: "center", color: "#cbd5e1" }}>
                       {formatPercent(painelResumo.total.percUtilizado)}
@@ -1073,16 +1182,13 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
                         {painelResumo.total.status}
                       </span>
                     </td>
-                    <td style={{ padding: "14px 16px", textAlign: "right", fontSize: "1.05rem", color: "#818cf8" }}>
-                      {formatCurrency(painelResumo.total.saldoComJuros)}
-                    </td>
                   </tr>
                 </tbody>
               </table>
             </div>
 
             <div style={{ padding: "1rem 1.25rem", background: "rgba(15, 23, 42, 0.6)", borderTop: "1px solid #334155", fontSize: "0.82rem", color: "#94a3b8" }}>
-              💡 <strong>Resumo Operacional:</strong> Os saldos disponíveis são abatidos automaticamente a cada nova compensação lançada na aba "Compensações". Para créditos de IRPJ e CSLL sujeitos a Selic, a projeção monetária já reflete o ganho estimado de juros acumulados até o período atual.
+              💡 <strong>Regra Fiscal Aplicada:</strong> O <em>Saldo Disponível</em> é deduzido exclusivamente pela <strong>Parcela de Principal</strong> das compensações. Qualquer parcela de juros SELIC aproveitada é computada separadamente na coluna <strong>Ganho de Juros (SELIC)</strong>, garantindo que o direito creditório nominal não seja reduzido indevidamente.
             </div>
           </div>
         </div>
@@ -1136,12 +1242,12 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
                     <th style={{ padding: "10px 14px" }}>Nº PER/DCOMP Origem</th>
                     <th style={{ padding: "10px 14px" }}>Data Transm.</th>
                     <th style={{ padding: "10px 14px", textAlign: "right" }}>Valor Crédito</th>
-                    <th style={{ padding: "10px 14px", textAlign: "right" }}>Compensado</th>
-                    <th style={{ padding: "10px 14px", textAlign: "right" }}>Saldo Disponível</th>
+                    <th style={{ padding: "10px 14px", textAlign: "right", color: "#fbbf24" }}>Baixa Principal</th>
+                    <th style={{ padding: "10px 14px", textAlign: "right", color: "#34d399" }}>Saldo Disponível</th>
+                    <th style={{ padding: "10px 14px", textAlign: "right", color: "#a5b4fc" }}>Ganho Juros DCOMPs</th>
                     <th style={{ padding: "10px 14px" }}>Período Apuração</th>
                     <th style={{ padding: "10px 14px" }}>Descrição / Origem</th>
                     <th style={{ padding: "10px 14px" }}>Observação</th>
-                    <th style={{ padding: "10px 14px", textAlign: "center" }}>Juros Selic</th>
                     {canEdit && <th style={{ padding: "10px 14px", textAlign: "center", width: "120px" }}>Ações</th>}
                   </tr>
                 </thead>
@@ -1186,14 +1292,17 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
                       <td style={{ padding: "10px 14px", textAlign: "right", color: "#f1f5f9", fontWeight: "600" }}>
                         {formatCurrency(cred.valorCredito)}
                       </td>
-                      <td style={{ padding: "10px 14px", textAlign: "right", color: cred.totalCompensado > 0 ? "#fbbf24" : "#64748b" }}>
-                        {formatCurrency(cred.totalCompensado)}
+                      <td style={{ padding: "10px 14px", textAlign: "right", color: cred.totalPrincipalCompensado > 0 ? "#fbbf24" : "#64748b" }}>
+                        {formatCurrency(cred.totalPrincipalCompensado)}
                       </td>
                       <td style={{ padding: "10px 14px", textAlign: "right", fontWeight: "700", color: cred.saldoDisponivel > 0 ? "#34d399" : "#64748b" }}>
                         <div>{formatCurrency(cred.saldoDisponivel)}</div>
                         <div style={{ fontSize: "0.72rem", color: cred.saldoDisponivel > 0 ? "#a7f3d0" : "#64748b" }}>
                           ({formatPercent(cred.valorCredito > 0 ? ((cred.saldoDisponivel / cred.valorCredito) * 100) : 0)} disp.)
                         </div>
+                      </td>
+                      <td style={{ padding: "10px 14px", textAlign: "right", color: cred.totalJurosRealizados > 0 ? "#a5b4fc" : "#64748b", fontWeight: "600" }}>
+                        {cred.totalJurosRealizados > 0 ? `+ ${formatCurrency(cred.totalJurosRealizados)}` : "-"}
                       </td>
                       <td style={{ padding: "10px 14px", color: "#cbd5e1" }}>
                         {cred.periodoApuracao || "-"}
@@ -1209,18 +1318,6 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
                         }}>
                           {cred.observacao || "-"}
                         </span>
-                      </td>
-                      <td style={{ padding: "10px 14px", textAlign: "center" }}>
-                        {cred.incideJuros ? (
-                          <span style={{
-                            padding: "2px 6px", borderRadius: "4px", fontSize: "0.72rem", fontWeight: "700",
-                            background: "rgba(99, 102, 241, 0.2)", color: "#818cf8"
-                          }}>
-                            SIM (+{cred.taxaJuros}%)
-                          </span>
-                        ) : (
-                          <span style={{ color: "#64748b", fontSize: "0.75rem" }}>Não</span>
-                        )}
                       </td>
                       {canEdit && (
                         <td style={{ padding: "10px 14px", textAlign: "center" }}>
@@ -1316,14 +1413,15 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
                   <tr style={{ background: "#0f172a", color: "#94a3b8", borderBottom: "2px solid #334155" }}>
                     <th style={{ padding: "10px 14px", width: "60px" }}>ID Comp.</th>
                     <th style={{ padding: "10px 14px" }}>Tipo Crédito</th>
-                    <th style={{ padding: "10px 14px", width: "70px" }}>ID Origem</th>
                     <th style={{ padding: "10px 14px" }}>Nº PER/DCOMP Origem</th>
                     <th style={{ padding: "10px 14px" }}>Data Comp.</th>
-                    <th style={{ padding: "10px 14px" }}>Nº PER/DCOMP Compensação</th>
-                    <th style={{ padding: "10px 14px" }}>Tributo Compensado</th>
-                    <th style={{ padding: "10px 14px", textAlign: "right" }}>Valor Compensado</th>
+                    <th style={{ padding: "10px 14px" }}>Nº PER/DCOMP Comp.</th>
+                    <th style={{ padding: "10px 14px" }}>Tributo Débito</th>
+                    <th style={{ padding: "10px 14px", textAlign: "right" }}>Total Quitado</th>
+                    <th style={{ padding: "10px 14px", textAlign: "right", color: "#fbbf24" }}>Baixa Principal</th>
+                    <th style={{ padding: "10px 14px", textAlign: "right", color: "#a5b4fc" }}>Ganho Juros SELIC</th>
                     <th style={{ padding: "10px 14px" }}>Período Débito</th>
-                    <th style={{ padding: "10px 14px", textAlign: "right" }}>Saldo Restante</th>
+                    <th style={{ padding: "10px 14px", textAlign: "right" }}>Saldo Principal Restante</th>
                     <th style={{ padding: "10px 14px", textAlign: "center" }}>Status</th>
                     {canEdit && <th style={{ padding: "10px 14px", textAlign: "center", width: "90px" }}>Ações</th>}
                   </tr>
@@ -1342,9 +1440,6 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
                         }}>
                           {comp.tipoCredito}
                         </span>
-                      </td>
-                      <td style={{ padding: "10px 14px", color: "#cbd5e1" }}>
-                        Crédito #{comp.creditoId}
                       </td>
                       <td style={{ padding: "10px 14px", fontFamily: "monospace", color: "#94a3b8" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
@@ -1386,14 +1481,20 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
                           {comp.tributoCompensado}
                         </span>
                       </td>
+                      <td style={{ padding: "10px 14px", textAlign: "right", color: "#f8fafc", fontWeight: "700" }}>
+                        {formatCurrency(comp.valorTotalCompensado)}
+                      </td>
                       <td style={{ padding: "10px 14px", textAlign: "right", color: "#fbbf24", fontWeight: "700" }}>
-                        {formatCurrency(comp.valorCompensado)}
+                        {formatCurrency(comp.valorPrincipal)}
+                      </td>
+                      <td style={{ padding: "10px 14px", textAlign: "right", color: comp.valorJuros > 0 ? "#a5b4fc" : "#64748b", fontWeight: "600" }}>
+                        {comp.valorJuros > 0 ? `+ ${formatCurrency(comp.valorJuros)}` : "-"}
                       </td>
                       <td style={{ padding: "10px 14px", color: "#cbd5e1" }}>
                         {comp.periodoApuracao || "-"}
                       </td>
-                      <td style={{ padding: "10px 14px", textAlign: "right", color: comp.saldoApos > 0 ? "#34d399" : "#64748b", fontWeight: "600" }}>
-                        {formatCurrency(comp.saldoApos)}
+                      <td style={{ padding: "10px 14px", textAlign: "right", color: comp.saldoPrincipalApos > 0 ? "#34d399" : "#64748b", fontWeight: "600" }}>
+                        {formatCurrency(comp.saldoPrincipalApos)}
                       </td>
                       <td style={{ padding: "10px 14px", textAlign: "center" }}>
                         <span style={{
@@ -1428,7 +1529,7 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
                   ))}
                   {compensacoesFiltradas.length === 0 && (
                     <tr>
-                      <td colSpan={12} style={{ textAlign: "center", padding: "2rem", color: "#64748b" }}>
+                      <td colSpan={13} style={{ textAlign: "center", padding: "2rem", color: "#64748b" }}>
                         Nenhuma compensação localizada.
                       </td>
                     </tr>
@@ -1460,6 +1561,11 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
                   bem como <strong>pagamentos indevidos ou a maior</strong>, sofrem atualização monetária pelo índice da taxa <strong>SELIC acumulada</strong> a partir 
                   do mês subsequente ao encerramento do ano-calendário/pagamento até o mês anterior ao da efetiva restituição ou compensação, acrescida de 1% no mês do evento.
                 </p>
+                <div style={{ marginTop: "0.8rem", padding: "8px 12px", background: "rgba(16, 185, 129, 0.1)", borderRadius: "8px", border: "1px solid rgba(16, 185, 129, 0.2)" }}>
+                  <span style={{ fontSize: "0.82rem", color: "#34d399", fontWeight: "600" }}>
+                    ⭐ Tratamento Contábil: Nas DCOMPs, apenas a parcela de principal baixa o crédito original. A parcela de juros SELIC constitui Receita Financeira / Ganho de Juros e é contabilizada separadamente!
+                  </span>
+                </div>
               </div>
 
               {/* Controle de Taxa Selic Global */}
@@ -1490,8 +1596,47 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
                   <span style={{ color: "#a5b4fc", fontWeight: "bold" }}>%</span>
                 </div>
                 <span style={{ fontSize: "0.72rem", color: "#64748b" }}>
-                  Aplica-se aos créditos com previsão de juros
+                  Aplica-se aos saldos em aberto com juros
                 </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Cards de Resumo de Juros: Realizados vs A Realizar */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1rem", marginBottom: "1.5rem" }}>
+            <div style={{ background: "#1e293b", padding: "1.2rem", borderRadius: "10px", border: "1px solid #334155" }}>
+              <div style={{ fontSize: "0.8rem", color: "#94a3b8", textTransform: "uppercase", fontWeight: "600" }}>
+                Ganho de Juros Realizado em DCOMPs
+              </div>
+              <div style={{ fontSize: "1.5rem", fontWeight: "800", color: "#34d399", marginTop: "0.3rem" }}>
+                {formatCurrency(painelResumo.total.ganhoJurosRealizado)}
+              </div>
+              <div style={{ fontSize: "0.75rem", color: "#64748b", marginTop: "0.3rem" }}>
+                Juros já aproveitados para abater débitos tributários
+              </div>
+            </div>
+
+            <div style={{ background: "#1e293b", padding: "1.2rem", borderRadius: "10px", border: "1px solid #334155" }}>
+              <div style={{ fontSize: "0.8rem", color: "#94a3b8", textTransform: "uppercase", fontWeight: "600" }}>
+                Juros Projetados nos Saldos Restantes
+              </div>
+              <div style={{ fontSize: "1.5rem", fontWeight: "800", color: "#818cf8", marginTop: "0.3rem" }}>
+                {formatCurrency(painelResumo.total.jurosProjetadosFuturos)}
+              </div>
+              <div style={{ fontSize: "0.75rem", color: "#64748b", marginTop: "0.3rem" }}>
+                Previsão de ganho adicional pela Selic sobre o saldo disponível
+              </div>
+            </div>
+
+            <div style={{ background: "#1e293b", padding: "1.2rem", borderRadius: "10px", border: "1px solid #334155" }}>
+              <div style={{ fontSize: "0.8rem", color: "#94a3b8", textTransform: "uppercase", fontWeight: "600" }}>
+                Ganho Total com Juros SELIC
+              </div>
+              <div style={{ fontSize: "1.5rem", fontWeight: "800", color: "#f8fafc", marginTop: "0.3rem" }}>
+                {formatCurrency(painelResumo.total.ganhoJurosRealizado + painelResumo.total.jurosProjetadosFuturos)}
+              </div>
+              <div style={{ fontSize: "0.75rem", color: "#38bdf8", marginTop: "0.3rem" }}>
+                Economia tributária total gerada pela Selic
               </div>
             </div>
           </div>
@@ -1514,7 +1659,7 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
                     <th style={{ padding: "10px 14px" }}>Tributo</th>
                     <th style={{ padding: "10px 14px" }}>Nº PER/DCOMP</th>
                     <th style={{ padding: "10px 14px" }}>Descrição / Apuração</th>
-                    <th style={{ padding: "10px 14px", textAlign: "right" }}>Saldo Original Disp.</th>
+                    <th style={{ padding: "10px 14px", textAlign: "right" }}>Saldo Principal Disp.</th>
                     <th style={{ padding: "10px 14px", textAlign: "center" }}>Taxa Selic</th>
                     <th style={{ padding: "10px 14px", textAlign: "right", color: "#34d399" }}>Juros Projetados (R$)</th>
                     <th style={{ padding: "10px 14px", textAlign: "right", color: "#818cf8", fontWeight: "700" }}>Saldo Total c/ Juros</th>
@@ -1546,10 +1691,10 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
                         {cred.taxaJuros}%
                       </td>
                       <td style={{ padding: "12px 14px", textAlign: "right", color: "#34d399", fontWeight: "700" }}>
-                        + {formatCurrency(cred.jurosEstimados)}
+                        + {formatCurrency(cred.jurosEstimadosFuturos)}
                       </td>
                       <td style={{ padding: "12px 14px", textAlign: "right", color: "#818cf8", fontWeight: "800", fontSize: "0.95rem" }}>
-                        {formatCurrency(cred.saldoComJuros)}
+                        {formatCurrency(cred.saldoComJurosFuturos)}
                       </td>
                       <td style={{ padding: "12px 14px", color: "#94a3b8" }}>
                         {cred.observacao || "Aguardando homologação"}
@@ -1568,10 +1713,10 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
                       Méd. {taxaSelicGlobal}%
                     </td>
                     <td style={{ padding: "14px 16px", textAlign: "right", color: "#34d399", fontSize: "1rem" }}>
-                      + {formatCurrency(creditosComSaldos.filter(c => c.incideJuros).reduce((s, c) => s + c.jurosEstimados, 0))}
+                      + {formatCurrency(creditosComSaldos.filter(c => c.incideJuros).reduce((s, c) => s + c.jurosEstimadosFuturos, 0))}
                     </td>
                     <td style={{ padding: "14px 16px", textAlign: "right", color: "#818cf8", fontSize: "1.05rem" }}>
-                      {formatCurrency(creditosComSaldos.filter(c => c.incideJuros).reduce((s, c) => s + c.saldoComJuros, 0))}
+                      {formatCurrency(creditosComSaldos.filter(c => c.incideJuros).reduce((s, c) => s + c.saldoComJurosFuturos, 0))}
                     </td>
                     <td style={{ padding: "14px 16px", color: "#34d399" }}>
                       Ganho Financeiro Real
@@ -1770,7 +1915,7 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
         </div>
       )}
 
-      {/* MODAL DE COMPENSAÇÃO (DCOMP) */}
+      {/* MODAL DE COMPENSAÇÃO (DCOMP) COM SEGREGAÇÃO PRINCIPAL VS JUROS */}
       {isCompModalOpen && compFormData && (
         <div style={{
           position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
@@ -1778,10 +1923,10 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
           zIndex: 9999, backdropFilter: "blur(3px)"
         }}>
           <div style={{
-            background: "#1e293b", padding: "1.8rem", borderRadius: "12px", width: "92%", maxWidth: "750px",
+            background: "#1e293b", padding: "1.8rem", borderRadius: "12px", width: "92%", maxWidth: "800px",
             border: "1px solid #475569", boxShadow: "0 20px 40px rgba(0,0,0,0.6)", maxHeight: "90vh", overflowY: "auto"
           }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem", borderBottom: "1px solid #334155", paddingBottom: "0.8rem" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.2rem", borderBottom: "1px solid #334155", paddingBottom: "0.8rem" }}>
               <h3 style={{ margin: 0, color: "#38bdf8", fontSize: "1.25rem", display: "flex", alignItems: "center", gap: "8px" }}>
                 <ArrowRight size={20} />
                 {compensacoes.some(c => String(c.id) === String(compFormData.id)) ? "Editar Compensação (DCOMP)" : "Lançar Nova Compensação (DCOMP)"}
@@ -1827,16 +1972,16 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
                 const sel = creditosComSaldos.find(c => String(c.id) === String(compFormData.creditoId));
                 if (!sel) return null;
                 return (
-                  <div style={{ marginTop: "0.8rem", display: "flex", gap: "1.5rem", fontSize: "0.85rem", color: "#cbd5e1" }}>
-                    <div><strong>Valor Original:</strong> {formatCurrency(sel.valorCredito)}</div>
-                    <div><strong>Já Compensado:</strong> {formatCurrency(sel.totalCompensado)}</div>
-                    <div><strong style={{ color: "#34d399" }}>Saldo Restante:</strong> <span style={{ color: "#34d399", fontWeight: "bold" }}>{formatCurrency(sel.saldoDisponivel)}</span></div>
+                  <div style={{ marginTop: "0.8rem", display: "flex", gap: "1.5rem", fontSize: "0.85rem", color: "#cbd5e1", flexWrap: "wrap" }}>
+                    <div><strong>Crédito Original:</strong> {formatCurrency(sel.valorCredito)}</div>
+                    <div><strong>Principal Já Baixado:</strong> {formatCurrency(sel.totalPrincipalCompensado)}</div>
+                    <div><strong style={{ color: "#34d399" }}>Saldo Disponível (Principal):</strong> <span style={{ color: "#34d399", fontWeight: "bold" }}>{formatCurrency(sel.saldoDisponivel)}</span></div>
                   </div>
                 );
               })()}
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1.2rem" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
               <div>
                 <label style={{ display: "block", marginBottom: "0.4rem", color: "#94a3b8", fontSize: "0.85rem" }}>Nº PER/DCOMP da Compensação (DCOMP)</label>
                 <input
@@ -1883,16 +2028,102 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
                   style={{ width: "100%", padding: "8px", background: "#0f172a", border: "1px solid #334155", color: "#f8fafc", borderRadius: "6px" }}
                 />
               </div>
+            </div>
 
-              <div>
-                <label style={{ display: "block", marginBottom: "0.4rem", color: "#94a3b8", fontSize: "0.85rem" }}>Valor Compensado (R$)</label>
+            {/* SEÇÃO INTELIGENTE DE VALORES: TOTAL vs PRINCIPAL vs JUROS */}
+            <div style={{
+              background: "linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%)",
+              padding: "1.2rem", borderRadius: "10px", border: "1px solid #4f46e5",
+              marginBottom: "1.2rem"
+            }}>
+              <div style={{ marginBottom: "1rem" }}>
+                <label style={{ display: "block", marginBottom: "0.4rem", color: "#f8fafc", fontSize: "0.92rem", fontWeight: "700" }}>
+                  Valor Total do Débito Quitado nesta DCOMP (R$):
+                </label>
                 <CurrencyInput
-                  value={compFormData.valorCompensado}
-                  onChange={val => setCompFormData({ ...compFormData, valorCompensado: val })}
-                  style={{ padding: "8px", background: "#0f172a", border: "1px solid #334155", color: "#fbbf24", borderRadius: "6px", fontWeight: "bold", fontSize: "1.05rem" }}
+                  value={compFormData.valorTotalCompensado}
+                  onChange={val => {
+                    const juros = compFormData.temJuros ? Number(compFormData.valorJuros || 0) : 0;
+                    setCompFormData({
+                      ...compFormData,
+                      valorTotalCompensado: val,
+                      valorPrincipal: Math.max(0, val - juros)
+                    });
+                  }}
+                  style={{ padding: "10px", background: "#1e293b", border: "1px solid #6366f1", color: "#f8fafc", borderRadius: "6px", fontWeight: "bold", fontSize: "1.15rem" }}
                 />
               </div>
 
+              {/* Checkbox para ativar divisão de Juros SELIC */}
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "1rem", padding: "8px 12px", background: "rgba(99, 102, 241, 0.15)", borderRadius: "8px" }}>
+                <input
+                  type="checkbox"
+                  id="chkJurosComp"
+                  checked={compFormData.temJuros || false}
+                  onChange={e => {
+                    const isChecked = e.target.checked;
+                    const tot = Number(compFormData.valorTotalCompensado || 0);
+                    setCompFormData({
+                      ...compFormData,
+                      temJuros: isChecked,
+                      valorJuros: isChecked ? compFormData.valorJuros : 0,
+                      valorPrincipal: isChecked ? Math.max(0, tot - (compFormData.valorJuros || 0)) : tot
+                    });
+                  }}
+                  style={{ width: "18px", height: "18px", cursor: "pointer" }}
+                />
+                <label htmlFor="chkJurosComp" style={{ color: "#c7d2fe", fontSize: "0.88rem", fontWeight: "600", cursor: "pointer" }}>
+                  Uma parte desta compensação é proveniente de Juros SELIC?
+                </label>
+              </div>
+
+              {/* Campos segregados se houver juros */}
+              {compFormData.temJuros && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", background: "rgba(0,0,0,0.25)", padding: "1rem", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.1)" }}>
+                  <div>
+                    <label style={{ display: "block", marginBottom: "0.3rem", color: "#a5b4fc", fontSize: "0.83rem", fontWeight: "600" }}>
+                      Parcela de Juros SELIC (Ganho de Juros) (R$):
+                    </label>
+                    <CurrencyInput
+                      value={compFormData.valorJuros}
+                      onChange={valJuros => {
+                        const tot = Number(compFormData.valorTotalCompensado || 0);
+                        setCompFormData({
+                          ...compFormData,
+                          valorJuros: valJuros,
+                          valorPrincipal: Math.max(0, tot - valJuros)
+                        });
+                      }}
+                      style={{ padding: "8px", background: "#1e293b", border: "1px solid #818cf8", color: "#a5b4fc", borderRadius: "6px", fontWeight: "bold" }}
+                    />
+                    <span style={{ fontSize: "0.72rem", color: "#94a3b8", marginTop: "3px", display: "block" }}>
+                      Não baixa o crédito original (Receita de Juros)
+                    </span>
+                  </div>
+
+                  <div>
+                    <label style={{ display: "block", marginBottom: "0.3rem", color: "#fbbf24", fontSize: "0.83rem", fontWeight: "600" }}>
+                      Parcela de Principal (Baixa do Crédito) (R$):
+                    </label>
+                    <CurrencyInput
+                      value={compFormData.valorPrincipal}
+                      onChange={valPrinc => {
+                        setCompFormData({
+                          ...compFormData,
+                          valorPrincipal: valPrinc
+                        });
+                      }}
+                      style={{ padding: "8px", background: "#1e293b", border: "1px solid #f59e0b", color: "#fbbf24", borderRadius: "6px", fontWeight: "bold" }}
+                    />
+                    <span style={{ fontSize: "0.72rem", color: "#34d399", marginTop: "3px", display: "block" }}>
+                      Apenas este valor será deduzido do saldo
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
               <div>
                 <label style={{ display: "block", marginBottom: "0.4rem", color: "#94a3b8", fontSize: "0.85rem" }}>Status da DCOMP</label>
                 <select
@@ -1904,21 +2135,21 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
                   {STATUS_COMPENSACAO.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
+
+              <div>
+                <label style={{ display: "block", marginBottom: "0.4rem", color: "#94a3b8", fontSize: "0.85rem" }}>Observações Adicionais</label>
+                <input
+                  type="text"
+                  className="text-input"
+                  placeholder="Ex: Compensado débito de PIS/COFINS com juros Selic..."
+                  value={compFormData.observacao || ""}
+                  onChange={e => setCompFormData({ ...compFormData, observacao: e.target.value })}
+                  style={{ width: "100%", padding: "8px", background: "#0f172a", border: "1px solid #334155", color: "#f8fafc", borderRadius: "6px" }}
+                />
+              </div>
             </div>
 
-            <div>
-              <label style={{ display: "block", marginBottom: "0.4rem", color: "#94a3b8", fontSize: "0.85rem" }}>Observações Adicionais</label>
-              <input
-                type="text"
-                className="text-input"
-                placeholder="Ex: Compensado débito de PIS/COFINS folha/faturamento..."
-                value={compFormData.observacao || ""}
-                onChange={e => setCompFormData({ ...compFormData, observacao: e.target.value })}
-                style={{ width: "100%", padding: "8px", background: "#0f172a", border: "1px solid #334155", color: "#f8fafc", borderRadius: "6px" }}
-              />
-            </div>
-
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", borderTop: "1px solid #334155", paddingTop: "1rem", marginTop: "1.5rem" }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", borderTop: "1px solid #334155", paddingTop: "1rem", marginTop: "1rem" }}>
               <button
                 onClick={() => setIsCompModalOpen(false)}
                 style={{ padding: "8px 16px", background: "#334155", border: "none", color: "#e2e8f0", borderRadius: "6px", cursor: "pointer" }}
