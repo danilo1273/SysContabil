@@ -2336,43 +2336,115 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
 
           {secondaryTab === 'dre' && (
             <div className="glass-panel" style={{ padding: '1.5rem', position: 'relative' }}>
-              <div className="print-hide" style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'rgba(255,255,255,0.05)', padding: '0.25rem 0.6rem', borderRadius: '6px', border: '1px solid #444', fontSize: '0.82rem' }}>
-                  <span style={{ color: '#aaa', fontWeight: 500 }}>📊 AV %:</span>
-                  <select 
-                    value={avViewMode} 
-                    onChange={e => setAvViewMode(e.target.value)} 
-                    className="select-input" 
-                    style={{ padding: '0.2rem 0.4rem', fontSize: '0.78rem', background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer' }}
-                    title="Controle das colunas de Análise Vertical (AV %)"
-                  >
-                    <option value="all" style={{ background: '#222' }}>Todas as Empresas</option>
-                    <option value="consol" style={{ background: '#222' }}>Apenas Consolidado (Compacto)</option>
-                    <option value="none" style={{ background: '#222' }}>Ocultar AV % (Mais Empresas)</option>
-                  </select>
+              <div className="print-hide" style={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center', 
+                gap: '1rem', 
+                flexWrap: 'wrap', 
+                marginBottom: '1rem',
+                background: 'rgba(0,0,0,0.2)',
+                padding: '0.6rem 0.85rem',
+                borderRadius: '8px',
+                border: '1px solid rgba(255,255,255,0.08)'
+              }}>
+                {/* Lado Esquerdo: Modo de Visão e Filtros */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', flexWrap: 'wrap' }}>
+                  {/* Segmented Control: Simples vs Detalhada */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span style={{ fontSize: '0.78rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 }}>Visão:</span>
+                    <div style={{
+                      display: 'inline-flex',
+                      background: 'rgba(0,0,0,0.4)',
+                      padding: '3px',
+                      borderRadius: '8px',
+                      border: '1px solid rgba(255,255,255,0.12)'
+                    }}>
+                      <button
+                        type="button"
+                        onClick={() => setIsDREDetalhada(false)}
+                        style={{
+                          padding: '0.35rem 0.75rem',
+                          fontSize: '0.8rem',
+                          fontWeight: !isDREDetalhada ? 600 : 500,
+                          borderRadius: '6px',
+                          border: 'none',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease',
+                          background: !isDREDetalhada ? '#2563eb' : 'transparent',
+                          color: !isDREDetalhada ? '#ffffff' : '#9ca3af',
+                          boxShadow: !isDREDetalhada ? '0 2px 6px rgba(37,99,235,0.4)' : 'none'
+                        }}
+                        title="Visualizar DRE sintetizada por grupos e subtotais"
+                      >
+                        📋 Simples
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsDREDetalhada(true)}
+                        style={{
+                          padding: '0.35rem 0.75rem',
+                          fontSize: '0.8rem',
+                          fontWeight: isDREDetalhada ? 600 : 500,
+                          borderRadius: '6px',
+                          border: 'none',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease',
+                          background: isDREDetalhada ? '#2563eb' : 'transparent',
+                          color: isDREDetalhada ? '#ffffff' : '#9ca3af',
+                          boxShadow: isDREDetalhada ? '0 2px 6px rgba(37,99,235,0.4)' : 'none'
+                        }}
+                        title="Visualizar DRE completa com todas as contas analíticas detalhadas"
+                      >
+                        📄 Detalhada
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Separador vertical */}
+                  <div style={{ width: '1px', height: '22px', background: 'rgba(255,255,255,0.12)' }} />
+
+                  {/* Seletor AV % */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'rgba(255,255,255,0.05)', padding: '0.25rem 0.6rem', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.12)', fontSize: '0.82rem' }}>
+                    <span style={{ color: '#aaa', fontWeight: 500 }}>📊 AV %:</span>
+                    <select 
+                      value={avViewMode} 
+                      onChange={e => setAvViewMode(e.target.value)} 
+                      className="select-input" 
+                      style={{ padding: '0.2rem 0.4rem', fontSize: '0.78rem', background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer' }}
+                      title="Controle das colunas de Análise Vertical (AV %)"
+                    >
+                      <option value="all" style={{ background: '#222' }}>Todas as Empresas</option>
+                      <option value="consol" style={{ background: '#222' }}>Apenas Consolidado (Compacto)</option>
+                      <option value="none" style={{ background: '#222' }}>Ocultar AV % (Mais Empresas)</option>
+                    </select>
+                  </div>
+
+                  {/* Ocultar zerados */}
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', color: '#ccc', cursor: 'pointer', fontSize: '0.82rem', userSelect: 'none' }}>
+                    <input type="checkbox" checked={hideZeros} onChange={e => setHideZeros(e.target.checked)} style={{ cursor: 'pointer' }} />
+                    Ocultar valores zerados
+                  </label>
                 </div>
-                <button 
-                   onClick={() => { setMappingViewTab('dre'); setShowViewMappingModal(true); }} 
-                   className="btn-secondary"
-                   style={{ padding: '0.6rem 1rem' }}
-                   title="Visualizar o plano de contas e agrupamento da DRE"
-                >
-                   🗺️ Ver Mapeamento
-                </button>
-                <button 
-                   onClick={() => setIsDREDetalhada(!isDREDetalhada)} 
-                   className="btn-secondary"
-                   style={{ padding: '0.6rem 1rem' }}
-                >
-                   {isDREDetalhada ? '🔄 Ver DRE Simples' : '🔄 Ver DRE Detalhada'}
-                </button>
-                <button 
-                   onClick={() => handlePrint('DRE')} 
-                   className="btn-primary"
-                   style={{ padding: '0.6rem 1rem' }}
-                >
-                   🖨️ Exportar PDF
-                </button>
+
+                {/* Lado Direito: Ações */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  <button 
+                    onClick={() => { setMappingViewTab('dre'); setShowViewMappingModal(true); }} 
+                    className="btn-secondary"
+                    style={{ padding: '0.45rem 0.85rem', fontSize: '0.82rem' }}
+                    title="Visualizar o plano de contas e agrupamento da DRE"
+                  >
+                    🗺️ Ver Mapeamento
+                  </button>
+                  <button 
+                    onClick={() => handlePrint('DRE')} 
+                    className="btn-primary"
+                    style={{ padding: '0.45rem 0.95rem', fontSize: '0.82rem' }}
+                  >
+                    🖨️ Exportar PDF
+                  </button>
+                </div>
               </div>
               <div className="printable-area">
                  <PrintHeader />
@@ -2391,47 +2463,115 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
 
           {secondaryTab === 'balanco' && (
             <div className="glass-panel" style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '2rem', position: 'relative' }}>
-              <div className="print-hide" style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '-1rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'rgba(255,255,255,0.05)', padding: '0.25rem 0.6rem', borderRadius: '6px', border: '1px solid #444', fontSize: '0.82rem' }}>
-                  <span style={{ color: '#aaa', fontWeight: 500 }}>📊 AV %:</span>
-                  <select 
-                    value={avViewMode} 
-                    onChange={e => setAvViewMode(e.target.value)} 
-                    className="select-input" 
-                    style={{ padding: '0.2rem 0.4rem', fontSize: '0.78rem', background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer' }}
-                    title="Controle das colunas de Análise Vertical (AV %)"
-                  >
-                    <option value="all" style={{ background: '#222' }}>Todas as Empresas</option>
-                    <option value="consol" style={{ background: '#222' }}>Apenas Consolidado (Compacto)</option>
-                    <option value="none" style={{ background: '#222' }}>Ocultar AV % (Mais Empresas)</option>
-                  </select>
+              <div className="print-hide" style={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center', 
+                gap: '1rem', 
+                flexWrap: 'wrap', 
+                marginBottom: '0.5rem',
+                background: 'rgba(0,0,0,0.2)',
+                padding: '0.6rem 0.85rem',
+                borderRadius: '8px',
+                border: '1px solid rgba(255,255,255,0.08)'
+              }}>
+                {/* Lado Esquerdo: Modo de Visão e Filtros */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', flexWrap: 'wrap' }}>
+                  {/* Segmented Control: Simples vs Detalhado */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span style={{ fontSize: '0.78rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 }}>Visão:</span>
+                    <div style={{
+                      display: 'inline-flex',
+                      background: 'rgba(0,0,0,0.4)',
+                      padding: '3px',
+                      borderRadius: '8px',
+                      border: '1px solid rgba(255,255,255,0.12)'
+                    }}>
+                      <button
+                        type="button"
+                        onClick={() => setIsBalancoDetalhado(false)}
+                        style={{
+                          padding: '0.35rem 0.75rem',
+                          fontSize: '0.8rem',
+                          fontWeight: !isBalancoDetalhado ? 600 : 500,
+                          borderRadius: '6px',
+                          border: 'none',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease',
+                          background: !isBalancoDetalhado ? '#2563eb' : 'transparent',
+                          color: !isBalancoDetalhado ? '#ffffff' : '#9ca3af',
+                          boxShadow: !isBalancoDetalhado ? '0 2px 6px rgba(37,99,235,0.4)' : 'none'
+                        }}
+                        title="Visualizar Balanço Patrimonial resumido por grupos sintéticos"
+                      >
+                        📋 Simples
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsBalancoDetalhado(true)}
+                        style={{
+                          padding: '0.35rem 0.75rem',
+                          fontSize: '0.8rem',
+                          fontWeight: isBalancoDetalhado ? 600 : 500,
+                          borderRadius: '6px',
+                          border: 'none',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease',
+                          background: isBalancoDetalhado ? '#2563eb' : 'transparent',
+                          color: isBalancoDetalhado ? '#ffffff' : '#9ca3af',
+                          boxShadow: isBalancoDetalhado ? '0 2px 6px rgba(37,99,235,0.4)' : 'none'
+                        }}
+                        title="Visualizar Balanço Patrimonial completo com subcontas analíticas detalhadas"
+                      >
+                        📄 Detalhado
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Separador vertical */}
+                  <div style={{ width: '1px', height: '22px', background: 'rgba(255,255,255,0.12)' }} />
+
+                  {/* Seletor AV % */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'rgba(255,255,255,0.05)', padding: '0.25rem 0.6rem', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.12)', fontSize: '0.82rem' }}>
+                    <span style={{ color: '#aaa', fontWeight: 500 }}>📊 AV %:</span>
+                    <select 
+                      value={avViewMode} 
+                      onChange={e => setAvViewMode(e.target.value)} 
+                      className="select-input" 
+                      style={{ padding: '0.2rem 0.4rem', fontSize: '0.78rem', background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer' }}
+                      title="Controle das colunas de Análise Vertical (AV %)"
+                    >
+                      <option value="all" style={{ background: '#222' }}>Todas as Empresas</option>
+                      <option value="consol" style={{ background: '#222' }}>Apenas Consolidado (Compacto)</option>
+                      <option value="none" style={{ background: '#222' }}>Ocultar AV % (Mais Empresas)</option>
+                    </select>
+                  </div>
+
+                  {/* Ocultar zerados */}
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', color: '#ccc', cursor: 'pointer', fontSize: '0.82rem', userSelect: 'none' }}>
+                    <input type="checkbox" checked={hideZeros} onChange={e => setHideZeros(e.target.checked)} style={{ cursor: 'pointer' }} />
+                    Ocultar valores zerados
+                  </label>
                 </div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#ccc', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={hideZeros} onChange={e => setHideZeros(e.target.checked)} />
-                  Ocultar valores zerados
-                </label>
-                <button 
-                   onClick={() => { setMappingViewTab('passivo'); setShowViewMappingModal(true); }} 
-                   className="btn-secondary"
-                   style={{ padding: '0.6rem 1rem' }}
-                   title="Visualizar o plano de contas e agrupamento do Balanço Patrimonial"
-                >
-                   🗺️ Ver Mapeamento
-                </button>
-                <button 
-                   onClick={() => setIsBalancoDetalhado(!isBalancoDetalhado)} 
-                   className="btn-secondary"
-                   style={{ padding: '0.6rem 1rem' }}
-                >
-                   {isBalancoDetalhado ? '🔄 Ver Balanço Simples' : '🔄 Ver Balanço Detalhado'}
-                </button>
-                <button 
-                   onClick={() => handlePrint('Balanço Patrimonial')} 
-                   className="btn-primary"
-                   style={{ padding: '0.6rem 1rem' }}
-                >
-                   🖨️ Exportar PDF
-                </button>
+
+                {/* Lado Direito: Ações */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  <button 
+                    onClick={() => { setMappingViewTab('passivo'); setShowViewMappingModal(true); }} 
+                    className="btn-secondary"
+                    style={{ padding: '0.45rem 0.85rem', fontSize: '0.82rem' }}
+                    title="Visualizar o plano de contas e agrupamento do Balanço Patrimonial"
+                  >
+                    🗺️ Ver Mapeamento
+                  </button>
+                  <button 
+                    onClick={() => handlePrint('Balanço Patrimonial')} 
+                    className="btn-primary"
+                    style={{ padding: '0.45rem 0.95rem', fontSize: '0.82rem' }}
+                  >
+                    🖨️ Exportar PDF
+                  </button>
+                </div>
               </div>
 
               <div className="printable-area">
