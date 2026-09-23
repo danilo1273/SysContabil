@@ -728,9 +728,28 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
     });
   }, [compensacoesEnriquecidas, filterEmpresa, searchTerm, creditos]);
 
-  // Dados consolidados do Painel de Saldos
+  // Dados consolidados do Painel de Saldos (Apenas tributos com créditos cadastrados)
   const painelResumo = useMemo(() => {
-    const rows = TIPOS_TRIBUTOS.map(tipo => {
+    // Obter apenas os tipos de tributos que possuem créditos cadastrados para a empresa selecionada
+    const tiposComCredito = Array.from(new Set(
+      creditosComSaldos
+        .filter(c => filterEmpresa === "todas" || !c.empresaId || c.empresaId === filterEmpresa)
+        .map(c => (c.tipoCredito || "").trim().toUpperCase())
+        .filter(Boolean)
+    ));
+
+    // Ordem preferencial lógica dos tributos
+    const ordemPreferencial = ["IPI", "IRPJ", "CSLL", "IRRF", "PIS", "COFINS"];
+    tiposComCredito.sort((a, b) => {
+      const idxA = ordemPreferencial.indexOf(a);
+      const idxB = ordemPreferencial.indexOf(b);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.localeCompare(b);
+    });
+
+    const rows = tiposComCredito.map(tipo => {
       const credsTipo = creditosComSaldos.filter(c => {
         if (filterEmpresa !== "todas" && c.empresaId && c.empresaId !== filterEmpresa) return false;
         return (c.tipoCredito || "").toUpperCase() === tipo.toUpperCase();
@@ -748,20 +767,14 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
       const jurosProjetadosFuturos = credsTipo.reduce((sum, c) => sum + Number(c.jurosEstimadosFuturos || 0), 0);
       const saldoComJurosFuturos = saldoDisponivel + jurosProjetadosFuturos;
 
-      let status = "SEM CRÉDITO";
-      let statusColor = "#888";
-      let statusBg = "rgba(255,255,255,0.05)";
+      let status = "DISPONÍVEL";
+      let statusColor = "#10B981";
+      let statusBg = "rgba(16, 185, 129, 0.15)";
 
-      if (creditoOriginal > 0) {
-        if (saldoDisponivel > 0) {
-          status = "DISPONÍVEL";
-          statusColor = "#10B981";
-          statusBg = "rgba(16, 185, 129, 0.15)";
-        } else {
-          status = "ESGOTADO";
-          statusColor = "#F59E0B";
-          statusBg = "rgba(245, 158, 11, 0.15)";
-        }
+      if (saldoDisponivel <= 0) {
+        status = "ESGOTADO";
+        statusColor = "#F59E0B";
+        statusBg = "rgba(245, 158, 11, 0.15)";
       }
 
       return {
@@ -779,7 +792,7 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
         saldoComJurosFuturos,
         qtdCreditos: credsTipo.length
       };
-    });
+    }).filter(r => r.creditoOriginal > 0);
 
     const totalOriginal = rows.reduce((sum, r) => sum + r.creditoOriginal, 0);
     const totalPrincipal = rows.reduce((sum, r) => sum + r.principalCompensado, 0);
@@ -1409,6 +1422,14 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
                       </td>
                     </tr>
                   ))}
+
+                  {painelResumo.rows.length === 0 && (
+                    <tr>
+                      <td colSpan={8} style={{ textAlign: "center", padding: "2rem", color: "#64748b" }}>
+                        Nenhum crédito cadastrado para a empresa selecionada.
+                      </td>
+                    </tr>
+                  )}
 
                   {/* LINHA TOTAL CONSOLIDADA */}
                   <tr style={{ background: "#0f172a", borderTop: "2px solid #475569", fontWeight: "800" }}>
