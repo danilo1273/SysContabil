@@ -60,6 +60,219 @@ const CurrencyInput = ({ value, onChange, placeholder, style }) => {
   );
 };
 
+// Constantes para Período de Apuração Padronizado
+const MESES_APURACAO = [
+  { val: "01", sigla: "jan", label: "Janeiro (01)" },
+  { val: "02", sigla: "fev", label: "Fevereiro (02)" },
+  { val: "03", sigla: "mar", label: "Março (03)" },
+  { val: "04", sigla: "abr", label: "Abril (04)" },
+  { val: "05", sigla: "mai", label: "Maio (05)" },
+  { val: "06", sigla: "jun", label: "Junho (06)" },
+  { val: "07", sigla: "jul", label: "Julho (07)" },
+  { val: "08", sigla: "ago", label: "Agosto (08)" },
+  { val: "09", sigla: "set", label: "Setembro (09)" },
+  { val: "10", sigla: "out", label: "Outubro (10)" },
+  { val: "11", sigla: "nov", label: "Novembro (11)" },
+  { val: "12", sigla: "dez", label: "Dezembro (12)" }
+];
+
+const TRIMESTRES_APURACAO = [
+  { val: "1T", label: "1º Trimestre (Jan-Mar)" },
+  { val: "2T", label: "2º Trimestre (Abr-Jun)" },
+  { val: "3T", label: "3º Trimestre (Jul-Set)" },
+  { val: "4T", label: "4º Trimestre (Out-Dez)" }
+];
+
+const ANOS_APURACAO = [2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030];
+
+// Componente Seletor Padronizado de Período (Mês / Trimestre / Outro)
+const PeriodoSelector = ({ value = "", onChange, label = "Período de Apuração" }) => {
+  const parseVal = (valStr) => {
+    const s = (valStr || "").trim();
+    if (!s) return { tipo: "mes", mes: "07", tri: "2T", ano: 2026, custom: "" };
+
+    // Checar se é Trimestre
+    if (/trimestre|1t|2t|3t|4t/i.test(s)) {
+      let tri = "1T";
+      if (/2.*trimestre|2t/i.test(s)) tri = "2T";
+      else if (/3.*trimestre|3t/i.test(s)) tri = "3T";
+      else if (/4.*trimestre|4t/i.test(s)) tri = "4T";
+
+      const anoMatch = s.match(/20\d{2}|\b\d{2}\b/);
+      let ano = 2026;
+      if (anoMatch) {
+        ano = anoMatch[0].length === 2 ? Number(`20${anoMatch[0]}`) : Number(anoMatch[0]);
+      }
+      return { tipo: "tri", mes: "01", tri, ano, custom: s };
+    }
+
+    // Checar se é Mês
+    for (const m of MESES_APURACAO) {
+      if (s.toLowerCase().includes(m.sigla) || s.startsWith(m.val + "/") || s.startsWith(m.val + "-")) {
+        const anoMatch = s.match(/20\d{2}|\b\d{2}\b/);
+        let ano = 2026;
+        if (anoMatch) {
+          ano = anoMatch[0].length === 2 ? Number(`20${anoMatch[0]}`) : Number(anoMatch[0]);
+        }
+        return { tipo: "mes", mes: m.val, tri: "1T", ano, custom: s };
+      }
+    }
+
+    const mmMatch = s.match(/^(\d{1,2})\/(20\d{2}|\d{2})$/);
+    if (mmMatch) {
+      const mesNum = mmMatch[1].padStart(2, "0");
+      const anoNum = mmMatch[2].length === 2 ? Number(`20${mmMatch[2]}`) : Number(mmMatch[2]);
+      return { tipo: "mes", mes: mesNum, tri: "1T", ano: anoNum, custom: s };
+    }
+
+    return { tipo: "custom", mes: "07", tri: "2T", ano: 2026, custom: s };
+  };
+
+  const parsed = useMemo(() => parseVal(value), [value]);
+  const [tipo, setTipo] = useState(parsed.tipo);
+  const [mes, setMes] = useState(parsed.mes);
+  const [tri, setTri] = useState(parsed.tri);
+  const [ano, setAno] = useState(parsed.ano);
+  const [customText, setCustomText] = useState(parsed.custom);
+
+  useEffect(() => {
+    setTipo(parsed.tipo);
+    setMes(parsed.mes);
+    setTri(parsed.tri);
+    setAno(parsed.ano);
+    setCustomText(parsed.custom);
+  }, [value]);
+
+  const update = (newTipo, newMes, newTri, newAno, newCustom) => {
+    setTipo(newTipo);
+    setMes(newMes);
+    setTri(newTri);
+    setAno(newAno);
+    setCustomText(newCustom);
+
+    if (newTipo === "mes") {
+      onChange(`${newMes}/${newAno}`);
+    } else if (newTipo === "tri") {
+      const triLabel = newTri === "1T" ? "1º Trimestre" : newTri === "2T" ? "2º Trimestre" : newTri === "3T" ? "3º Trimestre" : "4º Trimestre";
+      onChange(`${triLabel} ${newAno}`);
+    } else {
+      onChange(newCustom);
+    }
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.35rem" }}>
+        <label style={{ color: "#94a3b8", fontSize: "0.85rem" }}>{label}</label>
+        
+        {/* Alternador de Tipo de Período */}
+        <div style={{ display: "flex", gap: "2px", background: "#0f172a", padding: "2px", borderRadius: "6px", border: "1px solid #334155" }}>
+          <button
+            type="button"
+            onClick={() => update("mes", mes, tri, ano, customText)}
+            style={{
+              padding: "2px 8px", fontSize: "0.72rem", borderRadius: "4px", border: "none", cursor: "pointer",
+              background: tipo === "mes" ? "#2563eb" : "transparent",
+              color: tipo === "mes" ? "#fff" : "#94a3b8",
+              fontWeight: tipo === "mes" ? "700" : "500",
+              transition: "all 0.15s"
+            }}
+          >
+            Mês
+          </button>
+          <button
+            type="button"
+            onClick={() => update("tri", mes, tri, ano, customText)}
+            style={{
+              padding: "2px 8px", fontSize: "0.72rem", borderRadius: "4px", border: "none", cursor: "pointer",
+              background: tipo === "tri" ? "#2563eb" : "transparent",
+              color: tipo === "tri" ? "#fff" : "#94a3b8",
+              fontWeight: tipo === "tri" ? "700" : "500",
+              transition: "all 0.15s"
+            }}
+          >
+            Trimestre
+          </button>
+          <button
+            type="button"
+            onClick={() => update("custom", mes, tri, ano, customText || value)}
+            style={{
+              padding: "2px 8px", fontSize: "0.72rem", borderRadius: "4px", border: "none", cursor: "pointer",
+              background: tipo === "custom" ? "#334155" : "transparent",
+              color: tipo === "custom" ? "#fff" : "#94a3b8",
+              fontWeight: tipo === "custom" ? "700" : "500",
+              transition: "all 0.15s"
+            }}
+          >
+            Outro
+          </button>
+        </div>
+      </div>
+
+      {tipo === "mes" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 100px", gap: "8px" }}>
+          <select
+            className="text-input"
+            value={mes}
+            onChange={e => update("mes", e.target.value, tri, ano, customText)}
+            style={{ padding: "8px", background: "#0f172a", border: "1px solid #334155", color: "#f8fafc", borderRadius: "6px", fontSize: "0.85rem" }}
+          >
+            {MESES_APURACAO.map(m => (
+              <option key={m.val} value={m.val}>{m.label}</option>
+            ))}
+          </select>
+          <select
+            className="text-input"
+            value={ano}
+            onChange={e => update("mes", mes, tri, Number(e.target.value), customText)}
+            style={{ padding: "8px", background: "#0f172a", border: "1px solid #334155", color: "#f8fafc", borderRadius: "6px", fontSize: "0.85rem" }}
+          >
+            {ANOS_APURACAO.map(a => (
+              <option key={a} value={a}>{a}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {tipo === "tri" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 100px", gap: "8px" }}>
+          <select
+            className="text-input"
+            value={tri}
+            onChange={e => update("tri", mes, e.target.value, ano, customText)}
+            style={{ padding: "8px", background: "#0f172a", border: "1px solid #334155", color: "#f8fafc", borderRadius: "6px", fontSize: "0.85rem" }}
+          >
+            {TRIMESTRES_APURACAO.map(t => (
+              <option key={t.val} value={t.val}>{t.label}</option>
+            ))}
+          </select>
+          <select
+            className="text-input"
+            value={ano}
+            onChange={e => update("tri", mes, tri, Number(e.target.value), customText)}
+            style={{ padding: "8px", background: "#0f172a", border: "1px solid #334155", color: "#f8fafc", borderRadius: "6px", fontSize: "0.85rem" }}
+          >
+            {ANOS_APURACAO.map(a => (
+              <option key={a} value={a}>{a}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {tipo === "custom" && (
+        <input
+          type="text"
+          className="text-input"
+          placeholder="Ex: 01/2025 a 12/2025 ou Anual..."
+          value={customText}
+          onChange={e => update("custom", mes, tri, ano, e.target.value)}
+          style={{ width: "100%", padding: "8px", background: "#0f172a", border: "1px solid #334155", color: "#f8fafc", borderRadius: "6px", fontSize: "0.85rem" }}
+        />
+      )}
+    </div>
+  );
+};
+
 // Base inicial de créditos baseada na planilha real do usuário
 const INITIAL_CREDITOS = [
   {
@@ -2015,15 +2228,11 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
                 />
               </div>
 
-              <div>
-                <label style={{ display: "block", marginBottom: "0.4rem", color: "#94a3b8", fontSize: "0.85rem" }}>Período de Apuração</label>
-                <input
-                  type="text"
-                  className="text-input"
-                  placeholder="Ex: 1º TRIMESTRE 2026 ou 01/2025 A 12/2025"
+              <div style={{ alignSelf: "flex-end" }}>
+                <PeriodoSelector
+                  label="Período de Apuração"
                   value={creditFormData.periodoApuracao}
-                  onChange={e => setCreditFormData({ ...creditFormData, periodoApuracao: e.target.value })}
-                  style={{ width: "100%", padding: "8px", background: "#0f172a", border: "1px solid #334155", color: "#f8fafc", borderRadius: "6px" }}
+                  onChange={val => setCreditFormData({ ...creditFormData, periodoApuracao: val })}
                 />
               </div>
 
@@ -2227,15 +2436,11 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
                 </select>
               </div>
 
-              <div>
-                <label style={{ display: "block", marginBottom: "0.4rem", color: "#94a3b8", fontSize: "0.85rem" }}>Período de Apuração do Débito</label>
-                <input
-                  type="text"
-                  className="text-input"
-                  placeholder="Ex: jul/26, jun/26, 2º Trimestre 2026..."
+              <div style={{ alignSelf: "flex-end" }}>
+                <PeriodoSelector
+                  label="Período de Apuração do Débito"
                   value={compFormData.periodoApuracao}
-                  onChange={e => setCompFormData({ ...compFormData, periodoApuracao: e.target.value })}
-                  style={{ width: "100%", padding: "8px", background: "#0f172a", border: "1px solid #334155", color: "#f8fafc", borderRadius: "6px" }}
+                  onChange={val => setCompFormData({ ...compFormData, periodoApuracao: val })}
                 />
               </div>
             </div>
