@@ -338,15 +338,7 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
     }
   };
 
-  // Restaura para a base padrão da planilha
-  const handleResetToDefault = async () => {
-    if (window.confirm("Deseja restaurar todos os créditos e compensações para a base padrão da planilha?")) {
-      setCreditos(INITIAL_CREDITOS);
-      setCompensacoes(INITIAL_COMPENSACOES);
-      setTaxaSelicGlobal(8.5);
-      await saveDataToDb(INITIAL_CREDITOS, INITIAL_COMPENSACOES, 8.5);
-    }
-  };
+
 
   // REGRA FUNDAMENTAL: Apenas a parcela de PRINCIPAL baixa o saldo do crédito original!
   const creditosComSaldos = useMemo(() => {
@@ -861,20 +853,7 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
             <Download size={15} /> Exportar Excel
           </button>
 
-          {/* Botão de Reset/Padrão */}
-          {canEdit && (
-            <button
-              onClick={handleResetToDefault}
-              style={{
-                display: "flex", alignItems: "center", gap: "5px",
-                padding: "7px 10px", background: "transparent", border: "1px solid #475569",
-                color: "#94a3b8", borderRadius: "8px", cursor: "pointer", fontSize: "0.8rem"
-              }}
-              title="Restaurar valores padrão da planilha"
-            >
-              <RefreshCw size={13} /> Resetar Padrão
-            </button>
-          )}
+
         </div>
       </div>
 
