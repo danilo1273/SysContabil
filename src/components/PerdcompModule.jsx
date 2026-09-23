@@ -1810,33 +1810,20 @@ export default function PerdcompModule({ companies = [], canEdit = true }) {
                               </td>
                               {canEdit && (
                                 <td style={{ padding: "10px 14px", textAlign: "center" }}>
-                                  <div style={{ display: "flex", gap: "6px", justifyContent: "center", alignItems: "center" }}>
-                                    {cred.saldoDisponivel > 0 && (
-                                      <button
-                                        onClick={() => handleOpenCompModal(null, cred.id)}
-                                        style={{
-                                          background: "#2563eb", border: "none", color: "#fff",
-                                          padding: "4px 8px", borderRadius: "4px", cursor: "pointer",
-                                          fontSize: "0.75rem", fontWeight: "600", display: "flex", alignItems: "center", gap: "3px"
-                                        }}
-                                        title="Lançar compensação com este crédito"
-                                      >
-                                        <Plus size={12} /> Comp.
-                                      </button>
-                                    )}
+                                  <div style={{ display: "flex", gap: "8px", justifyContent: "center", alignItems: "center" }}>
                                     <button
                                       onClick={() => handleOpenCreditModal(cred)}
                                       style={{ background: "transparent", border: "none", color: "#60a5fa", cursor: "pointer", padding: "4px" }}
                                       title="Editar crédito"
                                     >
-                                      <Edit2 size={15} />
+                                      <Edit2 size={16} />
                                     </button>
                                     <button
                                       onClick={() => handleDeleteCredit(cred.id)}
                                       style={{ background: "transparent", border: "none", color: "#ef4444", cursor: "pointer", padding: "4px" }}
                                       title="Excluir crédito"
                                     >
-                                      <Trash2 size={15} />
+                                      <Trash2 size={16} />
                                     </button>
                                   </div>
                                 </td>
