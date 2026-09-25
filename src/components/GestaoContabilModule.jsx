@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import RelatoriosContabeis from './RelatoriosContabeis';
 import { getRawRecords, getSettings, saveSettings } from '../utils/db';
+import { propagateRoutinesToNewMonth } from '../utils/routinePropagator';
 import { 
   Building2, CheckCircle2, AlertCircle, Clock, Lock, Unlock, Mail, 
   Send, RefreshCw, PlusCircle, Trash2, Edit2, ShieldAlert, ArrowRight, 
@@ -48,7 +49,7 @@ function GestaoContabilModule({ userRole, userName, companies }) {
     const [pendencias, setPendencias] = useState([]);
     const [users, setUsers] = useState([]);
 
-    // Workflow & Rotinas Contábeis por Filial
+    // Fluxo de Trabalho & Rotinas Contábeis por Filial
     const [rotinas, setRotinas] = useState([]);
     const [filiaisList, setFiliaisList] = useState(DEFAULT_FILIAIS);
     const [rotinaEmpresaFilter, setRotinaEmpresaFilter] = useState('todas');
@@ -69,7 +70,8 @@ function GestaoContabilModule({ userRole, userName, companies }) {
         responsavel: '',
         responsavelEmail: '',
         data_limite: '',
-        dependencias: []
+        dependencias: [],
+        propagarFuturos: true
     });
     const [emailModalData, setEmailModalData] = useState(null);
     const [isSendingEmail, setIsSendingEmail] = useState(false);
@@ -230,7 +232,7 @@ function GestaoContabilModule({ userRole, userName, companies }) {
         return () => window.removeEventListener('agf_navigate', handleNav);
     }, []);
 
-    // --- GESTÃO DE ROTINAS & WORKFLOW CONTÁBIL POR FILIAL ---
+    // --- GESTÃO DE ROTINAS & FLUXO DE TRABALHO CONTÁBIL POR FILIAL ---
 
     // Avalia dependências de todas as rotinas e dispara e-mail quando liberadas
     const evaluateDependenciesAndSave = async (updatedList) => {
@@ -451,7 +453,7 @@ function GestaoContabilModule({ userRole, userName, companies }) {
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
             <div style="background: #1a1f2c; padding: 20px; text-align: center; color: #ffffff;">
               <h2 style="margin: 0; color: #FF9800; font-size: 20px;">SysContábil AGF</h2>
-              <p style="margin: 4px 0 0 0; font-size: 13px; color: #aaaaaa;">Gestão Contábil & Workflow de Filiais</p>
+              <p style="margin: 4px 0 0 0; font-size: 13px; color: #aaaaaa;">Gestão Contábil & Fluxo de Trabalho de Filiais</p>
             </div>
             <div style="padding: 24px; color: #333333; line-height: 1.6;">
               <div style="background: rgba(76, 175, 80, 0.1); border: 1px solid rgba(76, 175, 80, 0.3); border-radius: 6px; padding: 12px; margin-bottom: 16px; color: #2e7d32; font-weight: bold; display: flex; align-items: center; gap: 8px;">
@@ -633,6 +635,66 @@ function GestaoContabilModule({ userRole, userName, companies }) {
         window.$toast(`Sucesso! ${createdCount} novas rotinas geradas para o mês ${selectedMes}/${selectedAno}.`, { type: 'success' });
     };
 
+    // Sincronizar / Copiar Rotinas e Declarações do Mês Anterior para a Competência Atual
+    const handleSyncPreviousMonthRoutines = async () => {
+        let prevAno = selectedAno;
+        let prevMes = selectedMes - 1;
+        if (prevMes < 1) {
+            prevMes = 12;
+            prevAno = selectedAno - 1;
+        }
+
+        setIsProcessing(true);
+        try {
+            const rotRes = await fetch(`/api/gestao/rotinas?ano=${prevAno}&mes=${prevMes}`);
+            if (!rotRes.ok) {
+                window.$toast('Não foi possível buscar as rotinas do mês anterior.', { type: 'error' });
+                return;
+            }
+            const prevRoutines = await rotRes.json();
+            if (!Array.isArray(prevRoutines) || prevRoutines.length === 0) {
+                window.$toast(`Nenhuma rotina encontrada na competência anterior (${prevMes}/${prevAno}).`, { type: 'warning' });
+                return;
+            }
+
+            const ok = await window.$confirm(`Deseja sincronizar as rotinas e declarações de ${prevMes}/${prevAno} (${prevRoutines.length} rotinas) para a competência atual ${selectedMes}/${selectedAno}?`);
+            if (!ok) return;
+
+            const propagated = propagateRoutinesToNewMonth(prevRoutines, selectedAno, selectedMes);
+
+            // Mesclar preservando o progresso de tarefas que já foram iniciadas no mês atual
+            const currentRots = [...rotinas];
+            let addedCount = 0;
+            let updatedCount = 0;
+
+            propagated.forEach(newR => {
+                const existingIdx = currentRots.findIndex(r => 
+                    r.id === newR.id || 
+                    (r.titulo === newR.titulo && r.filialCode === newR.filialCode && r.tipo === newR.tipo)
+                );
+
+                if (existingIdx >= 0) {
+                    const cur = currentRots[existingIdx];
+                    if (!cur.responsavel && newR.responsavel) {
+                        currentRots[existingIdx] = { ...cur, responsavel: newR.responsavel, responsavelEmail: newR.responsavelEmail };
+                        updatedCount++;
+                    }
+                } else {
+                    currentRots.push(newR);
+                    addedCount++;
+                }
+            });
+
+            await evaluateDependenciesAndSave(currentRots);
+            window.$toast(`Sincronização concluída! ${addedCount} rotinas adicionadas e ${updatedCount} atualizadas a partir de ${prevMes}/${prevAno}.`, { type: 'success' });
+        } catch (err) {
+            console.error('Erro ao sincronizar rotinas do mês anterior:', err);
+            window.$toast('Erro ao sincronizar rotinas do mês anterior.', { type: 'error' });
+        } finally {
+            setIsProcessing(false);
+        }
+    };
+
     // Criar Nova Rotina / Declaração (Por Filial ou Consolidada da Empresa)
     const handleSaveNewCustomRotina = async (e) => {
         e.preventDefault();
@@ -669,6 +731,7 @@ function GestaoContabilModule({ userRole, userName, companies }) {
             concluido_em: null,
             concluido_por: null,
             email_notificado: false,
+            propagarFuturos: newRotinaForm.propagarFuturos !== false,
             updated_at: new Date().toISOString()
         };
 
@@ -685,7 +748,8 @@ function GestaoContabilModule({ userRole, userName, companies }) {
             responsavel: '',
             responsavelEmail: '',
             data_limite: '',
-            dependencias: []
+            dependencias: [],
+            propagarFuturos: true
         });
         window.$toast(`${isConsolidado ? 'Declaração Consolidada' : 'Rotina'} "${newRoutine.titulo}" cadastrada com sucesso!`, { type: 'success' });
     };
@@ -1273,7 +1337,7 @@ function GestaoContabilModule({ userRole, userName, companies }) {
 
             <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid #333', paddingBottom: '1rem', marginBottom: '1.5rem' }}>
                 <button className={activeTab === 'integracoes' ? 'btn-primary' : 'btn-secondary'} onClick={() => setActiveTab('integracoes')} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Building2 size={16} /> Workflow & Integrações por Filial
+                    <Building2 size={16} /> Fluxo de Trabalho & Integrações por Filial
                 </button>
                 <button className={activeTab === 'obrigacoes' ? 'btn-primary' : 'btn-secondary'} onClick={() => setActiveTab('obrigacoes')}>Obrigações Acessórias</button>
                 <button className={activeTab === 'pendencias' ? 'btn-primary' : 'btn-secondary'} onClick={() => setActiveTab('pendencias')}>Documentos Pendentes</button>
@@ -1396,6 +1460,15 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                 )}
 
                                 <button
+                                    onClick={handleSyncPreviousMonthRoutines}
+                                    className="btn-secondary"
+                                    style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.78rem', padding: '0.45rem 0.8rem' }}
+                                    title="Sincronizar rotinas e declarações cadastradas na competência anterior para este mês"
+                                >
+                                    <RefreshCw size={14} /> Sincronizar Mês Anterior
+                                </button>
+
+                                <button
                                     onClick={handleGenerateDefaultRoutines}
                                     className="btn-primary"
                                     style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.78rem', padding: '0.45rem 0.8rem' }}
@@ -1429,15 +1502,24 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                     Nenhuma rotina gerada para {selectedMes}/{selectedAno}
                                 </h4>
                                 <p style={{ margin: '0 auto 16px auto', maxWidth: '500px', fontSize: '0.84rem', color: '#aaa' }}>
-                                    Gere automaticamente os fechamentos de <strong>Entradas, Saídas, Financeiro e Apuração Fiscal</strong> por filial.
+                                    As rotinas dos meses anteriores seguem automaticamente para os próximos meses. Caso deseje, sincronize ou gere agora:
                                 </p>
-                                <button
-                                    onClick={handleGenerateDefaultRoutines}
-                                    className="btn-primary"
-                                    style={{ padding: '0.55rem 1.2rem', fontSize: '0.85rem', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                                >
-                                    <Sparkles size={15} /> Gerar Rotinas Padrão do Mês
-                                </button>
+                                <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                                    <button
+                                        onClick={handleSyncPreviousMonthRoutines}
+                                        className="btn-secondary"
+                                        style={{ padding: '0.55rem 1.2rem', fontSize: '0.85rem', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                                    >
+                                        <RefreshCw size={15} /> Sincronizar Mês Anterior
+                                    </button>
+                                    <button
+                                        onClick={handleGenerateDefaultRoutines}
+                                        className="btn-primary"
+                                        style={{ padding: '0.55rem 1.2rem', fontSize: '0.85rem', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                                    >
+                                        <Sparkles size={15} /> Gerar Rotinas Padrão do Mês
+                                    </button>
+                                </div>
                             </div>
                         )}
 
@@ -3281,6 +3363,37 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                             Nenhuma rotina pré-requisito cadastrada no mês ainda. Gere as rotinas padrão primeiro.
                                         </span>
                                     )}
+                                </div>
+                            </div>
+
+                            {/* REPLICAR PARA OS PRÓXIMOS MESES */}
+                            <div 
+                                style={{ 
+                                    background: 'rgba(33, 150, 243, 0.08)', 
+                                    border: '1px solid rgba(33, 150, 243, 0.25)', 
+                                    borderRadius: '8px', 
+                                    padding: '10px 14px', 
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    gap: '10px', 
+                                    cursor: 'pointer' 
+                                }} 
+                                onClick={() => setNewRotinaForm(prev => ({ ...prev, propagarFuturos: !prev.propagarFuturos }))}
+                            >
+                                <input
+                                    type="checkbox"
+                                    checked={newRotinaForm.propagarFuturos !== false}
+                                    onChange={(e) => setNewRotinaForm({ ...newRotinaForm, propagarFuturos: e.target.checked })}
+                                    style={{ cursor: 'pointer', transform: 'scale(1.1)' }}
+                                    onClick={(e) => e.stopPropagation()}
+                                />
+                                <div>
+                                    <div style={{ fontSize: '0.82rem', color: '#90CAF9', fontWeight: 'bold' }}>
+                                        Replicar esta rotina para os próximos meses
+                                    </div>
+                                    <div style={{ fontSize: '0.73rem', color: '#aaa' }}>
+                                        Esta rotina permanecerá ativa e continuará disponível automaticamente nas competências futuras.
+                                    </div>
                                 </div>
                             </div>
 

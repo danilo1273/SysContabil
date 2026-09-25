@@ -260,23 +260,118 @@ app.delete('/api/gestao/pendencias/:id', (req, res) => {
     db.run('DELETE FROM agf_pendencias WHERE id = ?', [req.params.id], () => res.json({ success: true }));
 });
 
-// --- Gestão de Rotinas e Workflow Contábil com Dependências ---
+// --- Gestão de Rotinas e Fluxo de Trabalho Contábil com Dependências ---
 app.get('/api/gestao/rotinas', (req, res) => {
     const { ano, mes, empresaId } = req.query;
+    const targetAno = parseInt(ano);
+    const targetMes = parseInt(mes);
     let query = 'SELECT * FROM agf_rotinas WHERE ano = ? AND mes = ?';
-    const params = [parseInt(ano), parseInt(mes)];
+    const params = [targetAno, targetMes];
     if (empresaId && empresaId !== 'todas' && empresaId !== 'consolidado') {
         query += ' AND empresaId = ?';
         params.push(empresaId);
     }
     db.all(query, params, (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
-        const parsed = (rows || []).map(r => {
-            let deps = [];
-            try { deps = JSON.parse(r.dependencias); } catch (e) { deps = []; }
-            return { ...r, dependencias: deps, email_notificado: Boolean(r.email_notificado) };
+        if (rows && rows.length > 0) {
+            const parsed = rows.map(r => {
+                let deps = [];
+                try { deps = JSON.parse(r.dependencias); } catch (e) { deps = []; }
+                return { ...r, dependencias: deps, email_notificado: Boolean(r.email_notificado) };
+            });
+            return res.json(parsed);
+        }
+
+        // Se não houver rotinas no mês atual, busca do mês anterior mais recente
+        const findPrevQuery = `SELECT DISTINCT ano, mes FROM agf_rotinas 
+                               WHERE (ano < ? OR (ano = ? AND mes < ?)) 
+                               ORDER BY ano DESC, mes DESC LIMIT 1`;
+        db.get(findPrevQuery, [targetAno, targetAno, targetMes], (pErr, prevPeriod) => {
+            if (pErr || !prevPeriod) {
+                return res.json([]);
+            }
+
+            db.all('SELECT * FROM agf_rotinas WHERE ano = ? AND mes = ?', [prevPeriod.ano, prevPeriod.mes], (sErr, sourceRows) => {
+                if (sErr || !sourceRows || sourceRows.length === 0) {
+                    return res.json([]);
+                }
+
+                const idMap = {};
+                sourceRows.forEach(r => {
+                    const parts = r.id.split('-');
+                    let newId;
+                    if (parts.length >= 4 && parts[0] === 'rot') {
+                        newId = `rot-${targetAno}-${targetMes}-${parts.slice(3).join('-')}`;
+                    } else {
+                        newId = `rot-${targetAno}-${targetMes}-${r.filialCode || 'filial'}-${Date.now().toString(36)}`;
+                    }
+                    idMap[r.id] = newId;
+                });
+
+                const stmt = db.prepare(`REPLACE INTO agf_rotinas 
+                  (id, ano, mes, empresaId, filialCode, filialNome, titulo, categoria, tipo, dia_atual, status, responsavel, responsavelEmail, dependencias, data_limite, concluido_em, concluido_por, email_notificado, updated_at) 
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+
+                const resultList = [];
+                sourceRows.forEach(r => {
+                    let oldDeps = [];
+                    try { oldDeps = JSON.parse(r.dependencias); } catch(e) { oldDeps = []; }
+                    const newDeps = (oldDeps || []).map(oldDepId => idMap[oldDepId] || oldDepId);
+                    const newId = idMap[r.id];
+                    const hasDeps = newDeps.length > 0;
+                    
+                    let newDataLimite = '';
+                    if (r.data_limite && typeof r.data_limite === 'string') {
+                        const dParts = r.data_limite.split('-');
+                        if (dParts.length === 3) {
+                            const d = parseInt(dParts[2], 10) || 1;
+                            const maxD = new Date(targetAno, targetMes, 0).getDate();
+                            newDataLimite = `${targetAno}-${String(targetMes).padStart(2, '0')}-${String(Math.min(d, maxD)).padStart(2, '0')}`;
+                        } else {
+                            newDataLimite = r.data_limite;
+                        }
+                    }
+
+                    const newItem = {
+                        id: newId,
+                        ano: targetAno,
+                        mes: targetMes,
+                        empresaId: r.empresaId,
+                        filialCode: r.filialCode,
+                        filialNome: r.filialNome || '',
+                        titulo: r.titulo,
+                        categoria: r.categoria || 'integracao',
+                        tipo: r.tipo || 'personalizado',
+                        dia_atual: 0,
+                        status: hasDeps ? 'bloqueada' : 'em_andamento',
+                        responsavel: r.responsavel || '',
+                        responsavelEmail: r.responsavelEmail || '',
+                        dependencias: newDeps,
+                        data_limite: newDataLimite,
+                        concluido_em: null,
+                        concluido_por: null,
+                        email_notificado: false,
+                        updated_at: new Date().toISOString()
+                    };
+
+                    resultList.push(newItem);
+                    stmt.run([
+                        newItem.id, newItem.ano, newItem.mes, newItem.empresaId, newItem.filialCode, newItem.filialNome,
+                        newItem.titulo, newItem.categoria, newItem.tipo, newItem.dia_atual, newItem.status,
+                        newItem.responsavel, newItem.responsavelEmail, JSON.stringify(newDeps), newItem.data_limite,
+                        newItem.concluido_em, newItem.concluido_por, 0, newItem.updated_at
+                    ]);
+                });
+
+                stmt.finalize(() => {
+                    let filtered = resultList;
+                    if (empresaId && empresaId !== 'todas' && empresaId !== 'consolidado') {
+                        filtered = filtered.filter(x => x.empresaId === empresaId);
+                    }
+                    res.json(filtered);
+                });
+            });
         });
-        res.json(parsed);
     });
 });
 

@@ -1,4 +1,5 @@
 import { supabase } from "./supabaseClient";
+import { propagateRoutinesToNewMonth } from "./utils/routinePropagator";
 
 const originalFetch = window.fetch;
 
@@ -44,12 +45,57 @@ window.fetch = async (...args) => {
         
         const key = `agf_rotinas_${ano}_${mes}`;
         const { data: setRow } = await supabase.from("settings").select("value").eq("key", key).single();
+        let list = null;
         if (setRow && setRow.value) {
-          let list = typeof setRow.value === "string" ? JSON.parse(setRow.value) : setRow.value;
+          try {
+            list = typeof setRow.value === "string" ? JSON.parse(setRow.value) : setRow.value;
+          } catch (e) {
+            list = null;
+          }
+        }
+
+        // Se não houver rotinas cadastradas para este mês, propaga automaticamente do mês anterior mais recente
+        if (!list || (Array.isArray(list) && list.length === 0)) {
+          try {
+            const { data: allRotKeys } = await supabase.from("settings").select("key, value").like("key", "agf_rotinas_%");
+            if (allRotKeys && allRotKeys.length > 0) {
+              const targetAno = parseInt(ano, 10);
+              const targetMes = parseInt(mes, 10);
+
+              const prevPeriods = allRotKeys
+                .map(item => {
+                  const parts = item.key.split('_');
+                  if (parts.length >= 4) {
+                    return { ano: parseInt(parts[2], 10), mes: parseInt(parts[3], 10), raw: item.value };
+                  }
+                  return null;
+                })
+                .filter(p => p && (p.ano < targetAno || (p.ano === targetAno && p.mes < targetMes)))
+                .sort((a, b) => (b.ano - a.ano) || (b.mes - a.mes));
+
+              if (prevPeriods.length > 0) {
+                const mostRecent = prevPeriods[0];
+                const sourceRoutines = typeof mostRecent.raw === 'string' ? JSON.parse(mostRecent.raw) : mostRecent.raw;
+                if (Array.isArray(sourceRoutines) && sourceRoutines.length > 0) {
+                  const propagated = propagateRoutinesToNewMonth(sourceRoutines, targetAno, targetMes);
+                  if (propagated.length > 0) {
+                    list = propagated;
+                    // Salvar no banco para persistir
+                    await supabase.from("settings").upsert({ key, value: JSON.stringify(propagated) });
+                  }
+                }
+              }
+            }
+          } catch (errProp) {
+            console.warn("Erro ao auto-propagar rotinas para o próximo mês:", errProp);
+          }
+        }
+
+        if (Array.isArray(list)) {
           if (empresaId && empresaId !== 'todas' && empresaId !== 'consolidado') {
             list = list.filter(r => r.empresaId === empresaId);
           }
-          return { ok: true, json: async () => list || [] };
+          return { ok: true, json: async () => list };
         }
         return { ok: true, json: async () => [] };
       }
@@ -143,6 +189,48 @@ window.fetch = async (...args) => {
         }
         
         await supabase.from("settings").upsert({ key, value: JSON.stringify(currentList) });
+
+        // Se foram inseridas novas rotinas (com flag propagarFuturos), propaga para os meses futuros já gerados
+        if (!isPut) {
+          const itemsToPropagate = items.filter(it => it.propagarFuturos !== false);
+          if (itemsToPropagate.length > 0) {
+            try {
+              const { data: allRotKeys } = await supabase.from("settings").select("key, value").like("key", "agf_rotinas_%");
+              if (allRotKeys && allRotKeys.length > 0) {
+                const currentAno = parseInt(ano, 10);
+                const currentMes = parseInt(mes, 10);
+                for (const entry of allRotKeys) {
+                  const p = entry.key.split('_');
+                  if (p.length >= 4) {
+                    const fAno = parseInt(p[2], 10);
+                    const fMes = parseInt(p[3], 10);
+                    if (fAno > currentAno || (fAno === currentAno && fMes > currentMes)) {
+                      let fList = [];
+                      try { fList = typeof entry.value === 'string' ? JSON.parse(entry.value) : entry.value; } catch(e){}
+                      if (Array.isArray(fList) && fList.length > 0) {
+                        const newPropagated = propagateRoutinesToNewMonth(itemsToPropagate, fAno, fMes);
+                        let addedAny = false;
+                        newPropagated.forEach(np => {
+                          const alreadyExists = fList.some(r => r.titulo === np.titulo && r.filialCode === np.filialCode && r.tipo === np.tipo);
+                          if (!alreadyExists) {
+                            fList.push(np);
+                            addedAny = true;
+                          }
+                        });
+                        if (addedAny) {
+                          await supabase.from("settings").upsert({ key: entry.key, value: JSON.stringify(fList) });
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            } catch(e) {
+              console.warn("Erro ao propagar nova rotina para meses futuros existentes:", e);
+            }
+          }
+        }
+
         return { ok: true, json: async () => ({ success: true, count: currentList.length }) };
       }
       if (url.includes("/send-email")) {
