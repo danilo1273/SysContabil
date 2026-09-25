@@ -238,7 +238,11 @@ function GestaoContabilModule({ userRole, userName, companies }) {
     const evaluateDependenciesAndSave = async (updatedList) => {
         const newlyLiberated = [];
         const finalUpdatedList = updatedList.map(item => {
-            if (!item.dependencias || item.dependencias.length === 0) {
+            const hasDeps = item.dependencias && item.dependencias.length > 0;
+            if (!hasDeps) {
+                if (item.status === 'bloqueada') {
+                    return { ...item, status: 'liberada', updated_at: new Date().toISOString() };
+                }
                 return item;
             }
 
@@ -1556,23 +1560,27 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                 }}>
                                     {rotinasConsolidadas.map(decl => {
                                         const empConfig = EMPRESAS_CONFIG.find(e => e.id === decl.empresaId) || { name: decl.empresaId, color: '#2196F3' };
-                                        const isDone = decl.status === 'concluida';
-                                        const isLiberada = decl.status === 'liberada';
+                                        const isDone = decl.status === 'concluida' || decl.status === 'concluido';
+                                        const hasDeps = decl.dependencias && decl.dependencias.length > 0;
 
                                         const totalDeps = (decl.dependencias || []).length;
                                         let doneDeps = 0;
                                         const pendingDeps = [];
 
-                                        (decl.dependencias || []).forEach(depId => {
-                                            const r = rotinas.find(x => x.id === depId);
-                                            if (r && (r.status === 'concluida' || (r.dia_atual !== undefined && r.dia_atual >= 31))) {
-                                                doneDeps++;
-                                            } else if (r) {
-                                                pendingDeps.push(r);
-                                            }
-                                        });
+                                        if (hasDeps) {
+                                            decl.dependencias.forEach(depId => {
+                                                const r = rotinas.find(x => x.id === depId);
+                                                if (r && (r.status === 'concluida' || r.status === 'concluido' || (r.dia_atual !== undefined && r.dia_atual >= 31))) {
+                                                    doneDeps++;
+                                                } else if (r) {
+                                                    pendingDeps.push(r);
+                                                }
+                                            });
+                                        }
 
-                                        const depPct = totalDeps > 0 ? Math.round((doneDeps / totalDeps) * 100) : (isDone ? 100 : 0);
+                                        const allDepsCompleted = !hasDeps || doneDeps === totalDeps;
+                                        const isLiberada = !isDone && (decl.status === 'liberada' || allDepsCompleted);
+                                        const depPct = hasDeps ? (totalDeps > 0 ? Math.round((doneDeps / totalDeps) * 100) : 100) : 100;
 
                                         return (
                                             <div
@@ -1627,23 +1635,29 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                                 </div>
 
                                                 {/* Barra de Progresso das Integrações Pré-Requisito */}
-                                                <div style={{ background: 'rgba(0,0,0,0.2)', padding: '8px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '4px' }}>
-                                                        <span style={{ color: '#aaa' }}>Integrações Pré-Requisito:</span>
-                                                        <span style={{ color: depPct === 100 ? '#81C784' : '#FFB74D', fontWeight: 'bold' }}>
-                                                            {doneDeps}/{totalDeps} ({depPct}%)
-                                                        </span>
-                                                    </div>
-                                                    <div style={{ background: 'rgba(255,255,255,0.06)', height: '4px', borderRadius: '2px', overflow: 'hidden' }}>
-                                                        <div style={{ width: `${depPct}%`, height: '100%', background: depPct === 100 ? '#4CAF50' : '#FF9800', transition: 'width 0.3s' }}></div>
-                                                    </div>
-                                                    {pendingDeps.length > 0 && !isDone && (
-                                                        <div style={{ fontSize: '0.7rem', color: '#E57373', marginTop: '6px', lineHeight: '1.3' }}>
-                                                            Pendente: {pendingDeps.slice(0, 3).map(p => `${p.filialCode} (${p.tipo || p.titulo})`).join(', ')}
-                                                            {pendingDeps.length > 3 ? ` e mais ${pendingDeps.length - 3}...` : ''}
+                                                {hasDeps ? (
+                                                    <div style={{ background: 'rgba(0,0,0,0.2)', padding: '8px 10px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '4px' }}>
+                                                            <span style={{ color: '#aaa' }}>Integrações Pré-Requisito:</span>
+                                                            <span style={{ color: depPct === 100 ? '#81C784' : '#FFB74D', fontWeight: 'bold' }}>
+                                                                {doneDeps}/{totalDeps} ({depPct}%)
+                                                            </span>
                                                         </div>
-                                                    )}
-                                                </div>
+                                                        <div style={{ background: 'rgba(255,255,255,0.06)', height: '4px', borderRadius: '2px', overflow: 'hidden' }}>
+                                                            <div style={{ width: `${depPct}%`, height: '100%', background: depPct === 100 ? '#4CAF50' : '#FF9800', transition: 'width 0.3s' }}></div>
+                                                        </div>
+                                                        {pendingDeps.length > 0 && !isDone && (
+                                                            <div style={{ fontSize: '0.7rem', color: '#E57373', marginTop: '6px', lineHeight: '1.3' }}>
+                                                                Pendente: {pendingDeps.slice(0, 3).map(p => `${p.filialCode} (${p.tipo || p.titulo})`).join(', ')}
+                                                                {pendingDeps.length > 3 ? ` e mais ${pendingDeps.length - 3}...` : ''}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    <div style={{ background: 'rgba(76, 175, 80, 0.08)', padding: '6px 10px', borderRadius: '6px', border: '1px solid rgba(76, 175, 80, 0.2)', fontSize: '0.74rem', color: '#81C784', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                        <CheckCircle2 size={13} /> Sem pré-requisitos pendentes (Pronta para transmissão)
+                                                    </div>
+                                                )}
 
                                                 {/* Responsável e Prazo */}
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px', fontSize: '0.75rem', color: '#888' }}>
