@@ -3,6 +3,59 @@ import { getRawRecords, bulkPutRecords, getSettings, saveSettings } from '../uti
 import { applyMapping, protheusMapping } from '../utils/mappingConfig';
 import { supabase } from '../supabaseClient';
 
+export const parseCurrencyInput = (val) => {
+  if (val === undefined || val === null) return '';
+  let str = String(val).trim();
+  if (str === '') return '';
+
+  // Remove currency signs (R$, $), letters, whitespace, non-breaking spaces
+  str = str.replace(/[R$\s\u00A0a-zA-Z]/g, '');
+
+  // Strip leading minus if for tax calculation
+  str = str.replace(/^-/, '');
+
+  const hasDot = str.includes('.');
+  const hasComma = str.includes(',');
+
+  if (hasDot && hasComma) {
+    const lastDot = str.lastIndexOf('.');
+    const lastComma = str.lastIndexOf(',');
+    if (lastComma > lastDot) {
+      // Formato brasileiro: 60.247,66 -> pontos sao milhares, virgula e decimal
+      str = str.replace(/\./g, '').replace(',', '.');
+    } else {
+      // Formato americano: 60,247.66 -> virgulas sao milhares, ponto e decimal
+      str = str.replace(/,/g, '');
+    }
+  } else if (hasComma) {
+    const commaCount = (str.match(/,/g) || []).length;
+    if (commaCount > 1) {
+      str = str.replace(/,/g, '');
+    } else {
+      str = str.replace(',', '.');
+    }
+  } else if (hasDot) {
+    const dotCount = (str.match(/\./g) || []).length;
+    if (dotCount > 1) {
+      str = str.replace(/\./g, '');
+    } else if (/^\d{1,3}\.\d{3}$/.test(str)) {
+      // Ex: 60.247 copiado da calculadora (inteiro com ponto de milhar brasileiro)
+      str = str.replace('.', '');
+    }
+  }
+
+  // Remove any remaining unexpected character except digits and dot
+  str = str.replace(/[^0-9.]/g, '');
+
+  // Ensure only one dot exists
+  const parts = str.split('.');
+  if (parts.length > 2) {
+    str = parts[0] + '.' + parts.slice(1).join('');
+  }
+
+  return str;
+};
+
 const cleanAjuste = (val) => {
   if (val === undefined || val === null || val === '' || val === 0 || val === '0' || val === '0.00' || val === '335.97838') return '';
   return val;
@@ -23,6 +76,16 @@ export default function TaxModule({ companies }) {
   const [selectedMes, setSelectedMes] = useState(new Date().getMonth() + 1);
   const [selectedAno, setSelectedAno] = useState(new Date().getFullYear());
   const [isProcessing, setIsProcessing] = useState(false);
+  const handlePasteNumber = (e, setter, persistKey) => {
+    e.preventDefault();
+    const raw = (e.clipboardData || window.clipboardData)?.getData('text') || '';
+    const cleaned = parseCurrencyInput(raw);
+    setter(cleaned);
+    if (persistKey) {
+      persistTaxData(selectedComp, selectedAno, selectedMes, { [persistKey]: cleaned });
+    }
+  };
+
 
   // Dados Extraídos
   const [dreMensal, setDreMensal] = useState([]);
@@ -1012,7 +1075,20 @@ export default function TaxModule({ companies }) {
             </div>
             <div style={{ marginBottom: '1rem', marginTop: '0.5rem' }}>
               <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(+) Ajuste Manual de Impostos s/ Devolução - <b>Valor do Mês</b></label>
-              <input type="number" className="text-input" value={presumidoImpostosDevolucao} onChange={e => setPresumidoImpostosDevolucao(e.target.value)} style={{ width: '100%' }} />
+              <input 
+                type="text" 
+                inputMode="decimal"
+                className="text-input" 
+                value={presumidoImpostosDevolucao} 
+                onChange={e => setPresumidoImpostosDevolucao(e.target.value.replace(',', '.'))} 
+                onPaste={e => handlePasteNumber(e, setPresumidoImpostosDevolucao, 'presumidoImpostosDevolucao')}
+                onBlur={e => {
+                  const cleaned = parseCurrencyInput(e.target.value);
+                  setPresumidoImpostosDevolucao(cleaned);
+                  persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoImpostosDevolucao: cleaned });
+                }}
+                style={{ width: '100%' }} 
+              />
             </div>
             <div title={(cM.ipiVendasBreakdown || []).join('\n')}>
               <Row label="(-) IPI sobre Vendas (Extraído da DRE) [Passe o mouse p/ ver contas]" m={cM.ipi} a={cA.ipi} color="#FF5252" />
@@ -1035,12 +1111,17 @@ export default function TaxModule({ companies }) {
             <div style={{ marginBottom: '1rem', marginTop: '1.5rem' }}>
               <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(+) Ajuste Manual: Rendimentos (Resgates), Venda de Ativos, etc - <b>Valor do Mês</b></label>
               <input 
-                type="number" 
-                step="0.01"
+                type="text" 
+                inputMode="decimal"
                 className="text-input" 
                 value={presumidoOutrasReceitas} 
                 onChange={e => setPresumidoOutrasReceitas(e.target.value.replace(',', '.'))} 
-                onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoOutrasReceitas: e.target.value.replace(',', '.') })}
+                onPaste={e => handlePasteNumber(e, setPresumidoOutrasReceitas, 'presumidoOutrasReceitas')}
+                onBlur={e => {
+                  const cleaned = parseCurrencyInput(e.target.value);
+                  setPresumidoOutrasReceitas(cleaned);
+                  persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoOutrasReceitas: cleaned });
+                }}
                 style={{ width: '100%' }} 
               />
             </div>
@@ -1081,22 +1162,32 @@ export default function TaxModule({ companies }) {
             <div style={{ marginBottom: '1rem', marginTop: '1.5rem' }}>
               <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(-) IRRF s/ Serviços - <b>Valor do Mês</b></label>
               <input 
-                type="number" 
-                step="0.01"
+                type="text" 
+                inputMode="decimal"
                 className="text-input" 
                 value={presumidoRetencoesIR} 
                 onChange={e => setPresumidoRetencoesIR(e.target.value.replace(',', '.'))} 
-                onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoRetencoesIR: e.target.value.replace(',', '.') })}
+                onPaste={e => handlePasteNumber(e, setPresumidoRetencoesIR, 'presumidoRetencoesIR')}
+                onBlur={e => {
+                  const cleaned = parseCurrencyInput(e.target.value);
+                  setPresumidoRetencoesIR(cleaned);
+                  persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoRetencoesIR: cleaned });
+                }}
                 style={{ width: '100%' }} 
               />
               <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginTop: '1rem', marginBottom: '0.3rem' }}>(-) IRRF s/ Aplicações - <b>Valor do Mês</b></label>
               <input 
-                type="number" 
-                step="0.01"
+                type="text" 
+                inputMode="decimal"
                 className="text-input" 
                 value={presumidoRetencoesIR_AppFin} 
                 onChange={e => setPresumidoRetencoesIR_AppFin(e.target.value.replace(',', '.'))} 
-                onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoRetencoesIR_AppFin: e.target.value.replace(',', '.') })}
+                onPaste={e => handlePasteNumber(e, setPresumidoRetencoesIR_AppFin, 'presumidoRetencoesIR_AppFin')}
+                onBlur={e => {
+                  const cleaned = parseCurrencyInput(e.target.value);
+                  setPresumidoRetencoesIR_AppFin(cleaned);
+                  persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoRetencoesIR_AppFin: cleaned });
+                }}
                 style={{ width: '100%' }} 
               />
             </div>
@@ -1109,12 +1200,17 @@ export default function TaxModule({ companies }) {
                 <span style={{ fontSize: '0.74rem', color: '#aaa' }}>Se preenchido, este valor substituirá o cálculo automático</span>
               </div>
               <input 
-                type="number" 
-                step="0.01" 
+                type="text" 
+                inputMode="decimal"
                 className="text-input" 
                 value={presumidoAjusteIrpj} 
                 onChange={e => setPresumidoAjusteIrpj(e.target.value.replace(',', '.'))} 
-                onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoAjusteIrpj: e.target.value.replace(',', '.') })}
+                onPaste={e => handlePasteNumber(e, setPresumidoAjusteIrpj, 'presumidoAjusteIrpj')}
+                onBlur={e => {
+                  const cleaned = parseCurrencyInput(e.target.value);
+                  setPresumidoAjusteIrpj(cleaned);
+                  persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoAjusteIrpj: cleaned });
+                }}
                 placeholder="0.00" 
                 style={{ width: '130px', textAlign: 'right', borderColor: '#FFD54F', color: '#FFD54F', fontWeight: 'bold', background: '#1c1c24' }} 
               />
@@ -1141,12 +1237,17 @@ export default function TaxModule({ companies }) {
                   )}
                 </div>
                 <input 
-                  type="number" 
-                  step="0.01" 
+                  type="text" 
+                  inputMode="decimal"
                   className="text-input" 
                   value={darfIrpjReduzido} 
                   onChange={e => setDarfIrpjReduzido(e.target.value.replace(',', '.'))} 
-                  onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { darfIrpjReduzido: e.target.value.replace(',', '.') })}
+                  onPaste={e => handlePasteNumber(e, setDarfIrpjReduzido, 'darfIrpjReduzido')}
+                  onBlur={e => {
+                    const cleaned = parseCurrencyInput(e.target.value);
+                    setDarfIrpjReduzido(cleaned);
+                    persistTaxData(selectedComp, selectedAno, selectedMes, { darfIrpjReduzido: cleaned });
+                  }}
                   style={{ width: '100%', borderColor: '#81C784' }} 
                   placeholder={`Valor Padrão: ${Math.max(0, cM.irpjTotal).toFixed(2)}`} 
                 />
@@ -1162,12 +1263,17 @@ export default function TaxModule({ companies }) {
             <div style={{ marginBottom: '1rem', marginTop: '1.5rem' }}>
               <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(-) CSLL Retida - <b>Valor do Mês</b></label>
               <input 
-                type="number" 
-                step="0.01"
+                type="text" 
+                inputMode="decimal"
                 className="text-input" 
                 value={presumidoRetencoesCS} 
                 onChange={e => setPresumidoRetencoesCS(e.target.value.replace(',', '.'))} 
-                onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoRetencoesCS: e.target.value.replace(',', '.') })}
+                onPaste={e => handlePasteNumber(e, setPresumidoRetencoesCS, 'presumidoRetencoesCS')}
+                onBlur={e => {
+                  const cleaned = parseCurrencyInput(e.target.value);
+                  setPresumidoRetencoesCS(cleaned);
+                  persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoRetencoesCS: cleaned });
+                }}
                 style={{ width: '100%' }} 
               />
             </div>
@@ -1180,12 +1286,17 @@ export default function TaxModule({ companies }) {
                 <span style={{ fontSize: '0.74rem', color: '#aaa' }}>Se preenchido, este valor substituirá o cálculo automático</span>
               </div>
               <input 
-                type="number" 
-                step="0.01" 
+                type="text" 
+                inputMode="decimal"
                 className="text-input" 
                 value={presumidoAjusteCsll} 
                 onChange={e => setPresumidoAjusteCsll(e.target.value.replace(',', '.'))} 
-                onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoAjusteCsll: e.target.value.replace(',', '.') })}
+                onPaste={e => handlePasteNumber(e, setPresumidoAjusteCsll, 'presumidoAjusteCsll')}
+                onBlur={e => {
+                  const cleaned = parseCurrencyInput(e.target.value);
+                  setPresumidoAjusteCsll(cleaned);
+                  persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoAjusteCsll: cleaned });
+                }}
                 placeholder="0.00" 
                 style={{ width: '130px', textAlign: 'right', borderColor: '#FFD54F', color: '#FFD54F', fontWeight: 'bold', background: '#1c1c24' }} 
               />
@@ -1211,12 +1322,17 @@ export default function TaxModule({ companies }) {
                   )}
                 </div>
                 <input 
-                  type="number" 
-                  step="0.01" 
+                  type="text" 
+                  inputMode="decimal"
                   className="text-input" 
                   value={darfCsllReduzida} 
                   onChange={e => setDarfCsllReduzida(e.target.value.replace(',', '.'))} 
-                  onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { darfCsllReduzida: e.target.value.replace(',', '.') })}
+                  onPaste={e => handlePasteNumber(e, setDarfCsllReduzida, 'darfCsllReduzida')}
+                  onBlur={e => {
+                    const cleaned = parseCurrencyInput(e.target.value);
+                    setDarfCsllReduzida(cleaned);
+                    persistTaxData(selectedComp, selectedAno, selectedMes, { darfCsllReduzida: cleaned });
+                  }}
                   style={{ width: '100%', borderColor: '#81C784' }} 
                   placeholder={`Valor Padrão: ${Math.max(0, cM.csllTotal).toFixed(2)}`} 
                 />
@@ -1534,12 +1650,17 @@ const renderReal = () => {
              <div style={{ marginBottom: '1rem' }}>
                <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(+) Adições (Ex: Multas, Brindes, Desp. Indedutíveis)</label>
                <input 
-                 type="number" 
-                 step="0.01" 
+                 type="text" 
+                 inputMode="decimal"
                  className="text-input" 
                  value={lalurAdicoes} 
                  onChange={e => setLalurAdicoes(e.target.value.replace(',', '.'))} 
-                 onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { lalurAdicoes: e.target.value.replace(',', '.') })}
+                 onPaste={e => handlePasteNumber(e, setLalurAdicoes, 'lalurAdicoes')}
+                 onBlur={e => {
+                   const cleaned = parseCurrencyInput(e.target.value);
+                   setLalurAdicoes(cleaned);
+                   persistTaxData(selectedComp, selectedAno, selectedMes, { lalurAdicoes: cleaned });
+                 }}
                  style={{ width: '100%' }} 
                />
              </div>
@@ -1547,12 +1668,17 @@ const renderReal = () => {
              <div style={{ marginBottom: '1rem' }}>
                <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(-) Exclusões (Ex: Div. Isentos, Provisões Revertidas)</label>
                <input 
-                 type="number" 
-                 step="0.01" 
+                 type="text" 
+                 inputMode="decimal"
                  className="text-input" 
                  value={lalurExclusoes} 
                  onChange={e => setLalurExclusoes(e.target.value.replace(',', '.'))} 
-                 onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { lalurExclusoes: e.target.value.replace(',', '.') })}
+                 onPaste={e => handlePasteNumber(e, setLalurExclusoes, 'lalurExclusoes')}
+                 onBlur={e => {
+                   const cleaned = parseCurrencyInput(e.target.value);
+                   setLalurExclusoes(cleaned);
+                   persistTaxData(selectedComp, selectedAno, selectedMes, { lalurExclusoes: cleaned });
+                 }}
                  style={{ width: '100%' }} 
                />
              </div>
@@ -1592,12 +1718,17 @@ const renderReal = () => {
              <div style={{ marginBottom: '1rem', marginTop: '1.5rem' }}>
                <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(-) Compensação Prejuízo (Lim. 30%: {Math.max(0, calc.baseCalculo*0.3).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})</label>
                <input 
-                 type="number" 
-                 step="0.01" 
+                 type="text" 
+                 inputMode="decimal"
                  className="text-input" 
                  value={lalurCompensacaoPrejuizo} 
                  onChange={e => setLalurCompensacaoPrejuizo(e.target.value.replace(',', '.'))} 
-                 onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { lalurCompensacaoPrejuizo: e.target.value.replace(',', '.') })}
+                 onPaste={e => handlePasteNumber(e, setLalurCompensacaoPrejuizo, 'lalurCompensacaoPrejuizo')}
+                 onBlur={e => {
+                   const cleaned = parseCurrencyInput(e.target.value);
+                   setLalurCompensacaoPrejuizo(cleaned);
+                   persistTaxData(selectedComp, selectedAno, selectedMes, { lalurCompensacaoPrejuizo: cleaned });
+                 }}
                  style={{ width: '100%' }} 
                />
              </div>
@@ -1621,22 +1752,32 @@ const renderReal = () => {
              <div style={{ marginBottom: '1rem', marginTop: '0.5rem' }}>
                <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(-) IRRF s/ Serviços</label>
                <input 
-                 type="number" 
-                 step="0.01" 
+                 type="text" 
+                 inputMode="decimal"
                  className="text-input" 
                  value={lalurRetencoesIR} 
                  onChange={e => setLalurRetencoesIR(e.target.value.replace(',', '.'))} 
-                 onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { lalurRetencoesIR: e.target.value.replace(',', '.') })} 
+                 onPaste={e => handlePasteNumber(e, setLalurRetencoesIR, 'lalurRetencoesIR')}
+                 onBlur={e => {
+                   const cleaned = parseCurrencyInput(e.target.value);
+                   setLalurRetencoesIR(cleaned);
+                   persistTaxData(selectedComp, selectedAno, selectedMes, { lalurRetencoesIR: cleaned });
+                 }}
                  style={{ width: '100%' }} 
                />
                <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginTop: '1rem', marginBottom: '0.3rem' }}>(-) IRRF s/ Aplicações</label>
                <input 
-                 type="number" 
-                 step="0.01" 
+                 type="text" 
+                 inputMode="decimal"
                  className="text-input" 
                  value={lalurRetencoesIR_AppFin} 
                  onChange={e => setLalurRetencoesIR_AppFin(e.target.value.replace(',', '.'))} 
-                 onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { lalurRetencoesIR_AppFin: e.target.value.replace(',', '.') })} 
+                 onPaste={e => handlePasteNumber(e, setLalurRetencoesIR_AppFin, 'lalurRetencoesIR_AppFin')}
+                 onBlur={e => {
+                   const cleaned = parseCurrencyInput(e.target.value);
+                   setLalurRetencoesIR_AppFin(cleaned);
+                   persistTaxData(selectedComp, selectedAno, selectedMes, { lalurRetencoesIR_AppFin: cleaned });
+                 }}
                  style={{ width: '100%' }} 
                />
              </div>
@@ -1649,12 +1790,17 @@ const renderReal = () => {
                  <span style={{ fontSize: '0.74rem', color: '#aaa' }}>Se preenchido, este valor substituirá o cálculo automático</span>
                </div>
                <input 
-                 type="number" 
-                 step="0.01" 
+                 type="text" 
+                 inputMode="decimal"
                  className="text-input" 
                  value={lalurAjusteIrpj} 
-                 onChange={e => setLalurAjusteIrpj(e.target.value)} 
-                 onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { lalurAjusteIrpj: e.target.value })}
+                 onChange={e => setLalurAjusteIrpj(e.target.value.replace(',', '.'))} 
+                 onPaste={e => handlePasteNumber(e, setLalurAjusteIrpj, 'lalurAjusteIrpj')}
+                 onBlur={e => {
+                   const cleaned = parseCurrencyInput(e.target.value);
+                   setLalurAjusteIrpj(cleaned);
+                   persistTaxData(selectedComp, selectedAno, selectedMes, { lalurAjusteIrpj: cleaned });
+                 }}
                  placeholder="0.00" 
                  style={{ width: '130px', textAlign: 'right', borderColor: '#FFD54F', color: '#FFD54F', fontWeight: 'bold', background: '#1c1c24' }} 
                />
@@ -1678,12 +1824,17 @@ const renderReal = () => {
              <div style={{ marginBottom: '1rem', marginTop: '0.5rem' }}>
                <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(-) CSLL Retida</label>
                <input 
-                 type="number" 
-                 step="0.01" 
+                 type="text" 
+                 inputMode="decimal"
                  className="text-input" 
                  value={lalurRetencoesCS} 
                  onChange={e => setLalurRetencoesCS(e.target.value.replace(',', '.'))} 
-                 onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { lalurRetencoesCS: e.target.value.replace(',', '.') })} 
+                 onPaste={e => handlePasteNumber(e, setLalurRetencoesCS, 'lalurRetencoesCS')}
+                 onBlur={e => {
+                   const cleaned = parseCurrencyInput(e.target.value);
+                   setLalurRetencoesCS(cleaned);
+                   persistTaxData(selectedComp, selectedAno, selectedMes, { lalurRetencoesCS: cleaned });
+                 }}
                  style={{ width: '100%' }} 
                />
              </div>
@@ -1696,12 +1847,17 @@ const renderReal = () => {
                  <span style={{ fontSize: '0.74rem', color: '#aaa' }}>Se preenchido, este valor substituirá o cálculo automático</span>
                </div>
                <input 
-                 type="number" 
-                 step="0.01" 
+                 type="text" 
+                 inputMode="decimal"
                  className="text-input" 
                  value={lalurAjusteCsll} 
-                 onChange={e => setLalurAjusteCsll(e.target.value)} 
-                 onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { lalurAjusteCsll: e.target.value })}
+                 onChange={e => setLalurAjusteCsll(e.target.value.replace(',', '.'))} 
+                 onPaste={e => handlePasteNumber(e, setLalurAjusteCsll, 'lalurAjusteCsll')}
+                 onBlur={e => {
+                   const cleaned = parseCurrencyInput(e.target.value);
+                   setLalurAjusteCsll(cleaned);
+                   persistTaxData(selectedComp, selectedAno, selectedMes, { lalurAjusteCsll: cleaned });
+                 }}
                  placeholder="0.00" 
                  style={{ width: '130px', textAlign: 'right', borderColor: '#FFD54F', color: '#FFD54F', fontWeight: 'bold', background: '#1c1c24' }} 
                />
