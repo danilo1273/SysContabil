@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { getRawRecords, bulkPutRecords, getSettings, saveSettings } from '../utils/db';
 import { applyMapping, protheusMapping } from '../utils/mappingConfig';
 import { supabase } from '../supabaseClient';
@@ -13,6 +13,11 @@ export default function TaxModule({ companies }) {
   const [taxConfig, setTaxConfig] = useState({});
   const [cambioConfig, setCambioConfig] = useState({});
   const [taxDataStore, setTaxDataStore] = useState({}); // Stores adicoes, exclusoes, retencoes por empresa/mes
+  const taxDataStoreRef = useRef({});
+
+  useEffect(() => {
+    taxDataStoreRef.current = taxDataStore;
+  }, [taxDataStore]);
   
   const [selectedComp, setSelectedComp] = useState('');
   const [selectedMes, setSelectedMes] = useState(new Date().getMonth() + 1);
@@ -65,7 +70,10 @@ export default function TaxModule({ companies }) {
       if (cConfig) setCambioConfig(cConfig);
       
       const store = await getSettings('agf_tax_store');
-      if (store) setTaxDataStore(store);
+      if (store) {
+        setTaxDataStore(store);
+        taxDataStoreRef.current = store;
+      }
     } catch(e) { console.error(e); }
   };
 
@@ -82,18 +90,27 @@ export default function TaxModule({ companies }) {
   };
 
   const persistTaxData = async (compId, ano, mes, data) => {
+    if (!compId || !ano || !mes) return;
     const key = `${compId}_${ano}_${mes}`;
-    let updated;
-    setTaxDataStore(prev => {
-      updated = { ...prev, [key]: { ...(prev[key] || {}), ...data } };
-      return updated;
-    });
-    try { await saveSettings('agf_tax_store', updated); } catch(e) { console.error(e); }
+    const baseStore = taxDataStoreRef.current || {};
+    const updated = {
+      ...baseStore,
+      [key]: { ...(baseStore[key] || {}), ...data }
+    };
+    taxDataStoreRef.current = updated;
+    setTaxDataStore(updated);
+    try {
+      await saveSettings('agf_tax_store', updated);
+    } catch(e) {
+      console.error('Erro ao salvar agf_tax_store:', e);
+    }
+    return updated;
   };
 
-  const loadTaxData = (compId, ano, mes, store = taxDataStore) => {
+  const loadTaxData = (compId, ano, mes, store = taxDataStoreRef.current) => {
     const key = `${compId}_${ano}_${mes}`;
-    const data = store[key] || {};
+    const currentStore = store || taxDataStoreRef.current || {};
+    const data = currentStore[key] || {};
     
     setLalurAdicoes(data.lalurAdicoes !== undefined ? data.lalurAdicoes : 0);
     setLalurExclusoes(data.lalurExclusoes !== undefined ? data.lalurExclusoes : 0);
@@ -187,7 +204,7 @@ export default function TaxModule({ companies }) {
 
   useEffect(() => {
     loadFinancialData();
-  }, [selectedComp, selectedMes, selectedAno, taxConfig, taxDataStore]);
+  }, [selectedComp, selectedMes, selectedAno, taxConfig]);
 
 
   // ---- FUNÇÕES DE CÁLCULO ----
@@ -1017,7 +1034,15 @@ export default function TaxModule({ companies }) {
             </div>
             <div style={{ marginBottom: '1rem', marginTop: '1.5rem' }}>
               <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(+) Ajuste Manual: Rendimentos (Resgates), Venda de Ativos, etc - <b>Valor do Mês</b></label>
-              <input type="number" className="text-input" value={presumidoOutrasReceitas} onChange={e => setPresumidoOutrasReceitas(e.target.value)} style={{ width: '100%' }} />
+              <input 
+                type="number" 
+                step="0.01"
+                className="text-input" 
+                value={presumidoOutrasReceitas} 
+                onChange={e => setPresumidoOutrasReceitas(e.target.value.replace(',', '.'))} 
+                onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoOutrasReceitas: e.target.value.replace(',', '.') })}
+                style={{ width: '100%' }} 
+              />
             </div>
             
             {cambioConfig[selectedComp] === 'caixa' ? (
@@ -1031,7 +1056,7 @@ export default function TaxModule({ companies }) {
 
             {!isEstimativa && (
               <div style={{ marginTop: '1.5rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center' }}>
-                <input type="checkbox" id="presumidoMajoracao" checked={presumidoMajoracao} onChange={e => setPresumidoMajoracao(e.target.checked)} style={{ marginRight: '0.5rem', transform: 'scale(1.2)' }} />
+                <input type="checkbox" id="presumidoMajoracao" checked={presumidoMajoracao} onChange={e => { setPresumidoMajoracao(e.target.checked); persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoMajoracao: e.target.checked }); }} style={{ marginRight: '0.5rem', transform: 'scale(1.2)' }} />
                 <label htmlFor="presumidoMajoracao" style={{ color: '#ddd', fontSize: '0.9rem', cursor: 'pointer' }}>Aplicar majoração de 10% sobre a presunção (Lei 2026)</label>
               </div>
             )}
@@ -1055,9 +1080,25 @@ export default function TaxModule({ companies }) {
             
             <div style={{ marginBottom: '1rem', marginTop: '1.5rem' }}>
               <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(-) IRRF s/ Serviços - <b>Valor do Mês</b></label>
-              <input type="number" className="text-input" value={presumidoRetencoesIR} onChange={e => setPresumidoRetencoesIR(e.target.value)} style={{ width: '100%' }} />
-            <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginTop: '1rem', marginBottom: '0.3rem' }}>(-) IRRF s/ Aplicações - <b>Valor do Mês</b></label>
-            <input type="number" className="text-input" value={presumidoRetencoesIR_AppFin} onChange={e => setPresumidoRetencoesIR_AppFin(e.target.value)} style={{ width: '100%' }} />
+              <input 
+                type="number" 
+                step="0.01"
+                className="text-input" 
+                value={presumidoRetencoesIR} 
+                onChange={e => setPresumidoRetencoesIR(e.target.value.replace(',', '.'))} 
+                onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoRetencoesIR: e.target.value.replace(',', '.') })}
+                style={{ width: '100%' }} 
+              />
+              <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginTop: '1rem', marginBottom: '0.3rem' }}>(-) IRRF s/ Aplicações - <b>Valor do Mês</b></label>
+              <input 
+                type="number" 
+                step="0.01"
+                className="text-input" 
+                value={presumidoRetencoesIR_AppFin} 
+                onChange={e => setPresumidoRetencoesIR_AppFin(e.target.value.replace(',', '.'))} 
+                onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoRetencoesIR_AppFin: e.target.value.replace(',', '.') })}
+                style={{ width: '100%' }} 
+              />
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.6rem', marginBottom: '0.6rem', background: 'rgba(255, 193, 7, 0.08)', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid rgba(255, 193, 7, 0.25)' }}>
@@ -1072,8 +1113,8 @@ export default function TaxModule({ companies }) {
                 step="0.01" 
                 className="text-input" 
                 value={presumidoAjusteIrpj} 
-                onChange={e => setPresumidoAjusteIrpj(e.target.value)} 
-                onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoAjusteIrpj: e.target.value })}
+                onChange={e => setPresumidoAjusteIrpj(e.target.value.replace(',', '.'))} 
+                onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoAjusteIrpj: e.target.value.replace(',', '.') })}
                 placeholder="0.00" 
                 style={{ width: '130px', textAlign: 'right', borderColor: '#FFD54F', color: '#FFD54F', fontWeight: 'bold', background: '#1c1c24' }} 
               />
@@ -1104,8 +1145,8 @@ export default function TaxModule({ companies }) {
                   step="0.01" 
                   className="text-input" 
                   value={darfIrpjReduzido} 
-                  onChange={e => setDarfIrpjReduzido(e.target.value)} 
-                  onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { darfIrpjReduzido: e.target.value })}
+                  onChange={e => setDarfIrpjReduzido(e.target.value.replace(',', '.'))} 
+                  onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { darfIrpjReduzido: e.target.value.replace(',', '.') })}
                   style={{ width: '100%', borderColor: '#81C784' }} 
                   placeholder={`Valor Padrão: ${Math.max(0, cM.irpjTotal).toFixed(2)}`} 
                 />
@@ -1120,7 +1161,15 @@ export default function TaxModule({ companies }) {
 
             <div style={{ marginBottom: '1rem', marginTop: '1.5rem' }}>
               <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(-) CSLL Retida - <b>Valor do Mês</b></label>
-              <input type="number" className="text-input" value={presumidoRetencoesCS} onChange={e => setPresumidoRetencoesCS(e.target.value)} style={{ width: '100%' }} />
+              <input 
+                type="number" 
+                step="0.01"
+                className="text-input" 
+                value={presumidoRetencoesCS} 
+                onChange={e => setPresumidoRetencoesCS(e.target.value.replace(',', '.'))} 
+                onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoRetencoesCS: e.target.value.replace(',', '.') })}
+                style={{ width: '100%' }} 
+              />
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.6rem', marginBottom: '0.6rem', background: 'rgba(255, 193, 7, 0.08)', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid rgba(255, 193, 7, 0.25)' }}>
@@ -1135,8 +1184,8 @@ export default function TaxModule({ companies }) {
                 step="0.01" 
                 className="text-input" 
                 value={presumidoAjusteCsll} 
-                onChange={e => setPresumidoAjusteCsll(e.target.value)} 
-                onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoAjusteCsll: e.target.value })}
+                onChange={e => setPresumidoAjusteCsll(e.target.value.replace(',', '.'))} 
+                onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoAjusteCsll: e.target.value.replace(',', '.') })}
                 placeholder="0.00" 
                 style={{ width: '130px', textAlign: 'right', borderColor: '#FFD54F', color: '#FFD54F', fontWeight: 'bold', background: '#1c1c24' }} 
               />
@@ -1166,8 +1215,8 @@ export default function TaxModule({ companies }) {
                   step="0.01" 
                   className="text-input" 
                   value={darfCsllReduzida} 
-                  onChange={e => setDarfCsllReduzida(e.target.value)} 
-                  onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { darfCsllReduzida: e.target.value })}
+                  onChange={e => setDarfCsllReduzida(e.target.value.replace(',', '.'))} 
+                  onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { darfCsllReduzida: e.target.value.replace(',', '.') })}
                   style={{ width: '100%', borderColor: '#81C784' }} 
                   placeholder={`Valor Padrão: ${Math.max(0, cM.csllTotal).toFixed(2)}`} 
                 />
@@ -1191,9 +1240,21 @@ export default function TaxModule({ companies }) {
                 🗑️ Excluir Apuração deste Mês
               </button>
             )}
-            <button className="btn-primary" onClick={() => isEstimativa ? handleSaveInputsOnly() : handleGravar(cA.irpjTotal, cA.csllTotal, cA.irpjNormal + cA.irpjAdicional, cA.csll)} style={{ padding: '1rem 2rem', fontSize: '1.1rem' }} disabled={isProcessing}>
-                {isProcessing ? 'Gravando...' : (isEstimativa ? '💾 Salvar Memória de Cálculo (Controle DARF)' : '💾 Lançar Apuração no DRE e Balanço')}
+            <button 
+              type="button"
+              className="btn-secondary" 
+              onClick={handleSaveInputsOnly} 
+              style={{ padding: '1rem 1.8rem', fontSize: '1rem', cursor: 'pointer', fontWeight: 600, border: '1px solid #64B5F6', color: '#64B5F6', background: 'rgba(33, 150, 243, 0.1)' }} 
+              disabled={isProcessing}
+              title="Salvar apenas a memória de cálculo digitada (retenções, receitas manuais, etc.) sem lançar no Balanço"
+            >
+              💾 Salvar Memória de Cálculo
             </button>
+            {!isEstimativa && (
+              <button className="btn-primary" onClick={() => handleGravar(cA.irpjTotal, cA.csllTotal, cA.irpjNormal + cA.irpjAdicional, cA.csll)} style={{ padding: '1rem 2rem', fontSize: '1.1rem' }} disabled={isProcessing}>
+                  {isProcessing ? 'Gravando...' : '💾 Lançar Apuração no DRE e Balanço'}
+              </button>
+            )}
         </div>
       </div>
     );
@@ -1472,12 +1533,28 @@ const renderReal = () => {
 
              <div style={{ marginBottom: '1rem' }}>
                <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(+) Adições (Ex: Multas, Brindes, Desp. Indedutíveis)</label>
-               <input type="number" className="text-input" value={lalurAdicoes} onChange={e => setLalurAdicoes(e.target.value)} style={{ width: '100%' }} />
+               <input 
+                 type="number" 
+                 step="0.01" 
+                 className="text-input" 
+                 value={lalurAdicoes} 
+                 onChange={e => setLalurAdicoes(e.target.value.replace(',', '.'))} 
+                 onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { lalurAdicoes: e.target.value.replace(',', '.') })}
+                 style={{ width: '100%' }} 
+               />
              </div>
 
              <div style={{ marginBottom: '1rem' }}>
                <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(-) Exclusões (Ex: Div. Isentos, Provisões Revertidas)</label>
-               <input type="number" className="text-input" value={lalurExclusoes} onChange={e => setLalurExclusoes(e.target.value)} style={{ width: '100%' }} />
+               <input 
+                 type="number" 
+                 step="0.01" 
+                 className="text-input" 
+                 value={lalurExclusoes} 
+                 onChange={e => setLalurExclusoes(e.target.value.replace(',', '.'))} 
+                 onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { lalurExclusoes: e.target.value.replace(',', '.') })}
+                 style={{ width: '100%' }} 
+               />
              </div>
 
              {calc.equivalenciaPatrimonial !== 0 && (
@@ -1514,7 +1591,15 @@ const renderReal = () => {
 
              <div style={{ marginBottom: '1rem', marginTop: '1.5rem' }}>
                <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(-) Compensação Prejuízo (Lim. 30%: {Math.max(0, calc.baseCalculo*0.3).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})</label>
-               <input type="number" className="text-input" value={lalurCompensacaoPrejuizo} onChange={e => setLalurCompensacaoPrejuizo(e.target.value)} style={{ width: '100%' }} />
+               <input 
+                 type="number" 
+                 step="0.01" 
+                 className="text-input" 
+                 value={lalurCompensacaoPrejuizo} 
+                 onChange={e => setLalurCompensacaoPrejuizo(e.target.value.replace(',', '.'))} 
+                 onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { lalurCompensacaoPrejuizo: e.target.value.replace(',', '.') })}
+                 style={{ width: '100%' }} 
+               />
              </div>
 
              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '1rem', borderTop: '1px solid #444', paddingTop: '1rem', color: '#FFCA28', fontSize: '1.1rem' }}>
@@ -1535,9 +1620,25 @@ const renderReal = () => {
              </div>
              <div style={{ marginBottom: '1rem', marginTop: '0.5rem' }}>
                <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(-) IRRF s/ Serviços</label>
-               <input type="number" className="text-input" value={lalurRetencoesIR} onChange={e => setLalurRetencoesIR(e.target.value)} style={{ width: '100%' }} />
+               <input 
+                 type="number" 
+                 step="0.01" 
+                 className="text-input" 
+                 value={lalurRetencoesIR} 
+                 onChange={e => setLalurRetencoesIR(e.target.value.replace(',', '.'))} 
+                 onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { lalurRetencoesIR: e.target.value.replace(',', '.') })} 
+                 style={{ width: '100%' }} 
+               />
                <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginTop: '1rem', marginBottom: '0.3rem' }}>(-) IRRF s/ Aplicações</label>
-               <input type="number" className="text-input" value={lalurRetencoesIR_AppFin} onChange={e => setLalurRetencoesIR_AppFin(e.target.value)} style={{ width: '100%' }} />
+               <input 
+                 type="number" 
+                 step="0.01" 
+                 className="text-input" 
+                 value={lalurRetencoesIR_AppFin} 
+                 onChange={e => setLalurRetencoesIR_AppFin(e.target.value.replace(',', '.'))} 
+                 onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { lalurRetencoesIR_AppFin: e.target.value.replace(',', '.') })} 
+                 style={{ width: '100%' }} 
+               />
              </div>
 
              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.8rem', marginBottom: '0.8rem', background: 'rgba(255, 193, 7, 0.08)', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid rgba(255, 193, 7, 0.25)' }}>
@@ -1576,7 +1677,15 @@ const renderReal = () => {
              </div>
              <div style={{ marginBottom: '1rem', marginTop: '0.5rem' }}>
                <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(-) CSLL Retida</label>
-               <input type="number" className="text-input" value={lalurRetencoesCS} onChange={e => setLalurRetencoesCS(e.target.value)} style={{ width: '100%' }} />
+               <input 
+                 type="number" 
+                 step="0.01" 
+                 className="text-input" 
+                 value={lalurRetencoesCS} 
+                 onChange={e => setLalurRetencoesCS(e.target.value.replace(',', '.'))} 
+                 onBlur={e => persistTaxData(selectedComp, selectedAno, selectedMes, { lalurRetencoesCS: e.target.value.replace(',', '.') })} 
+                 style={{ width: '100%' }} 
+               />
              </div>
 
              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.8rem', marginBottom: '0.8rem', background: 'rgba(255, 193, 7, 0.08)', padding: '0.6rem 0.8rem', borderRadius: '8px', border: '1px solid rgba(255, 193, 7, 0.25)' }}>
@@ -1625,6 +1734,16 @@ const renderReal = () => {
                 🗑️ Excluir Apuração deste Mês
               </button>
             )}
+            <button 
+              type="button" 
+              className="btn-secondary" 
+              onClick={handleSaveInputsOnly} 
+              style={{ padding: '1rem 1.8rem', fontSize: '1rem', cursor: 'pointer', fontWeight: 600, border: '1px solid #64B5F6', color: '#64B5F6', background: 'rgba(33, 150, 243, 0.1)' }} 
+              disabled={isProcessing} 
+              title="Salvar apenas a memória de cálculo digitada sem lançar no Balanço"
+            >
+              💾 Salvar Memória de Cálculo
+            </button>
             <button className="btn-primary" onClick={() => handleGravar(calc.irpjTotal, calc.csllTotal, calc.irpjNormal + calc.irpjAdicional, calc.csll)} style={{ padding: '1rem 2rem', fontSize: '1.1rem' }} disabled={isProcessing}>
               {isProcessing ? 'Gravando...' : (isAnual ? '💾 Lançar Balanço de Suspensão/Redução no DRE e Balanço' : '💾 Lançar Apuração no DRE e Balanço')}
             </button>
