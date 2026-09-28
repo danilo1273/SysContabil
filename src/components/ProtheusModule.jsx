@@ -134,13 +134,13 @@ function PendencyWidget({ companies, ano, onSelectAno, availableYears = [] }) {
 
 function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBackToModules }) {
   const isSuperAdmin = userRole === 'superadmin' || ['danilo', 'ryan.santos', 'carol.cons', 'talita.alves'].includes(username);
-  const [activeTab, setActiveTab] = useState(moduleMode === 'contabil' ? 'apuracao' : 'resultados');
+  const [activeTab, setActiveTab] = useState('resultados');
   const prevModeRef = useRef(moduleMode);
 
   useEffect(() => {
     if (prevModeRef.current !== moduleMode) {
       prevModeRef.current = moduleMode;
-      setActiveTab(moduleMode === 'contabil' ? 'apuracao' : 'resultados');
+      setActiveTab('resultados');
     }
   }, [moduleMode]);
   const [secondaryTab, setSecondaryTab] = useState('dash');
