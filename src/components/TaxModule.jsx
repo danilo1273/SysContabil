@@ -771,24 +771,37 @@ export default function TaxModule({ companies }) {
         });
       }
 
+      const irrfServicos = parseFloat(regime === 'presumido' ? presumidoRetencoesIR : lalurRetencoesIR) || 0;
+      const irrfApp = parseFloat(regime === 'presumido' ? presumidoRetencoesIR_AppFin : lalurRetencoesIR_AppFin) || 0;
+      const irrfTotalMes = irrfServicos + irrfApp;
+      const csllRetida = parseFloat(regime === 'presumido' ? presumidoRetencoesCS : lalurRetencoesCS) || 0;
+
+      const hasAjusteIrpjPresumido = regime === 'presumido' && cleanAjuste(presumidoAjusteIrpj) !== '';
+      const hasAjusteCsllPresumido = regime === 'presumido' && cleanAjuste(presumidoAjusteCsll) !== '';
+      const hasAjusteIrpjReal = regime !== 'presumido' && cleanAjuste(lalurAjusteIrpj) !== '';
+      const hasAjusteCsllReal = regime !== 'presumido' && cleanAjuste(lalurAjusteCsll) !== '';
+
       let valorIrpjDreMes = 0;
       let valorCsllDreMes = 0;
+
+      // DRE deve refletir a despesa BRUTA de IRPJ e CSLL devida no mês (sem deduzir as retenções na fonte)
       if (regime === 'presumido') {
-        const hasAjusteIrpjMes = cleanAjuste(presumidoAjusteIrpj) !== '';
-        const hasAjusteCsllMes = cleanAjuste(presumidoAjusteCsll) !== '';
+        valorIrpjDreMes = hasAjusteIrpjPresumido 
+          ? Math.max(0, parseFloat(cleanAjuste(presumidoAjusteIrpj)) + irrfTotalMes) 
+          : Math.max(0, vIrpjGross - despesaDreIRAnterior);
 
-        valorIrpjDreMes = hasAjusteIrpjMes 
-          ? Math.max(0, parseFloat(cleanAjuste(presumidoAjusteIrpj))) 
-          : Math.max(0, vIrpj - despesaDreIRAnterior);
-
-        valorCsllDreMes = hasAjusteCsllMes 
-          ? Math.max(0, parseFloat(cleanAjuste(presumidoAjusteCsll))) 
-          : Math.max(0, vCsll - despesaDreCSAnterior);
+        valorCsllDreMes = hasAjusteCsllPresumido 
+          ? Math.max(0, parseFloat(cleanAjuste(presumidoAjusteCsll)) + csllRetida) 
+          : Math.max(0, vCsllGross - despesaDreCSAnterior);
       } else {
-        // Como o Lucro Real agora é calculado apenas com a base do mês isolado (dreMensal),
-        // o valor calculado (vIrpj) já é a provisão do mês, não devemos abater o acumulado anterior.
-        valorIrpjDreMes = Math.max(0, vIrpj);
-        valorCsllDreMes = Math.max(0, vCsll);
+        // Lucro Real: valor bruto do mês
+        valorIrpjDreMes = hasAjusteIrpjReal
+          ? Math.max(0, parseFloat(cleanAjuste(lalurAjusteIrpj)) + irrfTotalMes)
+          : Math.max(0, vIrpjGross);
+
+        valorCsllDreMes = hasAjusteCsllReal
+          ? Math.max(0, parseFloat(cleanAjuste(lalurAjusteCsll)) + csllRetida)
+          : Math.max(0, vCsllGross);
       }
 
       const idIrpjBal = 'tax-bal-irpj-' + selectedComp + '-' + selectedAno + '-' + selectedMes;
@@ -811,16 +824,23 @@ export default function TaxModule({ companies }) {
           });
         }
       }
-      const hasAjusteIrpjMes = cleanAjuste(presumidoAjusteIrpj) !== '';
-      const hasAjusteCsllMes = cleanAjuste(presumidoAjusteCsll) !== '';
 
-      const ajusteBalancoIrpj = (regime === 'presumido' && hasAjusteIrpjMes)
+      // Passivo (2.1.1.6): recebe o valor LÍQUIDO A RECOLHER da DARF (com as retenções já abatidas)
+      const ajusteBalancoIrpj = hasAjusteIrpjPresumido
         ? Math.max(0, parseFloat(cleanAjuste(presumidoAjusteIrpj)))
-        : Math.max(0, vIrpj - passivoIRAnterior);
+        : hasAjusteIrpjReal
+        ? Math.max(0, parseFloat(cleanAjuste(lalurAjusteIrpj)))
+        : (regime === 'presumido' || regime === 'real_trimestral')
+        ? Math.max(0, vIrpj - passivoIRAnterior)
+        : Math.max(0, vIrpj);
 
-      const ajusteBalancoCsll = (regime === 'presumido' && hasAjusteCsllMes)
+      const ajusteBalancoCsll = hasAjusteCsllPresumido
         ? Math.max(0, parseFloat(cleanAjuste(presumidoAjusteCsll)))
-        : Math.max(0, vCsll - passivoCSAnterior);
+        : hasAjusteCsllReal
+        ? Math.max(0, parseFloat(cleanAjuste(lalurAjusteCsll)))
+        : (regime === 'presumido' || regime === 'real_trimestral')
+        ? Math.max(0, vCsll - passivoCSAnterior)
+        : Math.max(0, vCsll);
 
       const idIrpjDre = 'tax-dre-irpj-' + selectedComp + '-' + selectedAno + '-' + selectedMes;
       const idCsllDre = 'tax-dre-csll-' + selectedComp + '-' + selectedAno + '-' + selectedMes;
@@ -835,20 +855,36 @@ export default function TaxModule({ companies }) {
         { id: idCsllBal, empresaId: selectedComp, ano: selectedAno, mes: selectedMes, trimestre: Math.ceil(selectedMes/3), tipo: 'passivo', conta: '2.1.1.6.02.00001', descricao: 'CSLL A RECOLHER', saldoAcumulado: ajusteBalancoCsll }
       ];
 
-      const irrfServicos = parseFloat(regime === 'presumido' ? presumidoRetencoesIR : lalurRetencoesIR) || 0;
+      // Ativo (1.1.1.5): desconta o crédito de retenção na fonte utilizado na apuração
       if (irrfServicos > 0) {
         balancoEntries.push({ id: 'tax-bal-ret-ir-serv-' + selectedComp + '-' + selectedAno + '-' + selectedMes, empresaId: selectedComp, ano: selectedAno, mes: selectedMes, trimestre: Math.ceil(selectedMes/3), tipo: 'ativo', conta: '1.1.1.5.01.00003', descricao: 'IRRF S/ PRESTACAO SERVICOS', saldoAcumulado: -irrfServicos });
       }
 
-      const irrfApp = parseFloat(regime === 'presumido' ? presumidoRetencoesIR_AppFin : lalurRetencoesIR_AppFin) || 0;
       if (irrfApp > 0) {
         balancoEntries.push({ id: 'tax-bal-ret-ir-app-' + selectedComp + '-' + selectedAno + '-' + selectedMes, empresaId: selectedComp, ano: selectedAno, mes: selectedMes, trimestre: Math.ceil(selectedMes/3), tipo: 'ativo', conta: '1.1.1.5.01.00001', descricao: 'IRRF S/ APLICACOES FINANCEIRAS', saldoAcumulado: -irrfApp });
       }
 
-      const csllRetida = parseFloat(regime === 'presumido' ? presumidoRetencoesCS : lalurRetencoesCS) || 0;
       if (csllRetida > 0) {
         balancoEntries.push({ id: 'tax-bal-ret-csll-' + selectedComp + '-' + selectedAno + '-' + selectedMes, empresaId: selectedComp, ano: selectedAno, mes: selectedMes, trimestre: Math.ceil(selectedMes/3), tipo: 'ativo', conta: '1.1.1.5.02.00003', descricao: 'CSLL RETIDA NA FONTE', saldoAcumulado: -csllRetida });
       }
+
+      // Limpar lançamentos fiscais anteriores deste mês antes de gravar os novos (evita resquícios de retenções removidas)
+      await Promise.all([
+        supabase
+          .from('dre_history')
+          .delete()
+          .eq('empresaId', selectedComp)
+          .eq('ano', selectedAno)
+          .eq('mes', selectedMes)
+          .like('id', 'tax-%'),
+        supabase
+          .from('balanco_history')
+          .delete()
+          .eq('empresaId', selectedComp)
+          .eq('ano', selectedAno)
+          .eq('mes', selectedMes)
+          .like('id', 'tax-%')
+      ]);
 
       await bulkPutRecords('dre_history', dreEntries);
       await bulkPutRecords('balanco_history', balancoEntries);
