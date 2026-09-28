@@ -976,7 +976,22 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
               });
             }
           }
-          const accountsInGroup = Array.from(allAccountsSet).sort();
+          const definedOrder = mappingRef && mappingRef[group] ? Object.keys(mappingRef[group]) : [];
+          const accountsInGroup = Array.from(allAccountsSet).sort((a, b) => {
+            const indexA = definedOrder.indexOf(a);
+            const indexB = definedOrder.indexOf(b);
+            if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+            if (indexA !== -1) return -1;
+            if (indexB !== -1) return 1;
+
+            const codeA = (mappingRef && mappingRef[group] && mappingRef[group][a] && mappingRef[group][a][0]) || '';
+            const codeB = (mappingRef && mappingRef[group] && mappingRef[group][b] && mappingRef[group][b][0]) || '';
+            if (codeA && codeB) return codeA.localeCompare(codeB);
+            if (codeA) return -1;
+            if (codeB) return 1;
+
+            return a.localeCompare(b);
+          });
           
           let groupConsolidado = 0;
           
@@ -1019,6 +1034,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
               d.isZero = dAllZeros && dCons === 0;
               row.details.push(d);
             });
+            row.details.sort((a, b) => (a.conta || '').localeCompare(b.conta || ''));
             
             row.isZero = allZeros && accConsolidado === 0;
             if (isDetailed) lines.push(row);
@@ -1336,7 +1352,19 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
              });
            }
          });
-         const ajArray = Array.from(allAjSet).sort();
+          const ajOrder = [
+            ...Object.keys(mergedMapping.dfc_lucro_ajuste_dre?.['Ajustes DRE'] || {}),
+            ...Object.keys(mergedMapping.dfc_lucro_ajuste_ativo?.['Ajustes Ativo'] || {}),
+            ...Object.keys(mergedMapping.dfc_lucro_ajuste_passivo?.['Ajustes Passivo'] || {})
+          ];
+          const ajArray = Array.from(allAjSet).sort((a, b) => {
+            const idxA = ajOrder.indexOf(a);
+            const idxB = ajOrder.indexOf(b);
+            if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+            if (idxA !== -1) return -1;
+            if (idxB !== -1) return 1;
+            return a.localeCompare(b);
+          });
          const properLucroAjustesLines = [];
          let lIdx = 0;
          for (const aName of ajArray) {
