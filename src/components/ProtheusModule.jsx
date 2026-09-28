@@ -148,8 +148,8 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
   const [loadingDb, setLoadingDb] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const loadIdRef = useRef(0);
-  const [results, setResults] = useState(null);
   const [editingId, setEditingId] = useState(null);
+  const [editingValue, setEditingValue] = useState('');
   const [selectedCompany, setSelectedCompany] = useState('consolidado');
   const [customConsolidations, setCustomConsolidations] = useState([]);
   const [showCustomConsolidationModal, setShowCustomConsolidationModal] = useState(false);
@@ -2092,7 +2092,10 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                       </td>
                       <td>
                         {editingId === r.id ? (
-                          <button onClick={() => saveEdit(r)} style={{ background: 'var(--color-success)', color: 'white', border: 'none', padding: '0.3rem 0.6rem', borderRadius: '4px', cursor: 'pointer' }}>Salvar</button>
+                          <div style={{ display: 'flex', gap: '0.3rem' }}>
+                            <button onClick={() => saveEdit(r)} style={{ background: 'var(--color-success)', color: 'white', border: 'none', padding: '0.3rem 0.6rem', borderRadius: '4px', cursor: 'pointer' }}>Salvar</button>
+                            <button onClick={() => setEditingId(null)} style={{ background: '#666', color: 'white', border: 'none', padding: '0.3rem 0.6rem', borderRadius: '4px', cursor: 'pointer' }}>Cancelar</button>
+                          </div>
                         ) : (
                           <button onClick={() => startEditing(r)} style={{ background: '#444', color: 'white', border: 'none', padding: '0.3rem 0.6rem', borderRadius: '4px', cursor: 'pointer' }}>✏️ Editar</button>
                         )}
