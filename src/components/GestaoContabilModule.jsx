@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { parseCurrencyInput } from './TaxModule';
 import RelatoriosContabeis from './RelatoriosContabeis';
 import { getRawRecords, getSettings, saveSettings } from '../utils/db';
 import { propagateRoutinesToNewMonth } from '../utils/routinePropagator';
@@ -40,6 +41,10 @@ function GestaoContabilModule({ userRole, userName, companies }) {
     const isSuperAdmin = userRole === 'superadmin' || ['danilo', 'ryan.santos', 'carol.cons', 'talita.alves'].includes(userName);
     const [activeTab, setActiveTab] = useState('integracoes');
     const [taxDataStore, setTaxDataStore] = useState({});
+    const taxDataStoreRef = useRef({});
+    useEffect(() => {
+        taxDataStoreRef.current = taxDataStore;
+    }, [taxDataStore]);
     const [dreCambioRealizado, setDreCambioRealizado] = useState({});
     const [selectedMes, setSelectedMes] = useState(new Date().getMonth() + 1);
     const [selectedAno, setSelectedAno] = useState(new Date().getFullYear());
@@ -184,10 +189,18 @@ function GestaoContabilModule({ userRole, userName, companies }) {
             }
 
             // Load Tax Data Store
-            const tRes = await fetch(`/api/settings/agf_tax_store`);
-            if (tRes.ok) {
-                const tData = await tRes.json();
-                setTaxDataStore(tData || {});
+            try {
+                let tData = await getSettings('agf_tax_store');
+                if (!tData) {
+                    const tRes = await fetch(`/api/settings/agf_tax_store`);
+                    if (tRes.ok) tData = await tRes.json();
+                }
+                if (tData && typeof tData === 'object') {
+                    taxDataStoreRef.current = tData;
+                    setTaxDataStore(tData);
+                }
+            } catch (err) {
+                console.error("Erro ao carregar agf_tax_store:", err);
             }
 
             try {
@@ -1191,17 +1204,20 @@ function GestaoContabilModule({ userRole, userName, companies }) {
 
     const saveVariacaoCambial = async (compId, val) => {
         const key = `${compId}_${selectedAno}_${selectedMes}`;
-        const oldData = taxDataStore[key] || {};
+        const currentStore = taxDataStoreRef.current || taxDataStore || {};
+        const oldData = currentStore[key] || {};
         const newData = { ...oldData, presumidoCambioRealizado: val, lalurCambioRealizado: val };
-        const newStore = { ...taxDataStore, [key]: newData };
+        const newStore = { ...currentStore, [key]: newData };
+        taxDataStoreRef.current = newStore;
         setTaxDataStore(newStore);
         try {
-            await fetch(`/api/settings/agf_tax_store`, {
+            await saveSettings('agf_tax_store', newStore);
+            fetch(`/api/settings/agf_tax_store`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ value: newStore })
-            });
-        } catch (e) { console.error(e); }
+            }).catch(() => {});
+        } catch (e) { console.error('Erro ao salvar variacao cambial:', e); }
     };
 
     const handleRemoveTipo = async (tipoKey) => {
@@ -2941,10 +2957,21 @@ function GestaoContabilModule({ userRole, userName, companies }) {
                                         <td style={{ padding: '12px', textAlign: 'right', color: '#aaa' }}>{dreVal.toLocaleString('pt-BR', {style:'currency', currency:'BRL'})}</td>
                                         <td style={{ padding: '12px' }}>
                                             <input 
-                                                type="number" 
+                                                type="text" 
+                                                inputMode="decimal" 
                                                 className="text-input" 
                                                 value={val} 
-                                                onChange={(e) => saveVariacaoCambial(c.id, e.target.value)} 
+                                                onChange={(e) => saveVariacaoCambial(c.id, e.target.value.replace(',', '.'))} 
+                                                onPaste={(e) => {
+                                                    e.preventDefault();
+                                                    const raw = (e.clipboardData || window.clipboardData)?.getData('text') || '';
+                                                    const clean = parseCurrencyInput(raw);
+                                                    saveVariacaoCambial(c.id, clean);
+                                                }}
+                                                onBlur={(e) => {
+                                                    const clean = parseCurrencyInput(e.target.value);
+                                                    saveVariacaoCambial(c.id, clean);
+                                                }}
                                                 placeholder="0.00" 
                                                 style={{ width: '100%' }} 
                                             />

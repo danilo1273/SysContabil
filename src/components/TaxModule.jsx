@@ -626,11 +626,23 @@ export default function TaxModule({ companies }) {
           .like('id', 'tax-%')
       ]);
 
-      // Limpar memória de cálculo do mês no state e settings
+      // Limpar memória de cálculo do mês no state e settings, PRESERVANDO a Variação Cambial
       const key = `${selectedComp}_${selectedAno}_${selectedMes}`;
+      const currentEntry = taxDataStore[key] || {};
+      const savedPresumidoCambio = currentEntry.presumidoCambioRealizado ?? 0;
+      const savedLalurCambio = currentEntry.lalurCambioRealizado ?? 0;
+
       const newStore = { ...taxDataStore };
-      delete newStore[key];
+      if (savedPresumidoCambio || savedLalurCambio) {
+        newStore[key] = {
+          presumidoCambioRealizado: savedPresumidoCambio,
+          lalurCambioRealizado: savedLalurCambio
+        };
+      } else {
+        delete newStore[key];
+      }
       setTaxDataStore(newStore);
+      taxDataStoreRef.current = newStore;
       try {
         await saveSettings('agf_tax_store', newStore);
       } catch (e) {
@@ -644,7 +656,7 @@ export default function TaxModule({ companies }) {
       setLalurRetencoesIR(0);
       setLalurRetencoesIR_AppFin(0);
       setLalurRetencoesCS(0);
-      setLalurCambioRealizado(0);
+      setLalurCambioRealizado(savedLalurCambio);
       setLalurAjusteIrpj('');
       setLalurAjusteCsll('');
 
@@ -655,7 +667,7 @@ export default function TaxModule({ companies }) {
       setPresumidoAjusteIrpj('');
       setPresumidoAjusteCsll('');
       setPresumidoOutrasReceitas('');
-      setPresumidoCambioRealizado(0);
+      setPresumidoCambioRealizado(savedPresumidoCambio);
       setPresumidoIpi('');
       setPresumidoIcmsSt('');
       setPresumidoMajoracao(true);
@@ -1129,7 +1141,21 @@ export default function TaxModule({ companies }) {
             {cambioConfig[selectedComp] === 'caixa' ? (
               <div style={{ marginBottom: '1rem', marginTop: '1rem' }}>
                 <label style={{ display: 'block', fontSize: '0.85rem', color: '#FFCA28', marginBottom: '0.3rem' }}>(+) Variação Cambial Realizada (Regime de Caixa) - <b>Valor do Mês</b></label>
-                <input type="number" className="text-input" value={presumidoCambioRealizado} disabled={true} title="Alterar no menu Gestão Contábil" style={{ width: '100%', borderColor: '#FFCA28', opacity: 0.7, cursor: 'not-allowed' }} />
+                <input 
+                  type="text" 
+                  inputMode="decimal" 
+                  className="text-input" 
+                  value={presumidoCambioRealizado} 
+                  onChange={e => setPresumidoCambioRealizado(e.target.value.replace(',', '.'))} 
+                  onPaste={e => handlePasteNumber(e, setPresumidoCambioRealizado, 'presumidoCambioRealizado')}
+                  onBlur={e => {
+                    const cleaned = parseCurrencyInput(e.target.value);
+                    setPresumidoCambioRealizado(cleaned);
+                    persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoCambioRealizado: cleaned, lalurCambioRealizado: cleaned });
+                  }}
+                  placeholder="0.00" 
+                  style={{ width: '100%', borderColor: '#FFCA28' }} 
+                />
               </div>
             ) : (
               <Row label="(+) Variação Cambial DRE (Competência):" m={cM.variacaoCambial > 0 ? cM.variacaoCambial : 0} a={cA.variacaoCambial > 0 ? cA.variacaoCambial : 0} color="#888" />
@@ -1865,7 +1891,21 @@ export default function TaxModule({ companies }) {
                  </div>
                  
                  <label style={{ display: 'block', fontSize: '0.85rem', color: '#fff', marginBottom: '0.3rem' }}>Variação Realizada Liquida (+ Ganho / - Perda)</label>
-                 <input type="number" className="text-input" value={lalurCambioRealizado} disabled={true} title="Alterar no menu Gestão Contábil" style={{ width: '100%', borderColor: '#FFCA28', opacity: 0.7, cursor: 'not-allowed' }} />
+                 <input 
+                    type="text" 
+                    inputMode="decimal" 
+                    className="text-input" 
+                    value={lalurCambioRealizado} 
+                    onChange={e => setLalurCambioRealizado(e.target.value.replace(',', '.'))} 
+                    onPaste={e => handlePasteNumber(e, setLalurCambioRealizado, 'lalurCambioRealizado')}
+                    onBlur={e => {
+                      const cleaned = parseCurrencyInput(e.target.value);
+                      setLalurCambioRealizado(cleaned);
+                      persistTaxData(selectedComp, selectedAno, selectedMes, { lalurCambioRealizado: cleaned, presumidoCambioRealizado: cleaned });
+                    }}
+                    placeholder="0.00" 
+                    style={{ width: '100%', borderColor: '#FFCA28' }} 
+                  />
                </div>
              )}
              
