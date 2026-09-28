@@ -58,7 +58,7 @@ export const protheusMapping = {
     },
     "DESPESAS FINANCEIRAS": {
       "Despesas Financeiras (Exceto Reversão JSCP)": [
-        "4.3.1.1.02", "!4.3.1.1.02.00008"
+        "4.3.1.1.02", "!4.3.1.1.02.00008@JUROS"
       ]
     },
     "VARIAÇÕES MONETÁRIAS / CAMBIAIS LÍQUIDAS": {
@@ -81,7 +81,7 @@ export const protheusMapping = {
       "Provisão CSLL": ["6", "5.1.1.1.01.00002"]
     },
     "REVERSÃO JUROS S/ CAPITAL PROPRIO": {
-      "Reversão Juros s/ Capital Proprio": ["4.3.1.1.02.00008"]
+      "Reversão Juros s/ Capital Proprio": ["4.3.1.1.02.00008@JUROS"]
     }
   },
   ativo: {
@@ -244,9 +244,26 @@ export const applyMapping = (dbData, groupMapping = {}, multiplier = 1, valueFie
       const includePrefixes = prefixes.filter(p => !p.startsWith('!'));
       const excludePrefixes = prefixes.filter(p => p.startsWith('!')).map(p => p.slice(1));
 
+      const matchesRule = (rule, d) => {
+        if (!rule || !d || !d.conta) return false;
+        let prefix = rule;
+        let requiredDesc = null;
+        if (rule.includes('@')) {
+          const parts = rule.split('@');
+          prefix = parts[0];
+          requiredDesc = parts[1].toUpperCase();
+        }
+        if (!d.conta.startsWith(prefix)) return false;
+        if (requiredDesc) {
+          const desc = (d.descricao || '').toUpperCase();
+          if (!desc.includes(requiredDesc)) return false;
+        }
+        return true;
+      };
+
       const matchedRecords = dbDataArray.filter(d => {
-        const matchInclude = includePrefixes.some(prefix => d.conta.startsWith(prefix));
-        const matchExclude = excludePrefixes.some(prefix => d.conta.startsWith(prefix));
+        const matchInclude = includePrefixes.some(rule => matchesRule(rule, d));
+        const matchExclude = excludePrefixes.some(rule => matchesRule(rule, d));
         return matchInclude && !matchExclude;
       });
       
