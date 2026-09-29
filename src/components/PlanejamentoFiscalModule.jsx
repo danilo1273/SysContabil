@@ -323,6 +323,8 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
   const [isProjetoModalOpen, setIsProjetoModalOpen] = useState(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [newUpdateText, setNewUpdateText] = useState('');
+  const [proximaReuniaoCustom, setProximaReuniaoCustom] = useState(null);
+  const [isEditReuniaoModalOpen, setIsEditReuniaoModalOpen] = useState(false);
 
   // Carregar dados salvos ou inicializar com o padrão
   useEffect(() => {
@@ -332,9 +334,10 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [savedAtas, savedProjetos] = await Promise.all([
+      const [savedAtas, savedProjetos, savedReuniao] = await Promise.all([
         getSettings('agf_planejamento_atas', false),
-        getSettings('agf_planejamento_projetos', false)
+        getSettings('agf_planejamento_projetos', false),
+        getSettings('agf_planejamento_reuniao_custom', false)
       ]);
 
       if (Array.isArray(savedAtas) && savedAtas.length > 0) {
@@ -349,6 +352,10 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
       } else {
         setProjetos(INITIAL_PROJETOS);
         await saveSettings('agf_planejamento_projetos', INITIAL_PROJETOS);
+      }
+
+      if (savedReuniao && typeof savedReuniao === 'object') {
+        setProximaReuniaoCustom(savedReuniao);
       }
     } catch (err) {
       console.error('Erro ao carregar planejamento fiscal:', err);
@@ -382,6 +389,40 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
       setIsSaving(false);
     }
   };
+
+  const persistProximaReuniao = async (dados) => {
+    setProximaReuniaoCustom(dados);
+    setIsSaving(true);
+    try {
+      await saveSettings('agf_planejamento_reuniao_custom', dados);
+    } catch (err) {
+      console.error('Erro ao salvar próxima reunião:', err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Próxima Reunião exibida no Dashboard
+  const proximaReuniaoExibida = useMemo(() => {
+    if (proximaReuniaoCustom && proximaReuniaoCustom.data) return proximaReuniaoCustom;
+    const ataComReuniao = atas.find(a => a.proximaReuniao?.data);
+    if (ataComReuniao?.proximaReuniao) {
+      return {
+        data: ataComReuniao.proximaReuniao.data,
+        hora: ataComReuniao.proximaReuniao.hora || '14:00h',
+        pauta: ataComReuniao.proximaReuniao.pauta || 'Apresentação bancos (Itaú e Santander na Paulista para FIDIC/Securitizadora), status de entrega dos cartões PAT e retorno do parecer tributário sobre Compete-ES/SUDENE.',
+        participantes: Array.isArray(ataComReuniao.participantes) ? ataComReuniao.participantes.join(', ') : 'Danilo, Mayara, Alex, Jonata, Andre',
+        reuniaoSeguinte: '12/06/2026'
+      };
+    }
+    return {
+      data: '06/05/2026',
+      hora: '14:00h',
+      pauta: 'Apresentação bancos (Itaú e Santander na Paulista para FIDIC/Securitizadora), status de entrega dos cartões PAT e retorno do parecer tributário sobre Compete-ES/SUDENE.',
+      participantes: 'Danilo, Mayara, Alex, Jonata, Andre',
+      reuniaoSeguinte: '12/06/2026'
+    };
+  }, [proximaReuniaoCustom, atas]);
 
   // KPIs
   const kpis = useMemo(() => {
@@ -826,19 +867,55 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
               position: 'relative',
               overflow: 'hidden'
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#80deea', fontWeight: 'bold', fontSize: '0.9rem', marginBottom: '1rem' }}>
-                <Calendar size={18} /> PRÓXIMA REUNIÃO DE DIRETORIA FISCAL
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#80deea', fontWeight: 'bold', fontSize: '0.9rem' }}>
+                  <Calendar size={18} /> PRÓXIMA REUNIÃO DE DIRETORIA FISCAL
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsEditReuniaoModalOpen(true)}
+                  style={{
+                    background: 'rgba(0, 188, 212, 0.15)',
+                    border: '1px solid rgba(0, 188, 212, 0.4)',
+                    color: '#80deea',
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    fontSize: '0.78rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    fontWeight: 'bold',
+                    transition: 'all 0.2s'
+                  }}
+                  title="Editar dados da reunião"
+                >
+                  <Edit3 size={13} /> Editar Agendamento
+                </button>
               </div>
+
               <div style={{ display: 'flex', alignItems: 'baseline', gap: '12px', marginBottom: '0.5rem' }}>
-                <span style={{ fontSize: '2rem', fontWeight: '800', color: '#fff' }}>06/05/2026</span>
-                <span style={{ fontSize: '1.1rem', color: '#80deea', fontWeight: 'bold' }}>às 14:00h</span>
+                <span style={{ fontSize: '2rem', fontWeight: '800', color: '#fff' }}>{proximaReuniaoExibida.data}</span>
+                {proximaReuniaoExibida.hora && (
+                  <span style={{ fontSize: '1.1rem', color: '#80deea', fontWeight: 'bold' }}>
+                    {proximaReuniaoExibida.hora.startsWith('às') ? proximaReuniaoExibida.hora : `às ${proximaReuniaoExibida.hora}`}
+                  </span>
+                )}
               </div>
               <p style={{ color: '#b0bec5', fontSize: '0.88rem', margin: '0 0 1rem 0', lineHeight: '1.5' }}>
-                <strong>Pauta prevista:</strong> Apresentação bancos (Itaú e Santander na Paulista para FIDIC/Securitizadora), status de entrega dos cartões PAT e retorno do parecer tributário sobre Compete-ES/SUDENE.
+                <strong>Pauta prevista:</strong> {proximaReuniaoExibida.pauta}
               </p>
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                <span style={{ background: 'rgba(255,255,255,0.06)', padding: '3px 8px', borderRadius: '4px', fontSize: '0.75rem', color: '#cfd8dc' }}>👥 Danilo, Mayara, Alex, Jonata, Andre</span>
-                <span style={{ background: 'rgba(76, 175, 80, 0.15)', color: '#81C784', padding: '3px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold' }}>Reunião Seguinte: 12/06/2026</span>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                {proximaReuniaoExibida.participantes && (
+                  <span style={{ background: 'rgba(255,255,255,0.06)', padding: '3px 8px', borderRadius: '4px', fontSize: '0.75rem', color: '#cfd8dc' }}>
+                    👥 {proximaReuniaoExibida.participantes}
+                  </span>
+                )}
+                {proximaReuniaoExibida.reuniaoSeguinte && (
+                  <span style={{ background: 'rgba(76, 175, 80, 0.15)', color: '#81C784', padding: '3px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                    Reunião Seguinte: {proximaReuniaoExibida.reuniaoSeguinte}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -1567,6 +1644,158 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
         />
       )}
 
+      {/* MODAL 4: EDITAR PRÓXIMA REUNIÃO DE DIRETORIA FISCAL */}
+      {isEditReuniaoModalOpen && (
+        <EditReuniaoModal
+          dados={proximaReuniaoExibida}
+          onClose={() => setIsEditReuniaoModalOpen(false)}
+          onSave={persistProximaReuniao}
+        />
+      )}
+
+    </div>
+  );
+}
+
+// SUB-COMPONENTE: MODAL DE EDIÇÃO DA PRÓXIMA REUNIÃO DE DIRETORIA
+function EditReuniaoModal({ dados, onClose, onSave }) {
+  const [formData, setFormData] = useState({
+    data: dados?.data || '',
+    hora: dados?.hora || '',
+    pauta: dados?.pauta || '',
+    participantes: dados?.participantes || '',
+    reuniaoSeguinte: dados?.reuniaoSeguinte || ''
+  });
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!formData.data.trim() || !formData.pauta.trim()) {
+      window.$alert?.('Preencha ao menos a data e a pauta da reunião.');
+      return;
+    }
+    onSave(formData);
+    onClose();
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+      background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '1rem'
+    }}>
+      <div style={{
+        background: '#161a23',
+        border: '1px solid rgba(0, 188, 212, 0.4)',
+        borderRadius: '16px',
+        width: '100%',
+        maxWidth: '620px',
+        maxHeight: '90vh',
+        overflowY: 'auto',
+        boxShadow: '0 20px 40px rgba(0,0,0,0.6)',
+        display: 'flex',
+        flexDirection: 'column'
+      }}>
+        {/* Header */}
+        <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <Calendar size={22} color="#00BCD4" />
+            <h3 style={{ margin: 0, color: '#fff', fontSize: '1.15rem', fontWeight: '700' }}>
+              Editar Próxima Reunião de Diretoria Fiscal
+            </h3>
+          </div>
+          <button type="button" onClick={onClose} style={{ background: 'transparent', border: 'none', color: '#888', cursor: 'pointer', padding: '4px' }}>
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Form */}
+        <form onSubmit={handleSubmit} style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.82rem', color: '#80deea', marginBottom: '6px', fontWeight: 'bold' }}>
+                Data da Reunião *
+              </label>
+              <input
+                type="text"
+                placeholder="Ex: 06/05/2026"
+                value={formData.data}
+                onChange={e => setFormData({ ...formData, data: e.target.value })}
+                required
+                style={{ width: '100%', padding: '0.65rem', background: '#0e1219', border: '1px solid #333', borderRadius: '6px', color: '#fff', fontSize: '0.9rem' }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.82rem', color: '#80deea', marginBottom: '6px', fontWeight: 'bold' }}>
+                Horário da Reunião *
+              </label>
+              <input
+                type="text"
+                placeholder="Ex: 14:00h"
+                value={formData.hora}
+                onChange={e => setFormData({ ...formData, hora: e.target.value })}
+                required
+                style={{ width: '100%', padding: '0.65rem', background: '#0e1219', border: '1px solid #333', borderRadius: '6px', color: '#fff', fontSize: '0.9rem' }}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.82rem', color: '#80deea', marginBottom: '6px', fontWeight: 'bold' }}>
+              Pauta Prevista da Reunião *
+            </label>
+            <textarea
+              rows={4}
+              placeholder="Descreva a pauta, temas prioritários e deliberações esperadas..."
+              value={formData.pauta}
+              onChange={e => setFormData({ ...formData, pauta: e.target.value })}
+              required
+              style={{ width: '100%', padding: '0.65rem', background: '#0e1219', border: '1px solid #333', borderRadius: '6px', color: '#fff', fontSize: '0.85rem', resize: 'vertical', lineHeight: '1.4' }}
+            />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.82rem', color: '#80deea', marginBottom: '6px', fontWeight: 'bold' }}>
+              Participantes Previstos
+            </label>
+            <input
+              type="text"
+              placeholder="Ex: Danilo, Mayara, Alex, Jonata, Andre"
+              value={formData.participantes}
+              onChange={e => setFormData({ ...formData, participantes: e.target.value })}
+              style={{ width: '100%', padding: '0.65rem', background: '#0e1219', border: '1px solid #333', borderRadius: '6px', color: '#fff', fontSize: '0.9rem' }}
+            />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.82rem', color: '#80deea', marginBottom: '6px', fontWeight: 'bold' }}>
+              Data da Reunião Seguinte (Opcional)
+            </label>
+            <input
+              type="text"
+              placeholder="Ex: 12/06/2026"
+              value={formData.reuniaoSeguinte}
+              onChange={e => setFormData({ ...formData, reuniaoSeguinte: e.target.value })}
+              style={{ width: '100%', padding: '0.65rem', background: '#0e1219', border: '1px solid #333', borderRadius: '6px', color: '#fff', fontSize: '0.9rem' }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.8rem', marginTop: '0.8rem', paddingTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{ padding: '0.6rem 1.2rem', background: 'transparent', border: '1px solid #444', color: '#aaa', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              style={{ padding: '0.6rem 1.5rem', background: '#00BCD4', border: 'none', color: '#000', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}
+            >
+              Salvar Agendamento
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
