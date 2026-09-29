@@ -1549,6 +1549,11 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
           newUpdateText={newUpdateText}
           setNewUpdateText={setNewUpdateText}
           user={user}
+          isSuperAdmin={isSuperAdmin}
+          projetos={projetos}
+          persistProjetos={persistProjetos}
+          selectedProjeto={selectedProjeto}
+          setSelectedProjeto={setSelectedProjeto}
         />
       )}
 
@@ -1767,7 +1772,22 @@ function AtaModal({ ata, onClose, onSave }) {
 }
 
 // SUB-COMPONENTE: MODAL DE PROJETO ESTRATÉGICO & DIÁRIO DE BORDO
-function ProjetoModal({ projeto, atas, onClose, onSave, onToggleEtapa, onAddTimeline, newUpdateText, setNewUpdateText, user }) {
+function ProjetoModal({ 
+  projeto, 
+  atas, 
+  onClose, 
+  onSave, 
+  onToggleEtapa, 
+  onAddTimeline, 
+  newUpdateText, 
+  setNewUpdateText, 
+  user,
+  isSuperAdmin,
+  projetos,
+  persistProjetos,
+  selectedProjeto,
+  setSelectedProjeto
+}) {
   const isEditing = Boolean(projeto?.id);
   const [formData, setFormData] = useState({
     id: projeto?.id || null,
@@ -1791,6 +1811,15 @@ function ProjetoModal({ projeto, atas, onClose, onSave, onToggleEtapa, onAddTime
   const [newEtapaTitulo, setNewEtapaTitulo] = useState('');
   const [newEtapaResp, setNewEtapaResp] = useState(formData.responsavel);
   const [localUpdateText, setLocalUpdateText] = useState('');
+
+  // Edição inline de Etapas
+  const [editingEtapaId, setEditingEtapaId] = useState(null);
+  const [editingEtapaTitulo, setEditingEtapaTitulo] = useState('');
+  const [editingEtapaResp, setEditingEtapaResp] = useState('');
+
+  // Edição inline de Diário de Bordo
+  const [editingTimelineId, setEditingTimelineId] = useState(null);
+  const [editingTimelineText, setEditingTimelineText] = useState('');
 
   // Sincronizar estado local do modal caso o projeto mude
   useEffect(() => {
@@ -1834,6 +1863,48 @@ function ProjetoModal({ projeto, atas, onClose, onSave, onToggleEtapa, onAddTime
     }
   };
 
+  const handleStartEditTimeline = (item) => {
+    setEditingTimelineId(item.id);
+    setEditingTimelineText(item.texto);
+  };
+
+  const handleSaveEditTimeline = (itemId) => {
+    if (!editingTimelineText.trim()) return;
+    const updatedTimeline = (formData.timeline || []).map(t =>
+      t.id === itemId
+        ? { ...t, texto: editingTimelineText.trim(), editadoEm: new Date().toISOString().split('T')[0] }
+        : t
+    );
+    setFormData(prev => ({ ...prev, timeline: updatedTimeline }));
+    setEditingTimelineId(null);
+    if (isEditing && formData.id && persistProjetos) {
+      const proj = (projetos || []).find(p => p.id === formData.id);
+      if (proj) {
+        const updatedProj = { ...proj, timeline: updatedTimeline };
+        const newProjs = projetos.map(p => p.id === formData.id ? updatedProj : p);
+        persistProjetos(newProjs);
+        if (selectedProjeto?.id === formData.id) setSelectedProjeto(updatedProj);
+      }
+    }
+    window.$toast?.('Anotação do Diário atualizada!', { type: 'success' });
+  };
+
+  const handleDeleteTimeline = (itemId) => {
+    if (!window.confirm('Excluir esta anotação do Diário de Bordo?')) return;
+    const updatedTimeline = (formData.timeline || []).filter(t => t.id !== itemId);
+    setFormData(prev => ({ ...prev, timeline: updatedTimeline }));
+    if (isEditing && formData.id && persistProjetos) {
+      const proj = (projetos || []).find(p => p.id === formData.id);
+      if (proj) {
+        const updatedProj = { ...proj, timeline: updatedTimeline };
+        const newProjs = projetos.map(p => p.id === formData.id ? updatedProj : p);
+        persistProjetos(newProjs);
+        if (selectedProjeto?.id === formData.id) setSelectedProjeto(updatedProj);
+      }
+    }
+    window.$toast?.('Anotação excluída do Diário.', { type: 'info' });
+  };
+
   const handleToggleLocalEtapa = (etapaId) => {
     const newEtapas = (formData.etapas || []).map(e => e.id === etapaId ? { ...e, concluido: !e.concluido } : e);
     const total = newEtapas.length;
@@ -1849,6 +1920,33 @@ function ProjetoModal({ projeto, atas, onClose, onSave, onToggleEtapa, onAddTime
     if (isEditing && formData.id) {
       onToggleEtapa(formData.id, etapaId);
     }
+  };
+
+  const handleStartEditEtapa = (etapa) => {
+    setEditingEtapaId(etapa.id);
+    setEditingEtapaTitulo(etapa.titulo);
+    setEditingEtapaResp(etapa.responsavel || formData.responsavel);
+  };
+
+  const handleSaveEditEtapa = (etapaId) => {
+    if (!editingEtapaTitulo.trim()) return;
+    const updated = (formData.etapas || []).map(e =>
+      e.id === etapaId
+        ? { ...e, titulo: editingEtapaTitulo.trim(), responsavel: editingEtapaResp.trim() || formData.responsavel }
+        : e
+    );
+    setFormData(prev => ({ ...prev, etapas: updated }));
+    setEditingEtapaId(null);
+    if (isEditing && formData.id && persistProjetos) {
+      const proj = (projetos || []).find(p => p.id === formData.id);
+      if (proj) {
+        const updatedProj = { ...proj, etapas: updated };
+        const newProjs = projetos.map(p => p.id === formData.id ? updatedProj : p);
+        persistProjetos(newProjs);
+        if (selectedProjeto?.id === formData.id) setSelectedProjeto(updatedProj);
+      }
+    }
+    window.$toast?.('Etapa atualizada com sucesso!', { type: 'success' });
   };
 
   const handleAddEtapa = () => {
@@ -2046,25 +2144,108 @@ function ProjetoModal({ projeto, atas, onClose, onSave, onToggleEtapa, onAddTime
               </span>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem' }}>
-              {formData.etapas.map(etapa => (
-                <div key={etapa.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(0,0,0,0.3)', padding: '0.5rem 0.75rem', borderRadius: '6px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', flex: 1, textDecoration: etapa.concluido ? 'line-through' : 'none', color: etapa.concluido ? '#888' : '#fff' }}>
-                    <input
-                      type="checkbox"
-                      checked={etapa.concluido}
-                      onChange={() => handleToggleLocalEtapa(etapa.id)}
-                    />
-                    <span style={{ fontSize: '0.85rem' }}>{etapa.titulo}</span>
-                  </label>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ fontSize: '0.75rem', color: '#aaa', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px' }}>{etapa.responsavel}</span>
-                    <button type="button" onClick={() => handleRemoveEtapa(etapa.id)} style={{ background: 'transparent', border: 'none', color: '#EF5350', cursor: 'pointer' }}>
-                      <Trash2 size={14} />
-                    </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginBottom: '1rem' }}>
+              {formData.etapas.map(etapa => {
+                const isEditingThis = editingEtapaId === etapa.id;
+
+                if (isEditingThis) {
+                  return (
+                    <div key={etapa.id} style={{ display: 'flex', gap: '0.5rem', background: '#1c2230', padding: '0.6rem 0.85rem', borderRadius: '8px', border: '1px solid #00BCD4', alignItems: 'center' }}>
+                      <input
+                        type="text"
+                        value={editingEtapaTitulo}
+                        onChange={e => setEditingEtapaTitulo(e.target.value)}
+                        placeholder="Título da etapa..."
+                        style={{ flex: 2, padding: '0.45rem', background: '#0f1218', border: '1px solid #444', borderRadius: '4px', color: '#fff', fontSize: '0.85rem' }}
+                        autoFocus
+                      />
+                      <input
+                        type="text"
+                        value={editingEtapaResp}
+                        onChange={e => setEditingEtapaResp(e.target.value)}
+                        placeholder="Responsável"
+                        style={{ flex: 1, padding: '0.45rem', background: '#0f1218', border: '1px solid #444', borderRadius: '4px', color: '#fff', fontSize: '0.85rem' }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleSaveEditEtapa(etapa.id)}
+                        style={{ padding: '0.45rem 0.8rem', background: '#4CAF50', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.78rem' }}
+                      >
+                        Salvar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingEtapaId(null)}
+                        style={{ padding: '0.45rem 0.6rem', background: '#444', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.78rem' }}
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div
+                    key={etapa.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      background: etapa.concluido ? 'rgba(76, 175, 80, 0.12)' : 'rgba(0,0,0,0.3)',
+                      border: etapa.concluido ? '1px solid rgba(76, 175, 80, 0.4)' : '1px solid rgba(255,255,255,0.06)',
+                      padding: '0.6rem 0.85rem',
+                      borderRadius: '8px',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', flex: 1 }}>
+                      <input
+                        type="checkbox"
+                        checked={etapa.concluido}
+                        onChange={() => handleToggleLocalEtapa(etapa.id)}
+                        style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                      />
+                      <span style={{ fontSize: '0.88rem', color: '#fff', fontWeight: etapa.concluido ? '600' : '400' }}>
+                        {etapa.titulo}
+                      </span>
+                      {etapa.concluido ? (
+                        <span style={{ background: 'rgba(76, 175, 80, 0.25)', color: '#81C784', padding: '2px 8px', borderRadius: '4px', fontSize: '0.72rem', fontWeight: 'bold', marginLeft: '6px' }}>
+                          ✓ Concluída
+                        </span>
+                      ) : (
+                        <span style={{ background: 'rgba(255, 193, 7, 0.15)', color: '#FFD54F', padding: '2px 8px', borderRadius: '4px', fontSize: '0.72rem', marginLeft: '6px' }}>
+                          Pendente
+                        </span>
+                      )}
+                    </label>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '0.75rem', color: '#cfd8dc', background: 'rgba(255,255,255,0.08)', padding: '3px 8px', borderRadius: '4px', fontWeight: '500' }}>
+                        {etapa.responsavel}
+                      </span>
+
+                      {/* EDITAR ETAPA */}
+                      <button
+                        type="button"
+                        onClick={() => handleStartEditEtapa(etapa)}
+                        style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.15)', color: '#64B5F6', cursor: 'pointer', padding: '4px 6px', borderRadius: '4px', display: 'flex', alignItems: 'center' }}
+                        title="Editar Etapa"
+                      >
+                        <Edit3 size={13} />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveEtapa(etapa.id)}
+                        style={{ background: 'rgba(244, 67, 54, 0.1)', border: '1px solid rgba(244, 67, 54, 0.2)', color: '#EF5350', cursor: 'pointer', padding: '4px 6px', borderRadius: '4px', display: 'flex', alignItems: 'center' }}
+                        title="Excluir Etapa"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* ADICIONAR NOVA ETAPA */}
@@ -2127,16 +2308,80 @@ function ProjetoModal({ projeto, atas, onClose, onSave, onToggleEtapa, onAddTime
               </div>
 
               {/* LISTA DO FEED */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '200px', overflowY: 'auto' }}>
-                {(formData.timeline || []).map(item => (
-                  <div key={item.id} style={{ background: 'rgba(0,0,0,0.3)', padding: '0.6rem 0.8rem', borderRadius: '6px', borderLeft: '3px solid #00BCD4' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#90a4ae', marginBottom: '2px' }}>
-                      <strong style={{ color: '#fff' }}>{item.autor}</strong>
-                      <span>{item.data}</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxHeight: '280px', overflowY: 'auto' }}>
+                {(formData.timeline || []).map(item => {
+                  const isEditingThisTimeline = editingTimelineId === item.id;
+                  const canEditTimeline = isSuperAdmin || item.autor === user?.username || ['danilo', 'ryan.santos', 'carol.cons', 'talita.alves'].includes(user?.username);
+
+                  if (isEditingThisTimeline) {
+                    return (
+                      <div key={item.id} style={{ background: '#1c2230', padding: '0.8rem', borderRadius: '6px', border: '1px solid #00BCD4', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <input
+                          type="text"
+                          value={editingTimelineText}
+                          onChange={e => setEditingTimelineText(e.target.value)}
+                          style={{ width: '100%', padding: '0.5rem', background: '#0f1218', border: '1px solid #444', borderRadius: '4px', color: '#fff', fontSize: '0.85rem' }}
+                          autoFocus
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleSaveEditTimeline(item.id);
+                            }
+                          }}
+                        />
+                        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleSaveEditTimeline(item.id)}
+                            style={{ padding: '0.35rem 0.8rem', background: '#4CAF50', color: '#fff', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.75rem' }}
+                          >
+                            Salvar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingTimelineId(null)}
+                            style={{ padding: '0.35rem 0.6rem', background: '#444', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div key={item.id} style={{ background: 'rgba(0,0,0,0.35)', padding: '0.7rem 0.9rem', borderRadius: '6px', borderLeft: '3px solid #00BCD4' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', color: '#90a4ae', marginBottom: '4px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <strong style={{ color: '#fff', fontSize: '0.82rem' }}>{item.autor}</strong>
+                          <span>• {item.data}</span>
+                          {item.editadoEm && <span style={{ color: '#888', fontStyle: 'italic' }}>(editado em {item.editadoEm})</span>}
+                        </div>
+                        {canEditTimeline && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <button
+                              type="button"
+                              onClick={() => handleStartEditTimeline(item)}
+                              style={{ background: 'transparent', border: 'none', color: '#64B5F6', cursor: 'pointer', padding: '2px', display: 'flex', alignItems: 'center' }}
+                              title="Editar Anotação"
+                            >
+                              <Edit3 size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteTimeline(item.id)}
+                              style={{ background: 'transparent', border: 'none', color: '#EF5350', cursor: 'pointer', padding: '2px', display: 'flex', alignItems: 'center' }}
+                              title="Excluir Anotação"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ fontSize: '0.85rem', color: '#e0e0e0', lineHeight: '1.4' }}>{item.texto}</div>
                     </div>
-                    <div style={{ fontSize: '0.85rem', color: '#ddd' }}>{item.texto}</div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
