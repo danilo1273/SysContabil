@@ -5,17 +5,26 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, Cell
 import { parseProtheusExcel } from '../utils/protheusParser';
 import { protheusMapping, applyMapping } from '../utils/mappingConfig';
 import { supabase } from "../supabaseClient";
-import { saveBalanceteToDB, getDREFromDB, getBalancoFromDB, addManualEntryToDB, getSettings, saveSettings, getCustomConsolidations, saveCustomConsolidations, isResultadoOuEncerramentoConta } from '../utils/db';
-import TaxModule from './TaxModule';
+import { saveBalanceteToDB, getDREFromDB, getBalancoFromDB, addManualEntryToDB, getSettings, saveSettings, getCustomConsolidations, saveCustomConsolidations, isResultadoOuEncerramentoConta, checkAvailableMonths, bulkPutRecords, deleteRecords, updateRecord, getRawRecords } from '../utils/db';
 import DashboardView from './DashboardView';
-import FaturamentoModule from './FaturamentoModule';
-import RateioModule from './RateioModule';
-import CentroCustoModule from './CentroCustoModule';
-import GestaoContabilModule from './GestaoContabilModule';
-import PerdcompModule from './PerdcompModule';
-import EstoqueModule from './EstoqueModule';
 import IntercompanyExclusionsPanel from './IntercompanyExclusionsPanel';
 import { printReport } from '../utils/printHelper';
+
+// Code-Splitting: Módulos secundários pesados carregados sob demanda via React.lazy
+const TaxModule = React.lazy(() => import('./TaxModule'));
+const FaturamentoModule = React.lazy(() => import('./FaturamentoModule'));
+const RateioModule = React.lazy(() => import('./RateioModule'));
+const CentroCustoModule = React.lazy(() => import('./CentroCustoModule'));
+const GestaoContabilModule = React.lazy(() => import('./GestaoContabilModule'));
+const PerdcompModule = React.lazy(() => import('./PerdcompModule'));
+const EstoqueModule = React.lazy(() => import('./EstoqueModule'));
+
+const TabLoadingFallback = () => (
+  <div style={{ padding: '4rem 2rem', textAlign: 'center', color: '#90CAF9', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.8rem' }}>
+    <RefreshCw size={26} style={{ animation: 'spin 1s linear infinite' }} />
+    <span style={{ fontSize: '0.9rem', color: '#aaa' }}>Carregando módulo...</span>
+  </div>
+);
 
 const COLORS = ['#4CAF50', '#2196F3', '#f7c324', '#9C27B0', '#FF9800'];
 
@@ -225,8 +234,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
     // Busca no BD qual o último mês disponível no render inicial
     const initPanel = async () => {
       try {
-        const dbMod = await import('../utils/db');
-        const records = await dbMod.checkAvailableMonths();
+        const records = await checkAvailableMonths();
         setAvailableRecords(records || []);
         if (records && records.length > 0) {
           // Achar o registro com o maior ano
@@ -582,11 +590,10 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
              }
           }
 
-          const dbMod = await import('../utils/db');
-          await dbMod.deleteRecords('equipamentos', null, null);
+          await deleteRecords('equipamentos', null, null);
           
-          if (dreEntries.length > 0) await dbMod.bulkPutRecords('dre_history', dreEntries);
-          if (balancoEntries.length > 0) await dbMod.bulkPutRecords('balanco_history', balancoEntries);
+          if (dreEntries.length > 0) await bulkPutRecords('dre_history', dreEntries);
+          if (balancoEntries.length > 0) await bulkPutRecords('balanco_history', balancoEntries);
           
           const municFound = balancoEntries.some(e => e.conta.includes('MUNIC'));
           
@@ -615,11 +622,10 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
 
   const saveEdit = async (record) => {
     try {
-      const dbMod = await import('../utils/db');
       const val = parseFloat(editingValue);
       if (isNaN(val)) throw new Error('Valor inválido');
       
-      await dbMod.updateRecord(record.id, record.tipo ? 'balanco' : 'dre', val);
+      await updateRecord(record.id, record.tipo ? 'balanco' : 'dre', val);
       setEditingId(null);
       loadDbRecords();
     } catch (e) {
@@ -632,8 +638,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
     const m = mesToLoad !== undefined ? mesToLoad : dbMes;
     setLoadingDb(true);
     try {
-      const dbMod = await import('../utils/db');
-      const data = await dbMod.getRawRecords(a, m);
+      const data = await getRawRecords(a, m);
       
       const dreRecs = data.dre || [];
       const balancoRecs = data.balanco || [];
@@ -663,16 +668,15 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
     const empresa = dbFilterCompany ? companies.find(c => c.id === dbFilterCompany)?.name : 'TODAS AS EMPRESAS';
     if (!await window.$confirm(`⚠️ Confirma exclusão de todos os registros de ${mesNome}/${dbAno} para ${empresa}?`)) return;
     try {
-      const dbMod = await import('../utils/db');
       if (dbFilterCompany !== 'todas') {
-        await dbMod.deleteRecords(dbFilterCompany, dbAno, dbMes);
+        await deleteRecords(dbFilterCompany, dbAno, dbMes);
       } else {
-        await dbMod.deleteRecords(null, dbAno, dbMes);
+        await deleteRecords(null, dbAno, dbMes);
       }
       window.$toast('Registros excluídos com sucesso!', { type: 'success' });
       loadDbRecords(dbAno, dbMes);
 
-      const latestRecs = await dbMod.checkAvailableMonths();
+      const latestRecs = await checkAvailableMonths();
       setAvailableRecords(latestRecs || []);
       if (latestRecs && latestRecs.length > 0) {
         const maxAno = Math.max(...latestRecs.map(r => r.ano));
@@ -734,8 +738,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
       loadDbRecords(dbAno, dbMes);
 
       // Recalcular com precisão o último balancete integrado e meses disponíveis
-      const dbMod = await import('../utils/db');
-      const latestRecs = await dbMod.checkAvailableMonths();
+      const latestRecs = await checkAvailableMonths();
       setAvailableRecords(latestRecs || []);
       if (latestRecs && latestRecs.length > 0) {
         const maxAno = Math.max(...latestRecs.map(r => r.ano));
@@ -2978,41 +2981,53 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
 
           {secondaryTab === 'faturamento' && (
             <div style={{ marginTop: '1rem' }}>
-              <FaturamentoModule
-                key={`${selectedCompany}_${selectedAno}_${selectedMes}`}
-                companies={companies}
-                selectedCompany={selectedCompany}
-                selectedAno={selectedAno}
-                selectedMes={selectedMes}
-              />
+              <React.Suspense fallback={<TabLoadingFallback />}>
+                <FaturamentoModule
+                  key={`${selectedCompany}_${selectedAno}_${selectedMes}`}
+                  companies={companies}
+                  selectedCompany={selectedCompany}
+                  selectedAno={selectedAno}
+                  selectedMes={selectedMes}
+                />
+              </React.Suspense>
             </div>
           )}
 
         {secondaryTab === 'perdcomp' && (
-          <PerdcompModule 
-            companies={companies} 
-            canEdit={userPermissions?.includes('contabil') || ['danilo', 'ryan.santos'].includes(username)} 
-          />
+          <React.Suspense fallback={<TabLoadingFallback />}>
+            <PerdcompModule 
+              companies={companies} 
+              canEdit={userPermissions?.includes('contabil') || ['danilo', 'ryan.santos'].includes(username)} 
+            />
+          </React.Suspense>
         )}
           </div>
         </div>
       )}
 
       {activeTab === 'apuracao' && (
-        <TaxModule companies={companies} />
+        <React.Suspense fallback={<TabLoadingFallback />}>
+          <TaxModule companies={companies} />
+        </React.Suspense>
       )}
 
       {activeTab === 'rateio' && (
-        <RateioModule companies={companies} />
+        <React.Suspense fallback={<TabLoadingFallback />}>
+          <RateioModule companies={companies} />
+        </React.Suspense>
       )}
 
       {activeTab === 'cc' && (
-        <CentroCustoModule companies={companies} userRole={userRole} userPermissions={userPermissions} username={username} />
+        <React.Suspense fallback={<TabLoadingFallback />}>
+          <CentroCustoModule companies={companies} userRole={userRole} userPermissions={userPermissions} username={username} />
+        </React.Suspense>
       )}
 
       {activeTab === 'estoque' && (
         (userPermissions?.includes('estoque') || ['danilo', 'ryan.santos'].includes(username) || userRole === 'superadmin' || userRole === 'admin') ? (
-          <EstoqueModule companies={companies} userRole={userRole} userPermissions={userPermissions} username={username} />
+          <React.Suspense fallback={<TabLoadingFallback />}>
+            <EstoqueModule companies={companies} userRole={userRole} userPermissions={userPermissions} username={username} />
+          </React.Suspense>
         ) : (
           <div style={{ padding: '3rem', textAlign: 'center', color: '#ef5350' }}>
             <h3>Acesso Restrito</h3>
@@ -3022,7 +3037,9 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
       )}
 
       {activeTab === 'gestao' && (
-        <GestaoContabilModule userRole={userRole} userName={localStorage.getItem('agf_session') ? JSON.parse(localStorage.getItem('agf_session')).username : ''} companies={companies} />
+        <React.Suspense fallback={<TabLoadingFallback />}>
+          <GestaoContabilModule userRole={userRole} userName={localStorage.getItem('agf_session') ? JSON.parse(localStorage.getItem('agf_session')).username : ''} companies={companies} />
+        </React.Suspense>
       )}
 
       {isMappingModalOpen && mappingTarget && (

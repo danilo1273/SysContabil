@@ -37,6 +37,7 @@ function App() {
   useEffect(() => {
     if (user) {
         const fetchNotifs = async () => {
+            if (document.hidden) return;
             try {
                 const res = await fetch(`/api/notifications?username=${user.username}`);
                 const data = await res.json();
@@ -45,7 +46,14 @@ function App() {
         };
         fetchNotifs();
         const interval = setInterval(fetchNotifs, 60000); // 1 minute polling
-        return () => clearInterval(interval);
+        const handleVisibility = () => {
+          if (!document.hidden) fetchNotifs();
+        };
+        document.addEventListener('visibilitychange', handleVisibility);
+        return () => {
+          clearInterval(interval);
+          document.removeEventListener('visibilitychange', handleVisibility);
+        };
     }
   }, [user]);
 
@@ -109,14 +117,21 @@ function App() {
     };
 
     pingPresence();
-    const presenceInterval = setInterval(pingPresence, 20000); // Heartbeat a cada 20s
+    const presenceInterval = setInterval(() => {
+      if (!document.hidden) pingPresence();
+    }, 20000); // Heartbeat a cada 20s quando ativo
 
     const handleWindowFocus = () => pingPresence();
+    const handleVisibility = () => {
+      if (!document.hidden) pingPresence();
+    };
     window.addEventListener('focus', handleWindowFocus);
+    document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
       clearInterval(presenceInterval);
       window.removeEventListener('focus', handleWindowFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [user, selectedModule]);
 

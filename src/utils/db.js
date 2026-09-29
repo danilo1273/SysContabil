@@ -122,9 +122,7 @@ export async function getBalancoFromDB(empresaId, ano, mes) {
   let records = await fetchAll(supabase.from("balanco_history").select("*").eq("empresaId", empresaId).eq("ano", ano).eq("mes", mes));
 
   if (mes > 1) {
-    const { data: taxConfigData } = await supabase.from('settings').select('value').eq('key', 'agf_tax_config').single();
-    let taxConfig = {};
-    if (taxConfigData) taxConfig = JSON.parse(taxConfigData.value || '{}');
+    const taxConfig = (await getSettings('agf_tax_config')) || {};
     const isTrimestral = empresaId !== 'consolidado' && empresaId !== 'todas' && (taxConfig[empresaId] === 'presumido' || taxConfig[empresaId] === 'real_trimestral');
 
     let startMes = 1;
@@ -200,14 +198,27 @@ export async function checkAvailableMonths() {
   return unique;
 }
 
-export async function getSettings(key) {
+const settingsCache = new Map();
+const SETTINGS_CACHE_TTL = 30000; // 30 seconds cache for settings queries
+
+export async function getSettings(key, useCache = true) {
+  if (useCache && settingsCache.has(key)) {
+    const item = settingsCache.get(key);
+    if (Date.now() - item.timestamp < SETTINGS_CACHE_TTL) {
+      return item.data;
+    }
+  }
   const { data, error } = await supabase.from("settings").select("value").eq("key", key).single();
   if (error || !data) return null;
-  try { return JSON.parse(data.value); } catch(e) { return data.value; }
+  let parsed = null;
+  try { parsed = JSON.parse(data.value); } catch(e) { parsed = data.value; }
+  settingsCache.set(key, { data: parsed, timestamp: Date.now() });
+  return parsed;
 }
 
 export async function saveSettings(key, value) {
   const val = typeof value === "string" ? value : JSON.stringify(value);
+  settingsCache.set(key, { data: value, timestamp: Date.now() });
   await supabase.from("settings").upsert({ key, value: val });
   return { success: true };
 }

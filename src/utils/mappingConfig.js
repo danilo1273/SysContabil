@@ -230,6 +230,10 @@ export const protheusMapping = {
 export const applyMapping = (dbData, groupMapping = {}, multiplier = 1, valueField = 'valorMensal') => {
   const result = {};
 
+  const dbDataArray = Array.isArray(dbData) 
+      ? dbData 
+      : Object.entries(dbData || {}).map(([conta, data]) => ({ conta, ...data }));
+
   for (const [groupName, accountsMap] of Object.entries(groupMapping)) {
     result[groupName] = {};
     let groupTotal = 0;
@@ -238,10 +242,6 @@ export const applyMapping = (dbData, groupMapping = {}, multiplier = 1, valueFie
       let lineTotal = 0;
       let details = [];
       
-      const dbDataArray = Array.isArray(dbData) 
-          ? dbData 
-          : Object.entries(dbData || {}).map(([conta, data]) => ({ conta, ...data }));
-          
       const includePrefixes = prefixes.filter(p => !p.startsWith('!'));
       const excludePrefixes = prefixes.filter(p => p.startsWith('!')).map(p => p.slice(1));
 

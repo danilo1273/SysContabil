@@ -94,6 +94,19 @@ export default function TaxModule({ companies }) {
   const [balancoAnualTotal, setBalancoAnualTotal] = useState([]);
   const [resumoVisao, setResumoVisao] = useState('trimestre'); // 'trimestre' | 'ano_trimestres' | 'ano_meses'
   
+  // Mapa de acesso rápido O(1) de DRE por mês para eliminar filtros lineares repetitivos
+  const dreRecordsByMonth = useMemo(() => {
+    const map = {};
+    for (let m = 1; m <= 12; m++) map[m] = [];
+    (dreAnualTotal || []).forEach(r => {
+      if (r && r.mes) {
+        if (!map[r.mes]) map[r.mes] = [];
+        map[r.mes].push(r);
+      }
+    });
+    return map;
+  }, [dreAnualTotal]);
+  
   // Inputs Manuais LALUR
   const [lalurAdicoes, setLalurAdicoes] = useState(0);
   const [lalurExclusoes, setLalurExclusoes] = useState(0);
@@ -445,7 +458,7 @@ export default function TaxModule({ companies }) {
     let sumMonthlyCsll = 0;
 
     for (let m = startMonth; m <= selectedMes; m++) {
-      if (!dreAnualTotal.some(r => r.mes === m)) continue;
+      if (!dreRecordsByMonth[m]?.length) continue;
       const isCur = m === selectedMes;
       const key = `${selectedComp}_${selectedAno}_${m}`;
       const data = isCur ? {
@@ -487,7 +500,7 @@ export default function TaxModule({ companies }) {
         majoracao: !isEstimativa && (data.presumidoMajoracao !== undefined ? data.presumidoMajoracao : presumidoMajoracao)
       };
 
-      const mRecords = dreAnualTotal.filter(r => r.mes === m);
+      const mRecords = dreRecordsByMonth[m] || [];
       const mCalc = calcPresumidoData(mRecords, 1, mInputs);
 
       if (mInputs.ajusteIrpj !== null && mInputs.ajusteIrpj !== undefined && mInputs.ajusteIrpj !== '') {
@@ -1544,7 +1557,7 @@ export default function TaxModule({ companies }) {
                 majoracao: data.presumidoMajoracao !== undefined ? data.presumidoMajoracao : true
             };
         }
-        return calcPresumidoData(dreAnualTotal.filter(r => r.mes === m), 1, inputs);
+        return calcPresumidoData(dreRecordsByMonth[m] || [], 1, inputs);
     };
 
     const calcQuarter = (t) => {
@@ -1598,7 +1611,7 @@ export default function TaxModule({ companies }) {
         }
       });
 
-      const monthsWithData = qMonths.filter(m => dreAnualTotal.some(r => r.mes === m));
+      const monthsWithData = qMonths.filter(m => (dreRecordsByMonth[m]?.length || 0) > 0);
       const numMesesTrim = Math.max(1, monthsWithData.length);
 
       const trimInputs = {
@@ -1612,8 +1625,9 @@ export default function TaxModule({ companies }) {
         majoracao: presumidoMajoracao
       };
 
+      const qRecords = qMonths.flatMap(m => dreRecordsByMonth[m] || []);
       const cTotal = calcPresumidoData(
-        dreAnualTotal.filter(r => qMonths.includes(r.mes)),
+        qRecords,
         numMesesTrim,
         trimInputs
       );
