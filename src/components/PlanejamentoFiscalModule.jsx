@@ -506,22 +506,29 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
   };
 
   // Adicionar atualização ao Diário de Bordo do Projeto
-  const handleAddTimelineUpdate = (projId) => {
-    if (!newUpdateText.trim()) return;
+  const handleAddTimelineUpdate = (projId, entryOrText) => {
     const proj = projetos.find(p => p.id === projId);
     if (!proj) return;
-    const newEntry = {
-      id: `t-${Date.now()}`,
-      autor: user?.username || 'Usuário',
-      data: new Date().toISOString().split('T')[0],
-      texto: newUpdateText.trim()
-    };
+    let newEntry;
+    if (typeof entryOrText === 'object' && entryOrText !== null && entryOrText.texto) {
+      newEntry = entryOrText;
+    } else {
+      const text = (typeof entryOrText === 'string' ? entryOrText : newUpdateText).trim();
+      if (!text) return;
+      newEntry = {
+        id: `t-${Date.now()}`,
+        autor: user?.username || 'Diretoria',
+        data: new Date().toISOString().split('T')[0],
+        texto: text
+      };
+    }
     const updatedProj = { ...proj, timeline: [newEntry, ...(proj.timeline || [])] };
     const updated = projetos.map(p => p.id === projId ? updatedProj : p);
     persistProjetos(updated);
     if (selectedProjeto?.id === projId) setSelectedProjeto(updatedProj);
     setNewUpdateText('');
     window.$toast?.('Atualização registrada no projeto!', { type: 'success' });
+    return newEntry;
   };
 
   // Criar Projeto a partir de uma Ata
@@ -1783,6 +1790,66 @@ function ProjetoModal({ projeto, atas, onClose, onSave, onToggleEtapa, onAddTime
 
   const [newEtapaTitulo, setNewEtapaTitulo] = useState('');
   const [newEtapaResp, setNewEtapaResp] = useState(formData.responsavel);
+  const [localUpdateText, setLocalUpdateText] = useState('');
+
+  // Sincronizar estado local do modal caso o projeto mude
+  useEffect(() => {
+    if (projeto) {
+      setFormData(prev => ({
+        ...prev,
+        id: projeto.id || prev.id,
+        codigo: projeto.codigo || prev.codigo,
+        ataId: projeto.ataId || prev.ataId,
+        titulo: projeto.titulo || prev.titulo,
+        pilar: projeto.pilar || prev.pilar,
+        responsavel: projeto.responsavel || prev.responsavel,
+        coresponsaveisStr: (projeto.coresponsaveis || []).join(', '),
+        impactoTipo: projeto.impactoTipo || prev.impactoTipo,
+        impactoValor: projeto.impactoValor ?? prev.impactoValor,
+        impactoDesc: projeto.impactoDesc || prev.impactoDesc,
+        status: projeto.status || prev.status,
+        progresso: projeto.progresso ?? prev.progresso,
+        dataLimite: projeto.dataLimite || prev.dataLimite,
+        descricao: projeto.descricao || prev.descricao,
+        etapas: projeto.etapas || prev.etapas,
+        timeline: projeto.timeline || prev.timeline
+      }));
+    }
+  }, [projeto]);
+
+  const handleRegisterTimeline = () => {
+    const text = localUpdateText.trim();
+    if (!text) return;
+    const newEntry = {
+      id: `t-${Date.now()}`,
+      autor: user?.username || 'Diretoria',
+      data: new Date().toISOString().split('T')[0],
+      texto: text
+    };
+    const updatedTimeline = [newEntry, ...(formData.timeline || [])];
+    setFormData(prev => ({ ...prev, timeline: updatedTimeline }));
+    setLocalUpdateText('');
+    if (isEditing && formData.id) {
+      onAddTimeline(formData.id, newEntry);
+    }
+  };
+
+  const handleToggleLocalEtapa = (etapaId) => {
+    const newEtapas = (formData.etapas || []).map(e => e.id === etapaId ? { ...e, concluido: !e.concluido } : e);
+    const total = newEtapas.length;
+    const conc = newEtapas.filter(e => e.concluido).length;
+    const prog = total > 0 ? Math.round((conc / total) * 100) : formData.progresso;
+    const newStatus = prog === 100 ? 'concluido' : (formData.status === 'concluido' ? 'execucao' : formData.status);
+    setFormData(prev => ({
+      ...prev,
+      etapas: newEtapas,
+      progresso: prog,
+      status: newStatus
+    }));
+    if (isEditing && formData.id) {
+      onToggleEtapa(formData.id, etapaId);
+    }
+  };
 
   const handleAddEtapa = () => {
     if (!newEtapaTitulo.trim()) return;
@@ -1986,14 +2053,7 @@ function ProjetoModal({ projeto, atas, onClose, onSave, onToggleEtapa, onAddTime
                     <input
                       type="checkbox"
                       checked={etapa.concluido}
-                      onChange={() => {
-                        if (isEditing) {
-                          onToggleEtapa(formData.id, etapa.id);
-                        } else {
-                          const updated = formData.etapas.map(e => e.id === etapa.id ? { ...e, concluido: !e.concluido } : e);
-                          setFormData({ ...formData, etapas: updated });
-                        }
-                      }}
+                      onChange={() => handleToggleLocalEtapa(etapa.id)}
                     />
                     <span style={{ fontSize: '0.85rem' }}>{etapa.titulo}</span>
                   </label>
@@ -2045,15 +2105,21 @@ function ProjetoModal({ projeto, atas, onClose, onSave, onToggleEtapa, onAddTime
               <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
                 <input
                   type="text"
-                  value={newUpdateText}
-                  onChange={e => setNewUpdateText(e.target.value)}
+                  value={localUpdateText}
+                  onChange={e => setLocalUpdateText(e.target.value)}
                   placeholder="Registre o que avançou neste projeto hoje..."
                   style={{ flex: 1, padding: '0.6rem', background: '#0f1218', border: '1px solid #333', borderRadius: '6px', color: '#fff', fontSize: '0.85rem' }}
-                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); onAddTimeline(formData.id); } }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleRegisterTimeline();
+                    }
+                  }}
                 />
                 <button
                   type="button"
-                  onClick={() => onAddTimeline(formData.id)}
+                  onClick={handleRegisterTimeline}
                   style={{ padding: '0.6rem 1.2rem', background: '#00BCD4', color: '#000', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}
                 >
                   Registrar
