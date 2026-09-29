@@ -60,7 +60,6 @@ export const RESPONSAVEIS_DEFAULT = [
   { id: 'resp-7', nome: 'Andre', cargo: 'Diretoria Geral', assinaDocumento: false },
   { id: 'resp-8', nome: 'Mayara', cargo: 'Diretoria Administrativa / RH', assinaDocumento: false },
   { id: 'resp-9', nome: 'Ryan Santos', cargo: 'Pricing & Compliance Fiscal', assinaDocumento: false },
-  { id: 'resp-10', nome: 'Octávio (Lacada)', cargo: 'Consultoria Tributária Externa', assinaDocumento: false },
   { id: 'resp-11', nome: 'Jurídico', cargo: 'Assessoria Jurídica', assinaDocumento: false },
   { id: 'resp-12', nome: 'Fiscal', cargo: 'Equipe Fiscal / Tributária', assinaDocumento: false },
   { id: 'resp-13', nome: 'Diretoria', cargo: 'Diretoria Colegiada', assinaDocumento: false }
@@ -160,7 +159,7 @@ const INITIAL_PROJETOS = [
     titulo: 'Incentivos Regionais: SUDENE, Compete-ES e InvestE',
     pilar: 'incentivos_regionais',
     responsavel: 'Danilo',
-    coresponsaveis: ['Alex', 'Octávio (Lacada)'],
+    coresponsaveis: ['Alex'],
     impactoTipo: 'economia_anual',
     impactoValor: 850000,
     impactoDesc: 'Redução de 75% no IRPJ (SUDENE) e benefício de até 1% de ICMS no Espírito Santo.',
@@ -171,7 +170,7 @@ const INITIAL_PROJETOS = [
     etapas: [
       { id: 'e1', titulo: 'Contratar escritório de consultoria tributária (Dr. Octávio - Lacada)', concluido: true, responsavel: 'Danilo' },
       { id: 'e2', titulo: 'Levantamento de CNAEs, cartões CNPJ e operações elegíveis', concluido: true, responsavel: 'Alex' },
-      { id: 'e3', titulo: 'Estudo do impacto tributário de ICMS (benefício de 1%)', concluido: false, responsavel: 'Octávio (Lacada)' },
+      { id: 'e3', titulo: 'Estudo do impacto tributário de ICMS (benefício de 1%)', concluido: false, responsavel: 'Danilo' },
       { id: 'e4', titulo: 'Decisão de constituição de unidade filial incentiva', concluido: false, responsavel: 'Diretoria' }
     ],
     timeline: [
@@ -403,7 +402,23 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
       }
 
       if (Array.isArray(savedProjetos) && savedProjetos.length > 0) {
-        setProjetos(savedProjetos);
+        let modifiedProj = false;
+        const sanitizedProjetos = savedProjetos.map(p => {
+          let pCopy = { ...p };
+          if (Array.isArray(pCopy.coresponsaveis) && pCopy.coresponsaveis.some(c => /oct[aá]vio/i.test(c))) {
+            pCopy.coresponsaveis = pCopy.coresponsaveis.filter(c => !/oct[aá]vio/i.test(c));
+            modifiedProj = true;
+          }
+          if (Array.isArray(pCopy.etapas) && pCopy.etapas.some(e => /oct[aá]vio/i.test(e.responsavel || ''))) {
+            pCopy.etapas = pCopy.etapas.map(e => /oct[aá]vio/i.test(e.responsavel || '') ? { ...e, responsavel: pCopy.responsavel || 'Danilo' } : e);
+            modifiedProj = true;
+          }
+          return pCopy;
+        });
+        setProjetos(sanitizedProjetos);
+        if (modifiedProj) {
+          await saveSettings('agf_planejamento_projetos', sanitizedProjetos);
+        }
       } else {
         setProjetos(INITIAL_PROJETOS);
         await saveSettings('agf_planejamento_projetos', INITIAL_PROJETOS);
@@ -421,7 +436,18 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
       }
 
       if (Array.isArray(savedResponsaveis) && savedResponsaveis.length > 0) {
-        setResponsaveis(savedResponsaveis);
+        let modifiedResp = false;
+        const sanitizedResponsaveis = savedResponsaveis.filter(r => {
+          if (/oct[aá]vio/i.test(r.nome || '')) {
+            modifiedResp = true;
+            return false;
+          }
+          return true;
+        });
+        setResponsaveis(sanitizedResponsaveis);
+        if (modifiedResp) {
+          await saveSettings('agf_planejamento_responsaveis', sanitizedResponsaveis);
+        }
       } else {
         setResponsaveis(RESPONSAVEIS_DEFAULT);
         await saveSettings('agf_planejamento_responsaveis', RESPONSAVEIS_DEFAULT);
@@ -531,7 +557,7 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
     return { totalProjetos, emExecucao, concluidos, emEstudo, economiaTotal, mediaProgresso };
   }, [projetos]);
 
-  // Lista de Responsáveis únicos (mesclando cadastrados e nomes nos projetos)
+  // Lista de Responsáveis únicos (mesclando cadastrados e líderes nos projetos)
   const responsaveisList = useMemo(() => {
     const set = new Set();
     (responsaveis || []).forEach(r => {
@@ -539,7 +565,6 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
     });
     projetos.forEach(p => {
       if (p.responsavel) set.add(p.responsavel);
-      if (Array.isArray(p.coresponsaveis)) p.coresponsaveis.forEach(c => set.add(c));
     });
     return Array.from(set).sort();
   }, [responsaveis, projetos]);
@@ -549,7 +574,7 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
     return projetos.filter(p => {
       if (filtroPilar !== 'todos' && p.pilar !== filtroPilar) return false;
       if (filtroStatus !== 'todos' && p.status !== filtroStatus) return false;
-      if (filtroResponsavel !== 'todos' && p.responsavel !== filtroResponsavel && !(p.coresponsaveis || []).includes(filtroResponsavel)) return false;
+      if (filtroResponsavel !== 'todos' && p.responsavel !== filtroResponsavel) return false;
       if (buscaTexto.trim()) {
         const text = buscaTexto.toLowerCase();
         const matchTitle = (p.titulo || '').toLowerCase().includes(text);
@@ -1126,7 +1151,7 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
               </h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 {responsaveisList.map(resp => {
-                  const respProjs = projetos.filter(p => p.responsavel === resp || (p.coresponsaveis || []).includes(resp));
+                  const respProjs = projetos.filter(p => p.responsavel === resp);
                   const concl = respProjs.filter(p => p.status === 'concluido').length;
                   return (
                     <div 
@@ -3411,7 +3436,7 @@ function GerenciarResponsaveisModal({ responsaveis, projetos, onClose, onSave })
   };
 
   const handleDelete = (id, nome) => {
-    const emUso = (projetos || []).filter(p => p.responsavel === nome || (p.coresponsaveis || []).includes(nome)).length;
+    const emUso = (projetos || []).filter(p => p.responsavel === nome).length;
     if (emUso > 0) {
       window.$alert?.(`Não é possível excluir pois existem ${emUso} projeto(s) associado(s) a este responsável.`);
       return;
@@ -3535,7 +3560,7 @@ function GerenciarResponsaveisModal({ responsaveis, projetos, onClose, onSave })
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '320px', overflowY: 'auto' }}>
               {lista.map(item => {
                 const isEditing = editingId === item.id;
-                const emUso = (projetos || []).filter(p => p.responsavel === item.nome || (p.coresponsaveis || []).includes(item.nome)).length;
+                const emUso = (projetos || []).filter(p => p.responsavel === item.nome).length;
 
                 if (isEditing) {
                   return (
