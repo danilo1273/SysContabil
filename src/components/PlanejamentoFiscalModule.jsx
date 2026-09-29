@@ -7,15 +7,47 @@ import {
 } from 'lucide-react';
 import { getSettings, saveSettings } from '../utils/db';
 
-// Pilares Estratégicos com cores e ícones
-export const PILARES_ESTRATEGICOS = [
-  { id: 'tributos_diretos', label: 'Redução Direta (IRPJ/CSLL/PIS)', color: '#4CAF50', bg: 'rgba(76, 175, 80, 0.15)', icon: DollarSign },
-  { id: 'incentivos_regionais', label: 'Incentivos (SUDENE / Compete / ICMS)', color: '#FF9800', bg: 'rgba(255, 152, 0, 0.15)', icon: Building2 },
-  { id: 'holding_societario', label: 'Holding & Estruturação Societária', color: '#2196F3', bg: 'rgba(33, 150, 243, 0.15)', icon: Shield },
-  { id: 'inovacao_pesquisa', label: 'Inovação & Subvenções (Lei do Bem)', color: '#9C27B0', bg: 'rgba(156, 39, 176, 0.15)', icon: Sparkles },
-  { id: 'reforma_compliance', label: 'Reforma Tributária & Compliance (CBS/IBS)', color: '#00BCD4', bg: 'rgba(0, 188, 212, 0.15)', icon: Target },
-  { id: 'financeiro_funding', label: 'Financeiro, FIDIC & Securitização', color: '#E91E63', bg: 'rgba(233, 30, 99, 0.15)', icon: TrendingUp }
+// Pilares Estratégicos com cores e ícones padrão
+export const PILARES_ESTRATEGICOS_DEFAULT = [
+  { id: 'tributos_diretos', label: 'Redução Direta (IRPJ/CSLL/PIS)', color: '#4CAF50', bg: 'rgba(76, 175, 80, 0.15)', iconName: 'dollar' },
+  { id: 'incentivos_regionais', label: 'Incentivos (SUDENE / Compete / ICMS)', color: '#FF9800', bg: 'rgba(255, 152, 0, 0.15)', iconName: 'building' },
+  { id: 'holding_societario', label: 'Holding & Estruturação Societária', color: '#2196F3', bg: 'rgba(33, 150, 243, 0.15)', iconName: 'shield' },
+  { id: 'inovacao_pesquisa', label: 'Inovação & Subvenções (Lei do Bem)', color: '#9C27B0', bg: 'rgba(156, 39, 176, 0.15)', iconName: 'sparkles' },
+  { id: 'reforma_compliance', label: 'Reforma Tributária & Compliance (CBS/IBS)', color: '#00BCD4', bg: 'rgba(0, 188, 212, 0.15)', iconName: 'target' },
+  { id: 'financeiro_funding', label: 'Financeiro, FIDIC & Securitização', color: '#E91E63', bg: 'rgba(233, 30, 99, 0.15)', iconName: 'trending' }
 ];
+
+export const PILARES_ESTRATEGICOS = PILARES_ESTRATEGICOS_DEFAULT;
+
+export const getPilarIcon = (iconName) => {
+  switch (iconName) {
+    case 'dollar': return DollarSign;
+    case 'building': return Building2;
+    case 'shield': return Shield;
+    case 'sparkles': return Sparkles;
+    case 'target': return Target;
+    case 'trending': return TrendingUp;
+    default: return Target;
+  }
+};
+
+export const hexToRgba = (hex, alpha = 0.15) => {
+  if (!hex || typeof hex !== 'string' || !hex.startsWith('#')) return `rgba(0, 188, 212, ${alpha})`;
+  const cleanHex = hex.replace('#', '');
+  if (cleanHex.length === 3) {
+    const r = parseInt(cleanHex[0] + cleanHex[0], 16) || 0;
+    const g = parseInt(cleanHex[1] + cleanHex[1], 16) || 0;
+    const b = parseInt(cleanHex[2] + cleanHex[2], 16) || 0;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  if (cleanHex.length >= 6) {
+    const r = parseInt(cleanHex.substring(0, 2), 16) || 0;
+    const g = parseInt(cleanHex.substring(2, 4), 16) || 0;
+    const b = parseInt(cleanHex.substring(4, 6), 16) || 0;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  return `rgba(0, 188, 212, ${alpha})`;
+};
 
 export const STATUS_PROJETO = [
   { id: 'ideia', label: 'Ideia / Levantamento', color: '#9E9E9E', bg: 'rgba(158, 158, 158, 0.15)' },
@@ -325,6 +357,8 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
   const [newUpdateText, setNewUpdateText] = useState('');
   const [proximaReuniaoCustom, setProximaReuniaoCustom] = useState(null);
   const [isEditReuniaoModalOpen, setIsEditReuniaoModalOpen] = useState(false);
+  const [pilares, setPilares] = useState(PILARES_ESTRATEGICOS_DEFAULT);
+  const [isPilaresModalOpen, setIsPilaresModalOpen] = useState(false);
 
   // Carregar dados salvos ou inicializar com o padrão
   useEffect(() => {
@@ -334,10 +368,11 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [savedAtas, savedProjetos, savedReuniao] = await Promise.all([
+      const [savedAtas, savedProjetos, savedReuniao, savedPilares] = await Promise.all([
         getSettings('agf_planejamento_atas', false),
         getSettings('agf_planejamento_projetos', false),
-        getSettings('agf_planejamento_reuniao_custom', false)
+        getSettings('agf_planejamento_reuniao_custom', false),
+        getSettings('agf_planejamento_pilares', false)
       ]);
 
       if (Array.isArray(savedAtas) && savedAtas.length > 0) {
@@ -357,12 +392,32 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
       if (savedReuniao && typeof savedReuniao === 'object') {
         setProximaReuniaoCustom(savedReuniao);
       }
+
+      if (Array.isArray(savedPilares) && savedPilares.length > 0) {
+        setPilares(savedPilares);
+      } else {
+        setPilares(PILARES_ESTRATEGICOS_DEFAULT);
+        await saveSettings('agf_planejamento_pilares', PILARES_ESTRATEGICOS_DEFAULT);
+      }
     } catch (err) {
       console.error('Erro ao carregar planejamento fiscal:', err);
       setAtas(INITIAL_ATAS);
       setProjetos(INITIAL_PROJETOS);
+      setPilares(PILARES_ESTRATEGICOS_DEFAULT);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const persistPilares = async (newPilares) => {
+    setPilares(newPilares);
+    setIsSaving(true);
+    try {
+      await saveSettings('agf_planejamento_pilares', newPilares);
+    } catch (err) {
+      console.error('Erro ao salvar pilares:', err);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -956,14 +1011,36 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
             
             {/* DISTRIBUIÇÃO POR PILAR */}
             <div style={{ background: 'rgba(20, 24, 33, 0.8)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '14px', padding: '1.5rem' }}>
-              <h3 style={{ margin: '0 0 1rem 0', fontSize: '1rem', color: '#fff', fontWeight: '700' }}>
-                Projetos por Pilar Estratégico
-              </h3>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <h3 style={{ margin: 0, fontSize: '1rem', color: '#fff', fontWeight: '700' }}>
+                  Projetos por Pilar Estratégico
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setIsPilaresModalOpen(true)}
+                  style={{
+                    background: 'rgba(0, 188, 212, 0.1)',
+                    border: '1px solid rgba(0, 188, 212, 0.3)',
+                    color: '#80deea',
+                    padding: '3px 8px',
+                    borderRadius: '6px',
+                    fontSize: '0.75rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    fontWeight: '600'
+                  }}
+                  title="Gerenciar ou incluir novos pilares"
+                >
+                  <Sparkles size={12} /> Gerenciar Pilares
+                </button>
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                {PILARES_ESTRATEGICOS.map(pilar => {
+                {pilares.map(pilar => {
                   const pList = projetos.filter(p => p.pilar === pilar.id);
                   const pSum = pList.reduce((acc, p) => acc + (Number(p.impactoValor) || 0), 0);
-                  const Icon = pilar.icon;
+                  const Icon = getPilarIcon(pilar.iconName);
                   return (
                     <div 
                       key={pilar.id} 
@@ -1307,7 +1384,7 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
                 }}
               >
                 <option value="todos">Todos os Pilares Estratégicos</option>
-                {PILARES_ESTRATEGICOS.map(p => (
+                {pilares.map(p => (
                   <option key={p.id} value={p.id}>{p.label}</option>
                 ))}
               </select>
@@ -1349,6 +1426,29 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
                   <option key={s.id} value={s.id}>{s.label}</option>
                 ))}
               </select>
+
+              {/* BOTAO GERENCIAR PILARES */}
+              <button
+                type="button"
+                onClick={() => setIsPilaresModalOpen(true)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '0.5rem 0.85rem',
+                  background: 'rgba(0, 188, 212, 0.12)',
+                  border: '1px solid rgba(0, 188, 212, 0.35)',
+                  color: '#80deea',
+                  borderRadius: '6px',
+                  fontSize: '0.82rem',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                title="Personalizar, editar ou incluir novos Pilares Estratégicos"
+              >
+                <Sparkles size={14} /> Pilares Estratégicos
+              </button>
 
             </div>
 
@@ -1431,7 +1531,7 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
                     {/* CARDS DOS PROJETOS */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
                       {colProjects.map(proj => {
-                        const pilarObj = PILARES_ESTRATEGICOS.find(p => p.id === proj.pilar) || PILARES_ESTRATEGICOS[0];
+                        const pilarObj = pilares.find(p => p.id === proj.pilar) || pilares[0] || { label: proj.pilar || 'Geral', color: '#00BCD4', bg: 'rgba(0, 188, 212, 0.15)' };
                         const totalEtapas = (proj.etapas || []).length;
                         const concEtapas = (proj.etapas || []).filter(e => e.concluido).length;
 
@@ -1542,7 +1642,7 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
                   </thead>
                   <tbody>
                     {filteredProjetos.map((proj, idx) => {
-                      const pilarObj = PILARES_ESTRATEGICOS.find(p => p.id === proj.pilar) || PILARES_ESTRATEGICOS[0];
+                      const pilarObj = pilares.find(p => p.id === proj.pilar) || pilares[0] || { label: proj.pilar || 'Geral', color: '#00BCD4', bg: 'rgba(0, 188, 212, 0.15)' };
                       const statusObj = STATUS_PROJETO.find(s => s.id === proj.status) || STATUS_PROJETO[0];
                       return (
                         <tr 
@@ -1631,6 +1731,8 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
           persistProjetos={persistProjetos}
           selectedProjeto={selectedProjeto}
           setSelectedProjeto={setSelectedProjeto}
+          pilares={pilares}
+          onOpenManagePilares={() => setIsPilaresModalOpen(true)}
         />
       )}
 
@@ -1640,6 +1742,7 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
           atas={atas}
           projetos={projetos}
           kpis={kpis}
+          pilares={pilares}
           onClose={() => setIsPrintModalOpen(false)}
         />
       )}
@@ -1650,6 +1753,16 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
           dados={proximaReuniaoExibida}
           onClose={() => setIsEditReuniaoModalOpen(false)}
           onSave={persistProximaReuniao}
+        />
+      )}
+
+      {/* MODAL 5: GERENCIAR PILARES ESTRATÉGICOS */}
+      {isPilaresModalOpen && (
+        <GerenciarPilaresModal
+          pilares={pilares}
+          projetos={projetos}
+          onClose={() => setIsPilaresModalOpen(false)}
+          onSave={persistPilares}
         />
       )}
 
@@ -2015,7 +2128,9 @@ function ProjetoModal({
   projetos,
   persistProjetos,
   selectedProjeto,
-  setSelectedProjeto
+  setSelectedProjeto,
+  pilares = PILARES_ESTRATEGICOS_DEFAULT,
+  onOpenManagePilares
 }) {
   const isEditing = Boolean(projeto?.id);
   const [formData, setFormData] = useState({
@@ -2268,13 +2383,37 @@ function ProjetoModal({
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
             <div>
-              <label style={{ display: 'block', color: '#90a4ae', fontSize: '0.85rem', marginBottom: '4px' }}>Pilar Estratégico</label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <label style={{ color: '#90a4ae', fontSize: '0.85rem' }}>Pilar Estratégico</label>
+                {onOpenManagePilares && (
+                  <button
+                    type="button"
+                    onClick={onOpenManagePilares}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#00BCD4',
+                      fontSize: '0.76rem',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: 0,
+                      textDecoration: 'underline',
+                      fontWeight: 'bold'
+                    }}
+                    title="Incluir novo pilar ou editar existentes"
+                  >
+                    <Plus size={12} /> Incluir / Gerenciar
+                  </button>
+                )}
+              </div>
               <select
                 value={formData.pilar}
                 onChange={e => setFormData({ ...formData, pilar: e.target.value })}
                 style={{ width: '100%', padding: '0.6rem', background: '#0f1218', border: '1px solid #333', borderRadius: '6px', color: '#fff' }}
               >
-                {PILARES_ESTRATEGICOS.map(p => (
+                {pilares.map(p => (
                   <option key={p.id} value={p.id}>{p.label}</option>
                 ))}
               </select>
@@ -2638,7 +2777,7 @@ function ProjetoModal({
 }
 
 // SUB-COMPONENTE: MODAL DE IMPRESSÃO EXECUTIVA / RELATÓRIO PDF TIMBRADO
-function PrintModal({ atas, projetos, kpis, onClose }) {
+function PrintModal({ atas, projetos, kpis, onClose, pilares }) {
   const handlePrint = () => {
     window.print();
   };
@@ -2738,7 +2877,7 @@ function PrintModal({ atas, projetos, kpis, onClose }) {
             <tbody>
               {projetos.map((proj, idx) => {
                 const statusObj = STATUS_PROJETO.find(s => s.id === proj.status) || STATUS_PROJETO[0];
-                const pilarObj = PILARES_ESTRATEGICOS.find(p => p.id === proj.pilar) || PILARES_ESTRATEGICOS[0];
+                const pilarObj = (pilares || PILARES_ESTRATEGICOS).find(p => p.id === proj.pilar) || (pilares || PILARES_ESTRATEGICOS)[0];
                 return (
                   <tr key={proj.id} style={{ borderBottom: '1px solid #eee', background: idx % 2 === 0 ? '#fafafa' : '#fff' }}>
                     <td style={{ padding: '6px', fontWeight: 'bold' }}>{proj.codigo}</td>
@@ -2800,6 +2939,290 @@ function PrintModal({ atas, projetos, kpis, onClose }) {
           </div>
         </div>
 
+      </div>
+    </div>
+  );
+}
+
+// SUB-COMPONENTE: MODAL DE GERENCIAMENTO DE PILARES ESTRATÉGICOS
+function GerenciarPilaresModal({ pilares, projetos, onClose, onSave }) {
+  const [pilaresList, setPilaresList] = useState(pilares);
+  const [novoNome, setNovoNome] = useState('');
+  const [novaCor, setNovaCor] = useState('#00BCD4');
+  const [editingPilarId, setEditingPilarId] = useState(null);
+  const [editingPilarNome, setEditingPilarNome] = useState('');
+
+  const PALETA_CORES = [
+    { label: 'Ciano', hex: '#00BCD4' },
+    { label: 'Verde', hex: '#4CAF50' },
+    { label: 'Laranja', hex: '#FF9800' },
+    { label: 'Azul', hex: '#2196F3' },
+    { label: 'Roxo', hex: '#9C27B0' },
+    { label: 'Rosa', hex: '#E91E63' },
+    { label: 'Amarelo', hex: '#FFC107' },
+    { label: 'Teal', hex: '#009688' },
+    { label: 'Coral', hex: '#FF7043' },
+    { label: 'Índigo', hex: '#3F51B5' }
+  ];
+
+  const handleAddPilar = (e) => {
+    e.preventDefault();
+    if (!novoNome.trim()) return;
+
+    const id = `pilar_${Date.now()}`;
+    const novoPilar = {
+      id,
+      label: novoNome.trim(),
+      color: novaCor,
+      bg: hexToRgba(novaCor, 0.15),
+      iconName: 'target',
+      custom: true
+    };
+
+    const updated = [...pilaresList, novoPilar];
+    setPilaresList(updated);
+    onSave(updated);
+    setNovoNome('');
+    window.$toast?.(`Pilar "${novoNome.trim()}" incluído com sucesso!`, { type: 'success' });
+  };
+
+  const handleStartEdit = (pilar) => {
+    setEditingPilarId(pilar.id);
+    setEditingPilarNome(pilar.label);
+  };
+
+  const handleSaveEdit = (pilarId) => {
+    if (!editingPilarNome.trim()) return;
+    const updated = pilaresList.map(p => p.id === pilarId ? { ...p, label: editingPilarNome.trim() } : p);
+    setPilaresList(updated);
+    onSave(updated);
+    setEditingPilarId(null);
+    window.$toast?.('Pilar renomeado com sucesso!', { type: 'success' });
+  };
+
+  const handleDeletePilar = (pilarId) => {
+    const emUso = (projetos || []).filter(p => p.pilar === pilarId).length;
+    if (emUso > 0) {
+      window.$alert?.(`Não é possível excluir este pilar pois há ${emUso} projeto(s) associado(s) a ele.`);
+      return;
+    }
+    if (window.confirm('Tem certeza que deseja excluir este pilar estratégico?')) {
+      const updated = pilaresList.filter(p => p.id !== pilarId);
+      setPilaresList(updated);
+      onSave(updated);
+      window.$toast?.('Pilar removido com sucesso.', { type: 'info' });
+    }
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+      background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999, padding: '1rem'
+    }}>
+      <div style={{
+        background: '#161a23',
+        border: '1px solid rgba(0, 188, 212, 0.4)',
+        borderRadius: '16px',
+        width: '100%',
+        maxWidth: '650px',
+        maxHeight: '90vh',
+        overflowY: 'auto',
+        boxShadow: '0 20px 40px rgba(0,0,0,0.6)',
+        display: 'flex',
+        flexDirection: 'column'
+      }}>
+        {/* Header */}
+        <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <Sparkles size={20} color="#00BCD4" />
+              <h3 style={{ margin: 0, color: '#fff', fontSize: '1.2rem', fontWeight: '700' }}>
+                Gerenciar Pilares Estratégicos
+              </h3>
+            </div>
+            <p style={{ margin: '4px 0 0 0', color: '#888', fontSize: '0.8rem' }}>
+              Inclua novos temas estratégicos ou altere os pilares que classificam os projetos fiscais.
+            </p>
+          </div>
+          <button type="button" onClick={onClose} style={{ background: 'transparent', border: 'none', color: '#888', cursor: 'pointer', padding: '4px' }}>
+            <X size={20} />
+          </button>
+        </div>
+
+        <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          {/* Adicionar Novo Pilar */}
+          <form onSubmit={handleAddPilar} style={{ background: 'rgba(255,255,255,0.03)', padding: '1.1rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)' }}>
+            <h4 style={{ margin: '0 0 0.8rem 0', color: '#80deea', fontSize: '0.9rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Plus size={16} /> Incluir Novo Pilar Estratégico
+            </h4>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', color: '#aaa', marginBottom: '4px', fontWeight: 'bold' }}>
+                  Nome do Pilar *
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex: Logística & Suprimentos, Tributos Indiretos, Comércio Exterior..."
+                  value={novoNome}
+                  onChange={e => setNovoNome(e.target.value)}
+                  style={{ width: '100%', padding: '0.6rem', background: '#0e1219', border: '1px solid #333', borderRadius: '6px', color: '#fff', fontSize: '0.9rem' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', color: '#aaa', marginBottom: '6px', fontWeight: 'bold' }}>
+                  Cor de Identificação
+                </label>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  {PALETA_CORES.map(c => (
+                    <button
+                      key={c.hex}
+                      type="button"
+                      onClick={() => setNovaCor(c.hex)}
+                      style={{
+                        width: '26px',
+                        height: '26px',
+                        borderRadius: '50%',
+                        background: c.hex,
+                        border: novaCor === c.hex ? '3px solid #fff' : '2px solid transparent',
+                        cursor: 'pointer',
+                        transform: novaCor === c.hex ? 'scale(1.15)' : 'none',
+                        transition: 'all 0.15s'
+                      }}
+                      title={c.label}
+                    />
+                  ))}
+                  <span style={{ fontSize: '0.78rem', color: novaCor, marginLeft: '6px', fontWeight: 'bold' }}>
+                    {PALETA_CORES.find(c => c.hex === novaCor)?.label || novaCor}
+                  </span>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={!novoNome.trim()}
+                style={{
+                  padding: '0.6rem 1.2rem',
+                  background: novoNome.trim() ? '#00BCD4' : '#333',
+                  color: novoNome.trim() ? '#000' : '#888',
+                  border: 'none',
+                  borderRadius: '6px',
+                  fontWeight: 'bold',
+                  fontSize: '0.85rem',
+                  cursor: novoNome.trim() ? 'pointer' : 'not-allowed',
+                  marginTop: '4px',
+                  alignSelf: 'flex-start'
+                }}
+              >
+                + Adicionar Pilar
+              </button>
+            </div>
+          </form>
+
+          {/* Lista de Pilares Atuais */}
+          <div>
+            <h4 style={{ margin: '0 0 0.8rem 0', color: '#ccc', fontSize: '0.9rem', fontWeight: 'bold' }}>
+              Pilares Ativos ({pilaresList.length})
+            </h4>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '300px', overflowY: 'auto' }}>
+              {pilaresList.map(pilar => {
+                const emUso = (projetos || []).filter(p => p.pilar === pilar.id).length;
+                const isEditing = editingPilarId === pilar.id;
+
+                if (isEditing) {
+                  return (
+                    <div key={pilar.id} style={{ display: 'flex', gap: '8px', alignItems: 'center', background: '#1c2230', padding: '0.6rem', borderRadius: '8px', border: '1px solid #00BCD4' }}>
+                      <input
+                        type="text"
+                        value={editingPilarNome}
+                        onChange={e => setEditingPilarNome(e.target.value)}
+                        autoFocus
+                        style={{ flex: 1, padding: '0.45rem', background: '#0e1219', border: '1px solid #444', borderRadius: '4px', color: '#fff', fontSize: '0.85rem' }}
+                        onKeyDown={e => { if (e.key === 'Enter') handleSaveEdit(pilar.id); }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleSaveEdit(pilar.id)}
+                        style={{ padding: '0.4rem 0.8rem', background: '#4CAF50', border: 'none', color: '#fff', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.75rem' }}
+                      >
+                        Salvar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingPilarId(null)}
+                        style={{ padding: '0.4rem 0.6rem', background: '#333', border: 'none', color: '#aaa', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div
+                    key={pilar.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      background: 'rgba(0,0,0,0.35)',
+                      padding: '0.65rem 0.9rem',
+                      borderRadius: '8px',
+                      borderLeft: `4px solid ${pilar.color}`
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: pilar.color }} />
+                      <strong style={{ color: '#fff', fontSize: '0.88rem' }}>{pilar.label}</strong>
+                      <span style={{ fontSize: '0.75rem', color: '#888', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: '4px' }}>
+                        {emUso} projeto(s)
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <button
+                        type="button"
+                        onClick={() => handleStartEdit(pilar)}
+                        style={{ background: 'transparent', border: 'none', color: '#64B5F6', cursor: 'pointer', padding: '3px' }}
+                        title="Editar Nome do Pilar"
+                      >
+                        <Edit3 size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeletePilar(pilar.id)}
+                        disabled={emUso > 0}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: emUso > 0 ? '#555' : '#EF5350',
+                          cursor: emUso > 0 ? 'not-allowed' : 'pointer',
+                          padding: '3px'
+                        }}
+                        title={emUso > 0 ? 'Não pode excluir: há projetos associados' : 'Excluir Pilar'}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '0.8rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{ padding: '0.6rem 1.4rem', background: '#00BCD4', border: 'none', color: '#000', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}
+            >
+              Concluir
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
