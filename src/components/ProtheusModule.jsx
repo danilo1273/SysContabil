@@ -689,6 +689,15 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
   const handleSaveToDB = async () => {
     setIsProcessing(true);
     try {
+      const allUnmappedUploaded = [];
+      const prefixesAll = [];
+      for (const section of ['dre', 'ativo', 'passivo']) {
+        for (const group of Object.values(mergedMapping[section] || {})) {
+          for (const prefs of Object.values(group || {})) prefixesAll.push(...prefs);
+        }
+      }
+      const cleanPrefixesAll = prefixesAll.map(p => p.startsWith('!') ? p.slice(1).split('@')[0] : p.split('@')[0]);
+
       for (const comp of companies) {
         if (files[comp.id]) {
           console.log(`[SAVE] Parsing file for company: ${comp.id}`, files[comp.id].name);
@@ -697,11 +706,30 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
           console.log(`[SAVE] Parsed ${keys.length} accounts for ${comp.id}. First 5:`, keys.slice(0, 5));
           const analiticas = keys.filter(k => rawAccounts[k].isAnalitica);
           console.log(`[SAVE] Analíticas: ${analiticas.length}. Sample:`, analiticas.slice(0, 3).map(k => ({ conta: k, mensal: rawAccounts[k].mensal })));
+          
+          Object.entries(rawAccounts).forEach(([conta, data]) => {
+            if (!data.isAnalitica) return;
+            if (isResultadoOuEncerramentoConta(conta, data.descricao)) return;
+            if (conta.startsWith('2.1.1.6') || conta.startsWith('5.1.1.1.01') || conta.startsWith('6') || conta.startsWith('7')) return;
+            const val = Math.abs(data.mensal || data.acumulado || 0);
+            if (val > 0.01 && !cleanPrefixesAll.some(p => conta.startsWith(p))) {
+              allUnmappedUploaded.push({ comp: comp.name || comp.id, conta, desc: data.descricao, val });
+            }
+          });
+
           await saveBalanceteToDB(rawAccounts, comp.id, dbAno, dbMes);
           console.log(`[SAVE] Saved to DB for ${comp.id} - ano:${dbAno} mes:${dbMes}`);
         }
       }
-      window.$toast('Arquivos salvos no banco de dados com sucesso!', { type: 'success' });
+
+      if (allUnmappedUploaded.length > 0) {
+        window.$alert(`⚠️ Arquivos salvos no banco, porém foram detectadas ${allUnmappedUploaded.length} conta(s) NOVA(S) sem mapeamento nos relatórios:\n\n` +
+          allUnmappedUploaded.slice(0, 8).map(u => `• [${u.comp}] ${u.conta} - ${u.desc}`).join('\n') +
+          (allUnmappedUploaded.length > 8 ? `\n... e mais ${allUnmappedUploaded.length - 8} contas.` : '') +
+          `\n\nPor favor, acesse o botão "Ver Mapeamento" para vincular essas contas aos seus devidos grupos na DRE ou Balanço.`, { title: 'Atenção: Contas Novas Sem Mapeamento' });
+      } else {
+        window.$toast('Arquivos salvos e 100% das contas mapeadas com sucesso!', { type: 'success' });
+      }
       setFiles({});
       loadDbRecords(dbAno, dbMes);
 
@@ -763,15 +791,27 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
       const unmappedAccounts = [];
       const checkUnmapped = (dbData, groupMapping, tipo, compId) => {
         const prefixes = [];
-        for (const group of Object.values(groupMapping)) {
-          for (const prefs of Object.values(group)) prefixes.push(...prefs);
+        for (const group of Object.values(groupMapping || {})) {
+          for (const prefs of Object.values(group || {})) prefixes.push(...prefs);
         }
         const dbDataArray = Array.isArray(dbData) ? dbData : Object.entries(dbData || {}).map(([conta, data]) => ({ conta, ...data }));
+        const cleanPrefixes = prefixes.map(p => p.startsWith('!') ? p.slice(1).split('@')[0] : p.split('@')[0]);
+
         dbDataArray.forEach(d => {
+          if (!d || !d.conta) return;
+          const val = Math.abs(d.saldoAcumulado || d.valorMensal || d.valor || 0);
+          if (val <= 0.01) return;
+
           if ((tipo === 'ativo' && d.conta.startsWith('1')) || (tipo === 'passivo' && d.conta.startsWith('2'))) {
-             if (!prefixes.some(p => d.conta.startsWith(p)) && Math.abs(d.saldoAcumulado || d.valor || 0) > 0.01) {
+             if (!cleanPrefixes.some(p => d.conta.startsWith(p))) {
                 if (!isResultadoOuEncerramentoConta(d.conta, d.descricao) && !d.conta.startsWith('2.1.1.6')) {
-                  unmappedAccounts.push({ ...d, tipo, compId });
+                  unmappedAccounts.push({ ...d, tipo, compId, valor: val });
+                }
+             }
+          } else if (tipo === 'dre' && (d.conta.startsWith('3') || d.conta.startsWith('4') || d.conta.startsWith('5') || d.conta.startsWith('6') || d.conta.startsWith('7'))) {
+             if (!cleanPrefixes.some(p => d.conta.startsWith(p))) {
+                if (!isResultadoOuEncerramentoConta(d.conta, d.descricao) && !d.conta.startsWith('5.1.1.1.01') && !d.conta.startsWith('6') && !d.conta.startsWith('7')) {
+                  unmappedAccounts.push({ ...d, tipo: 'dre', compId, valor: val });
                 }
              }
           }
@@ -816,6 +856,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
       if (currentLoadId !== loadIdRef.current) return;
 
       for (const { comp, dreDbData, balancoDbData, prevBalancoDbData } of companyDataList) {
+        checkUnmapped(dreDbData, mergedMapping.dre, 'dre', comp.id);
         checkUnmapped(balancoDbData, mergedMapping.ativo, 'ativo', comp.id);
         checkUnmapped(balancoDbData, mergedMapping.passivo, 'passivo', comp.id);
 
@@ -906,6 +947,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
         }
       }
       
+      checkUnmapped(excDreDb, mergedMapping.dre, 'dre', 'exclusoes');
       checkUnmapped(excBalDb, mergedMapping.ativo, 'ativo', 'exclusoes');
       checkUnmapped(excBalDb, mergedMapping.passivo, 'passivo', 'exclusoes');
       
@@ -2478,6 +2520,68 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                   </button>
                 </div>
               </div>
+              {(() => {
+                const isCustom = Boolean(activeCustom);
+                const dreUnmapped = (results.unmapped || []).filter(u => {
+                  if (u.tipo !== 'dre') return false;
+                  if (selectedCompany === 'consolidado') return true;
+                  if (isCustom) {
+                    const targetComps = activeCustom.companies || [];
+                    return targetComps.includes(u.compId) || u.compId === 'exclusoes';
+                  }
+                  return u.compId === selectedCompany;
+                });
+
+                if (dreUnmapped.length === 0) return null;
+
+                return (
+                  <div className="print-hide" style={{ background: 'rgba(255,152,0,0.1)', border: '1px solid #FF9800', borderRadius: '10px', padding: '1rem', marginBottom: '1.5rem' }}>
+                    <h3 style={{ color: '#FF9800', margin: '0 0 0.5rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <AlertTriangle size={18} />
+                      Contas da DRE Não Mapeadas Encontradas! ({dreUnmapped.length})
+                    </h3>
+                    <p style={{ fontSize: '0.85rem', color: '#ccc', margin: '0 0 1rem 0' }}>
+                      As seguintes contas de resultado possuem movimentação no balancete, mas não estão associadas a nenhum grupo na DRE (mappingConfig.js). Elas não estão somando no resultado contábil.
+                    </p>
+                    <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                      <table className="data-table" style={{ fontSize: '0.8rem' }}>
+                        <thead>
+                          <tr>
+                            <th>Empresa</th>
+                            <th>Conta</th>
+                            <th>Descrição</th>
+                            <th style={{ textAlign: 'right' }}>Valor</th>
+                            <th style={{ textAlign: 'center' }}>Ações</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {dreUnmapped.map((u, i) => (
+                            <tr key={i}>
+                              <td>{u.compId}</td>
+                              <td>{u.conta}</td>
+                              <td>{u.descricao || '-'}</td>
+                              <td style={{ textAlign: 'right' }}>{Number(u.valor || u.valorMensal || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
+                              <td style={{ textAlign: 'center' }}>
+                                <button 
+                                  className="btn-primary" 
+                                  style={{ padding: '0.2rem 0.6rem', fontSize: '0.7rem' }}
+                                  onClick={() => {
+                                    setMappingTarget({ conta: u.conta, tipo: 'dre', relatorio: 'dre', grupo: '', subgrupo: '' });
+                                    setIsMappingModalOpen(true);
+                                  }}
+                                >
+                                  Mapear na DRE
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
+
               <div className="printable-area">
                  <PrintHeader />
                  {renderTable(
@@ -2789,6 +2893,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
               {(() => {
                 const isCustom = Boolean(activeCustom);
                 const filteredUnmapped = (results.unmapped || []).filter(u => {
+                  if (u.tipo === 'dre') return false;
                   if (selectedCompany === 'consolidado') return true;
                   if (isCustom) {
                     const targetComps = activeCustom.companies || [];

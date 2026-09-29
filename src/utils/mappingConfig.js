@@ -72,7 +72,8 @@ export const protheusMapping = {
     },
     "OUTRAS RECEITAS E DESPESAS": {
       "Outras Receitas Diversas": ["4.3.2"],
-      "Outras Receitas Operacionais": ["4.9.1.2", "4.9.1.1"]
+      "Outras Receitas Operacionais": ["4.9.1.1", "4.9.1.2", "!4.9.1.2.04"],
+      "Perdas de Estoque / Sinistros": ["4.9.1.2.04"]
     },
     "PROVISÃO IRPJ": {
       "Provisão IRPJ": ["7", "5.1.1.1.01.00001"]
