@@ -92,6 +92,7 @@ export default function TaxModule({ companies }) {
   const [dreAcumulada, setDreAcumulada] = useState([]);
   const [dreAnualTotal, setDreAnualTotal] = useState([]);
   const [balancoAnualTotal, setBalancoAnualTotal] = useState([]);
+  const [resumoVisao, setResumoVisao] = useState('trimestre'); // 'trimestre' | 'ano_trimestres' | 'ano_meses'
   
   // Inputs Manuais LALUR
   const [lalurAdicoes, setLalurAdicoes] = useState(0);
@@ -1546,93 +1547,230 @@ export default function TaxModule({ companies }) {
         return calcPresumidoData(dreAnualTotal.filter(r => r.mes === m), 1, inputs);
     };
 
-    const c1 = calcForMonth(months[0]);
-    const c2 = calcForMonth(months[1]);
-    const c3 = calcForMonth(months[2]);
+    const calcQuarter = (t) => {
+      const qMonths = [(t - 1) * 3 + 1, (t - 1) * 3 + 2, (t - 1) * 3 + 3];
+      const monthDataList = qMonths.map(m => calcForMonth(m));
+      let qOutras = 0;
+      let qCambio = 0;
+      let qRetIR = 0;
+      let qRetCS = 0;
+      let qImpDev = 0;
+      let hasAjusteIrpjQ = false;
+      let totalAjusteIrpjQ = 0;
+      let hasAjusteCsllQ = false;
+      let totalAjusteCsllQ = 0;
 
-    // Cálculo consolidado do trimestre completo (3 meses)
-    let trimOutras = 0;
-    let trimCambio = 0;
-    let trimRetIR = 0;
-    let trimRetCS = 0;
-    let trimImpDev = 0;
-    let hasAjusteIrpjTrim = false;
-    let totalAjusteIrpjTrim = 0;
-    let hasAjusteCsllTrim = false;
-    let totalAjusteCsllTrim = 0;
-
-    months.forEach(m => {
+      qMonths.forEach(m => {
         const inp = (m === selectedMes) ? {
-            outrasReceitas: presumidoOutrasReceitas,
-            cambioRealizado: presumidoCambioRealizado,
-            retencoesIR: parseFloat(presumidoRetencoesIR || 0) + parseFloat(presumidoRetencoesIR_AppFin || 0),
-            retencoesCS: presumidoRetencoesCS,
-            impostosDevolucao: presumidoImpostosDevolucao,
-            ajusteIrpj: cleanAjuste(presumidoAjusteIrpj),
-            ajusteCsll: cleanAjuste(presumidoAjusteCsll),
+          outrasReceitas: presumidoOutrasReceitas,
+          cambioRealizado: presumidoCambioRealizado,
+          retencoesIR: parseFloat(presumidoRetencoesIR || 0) + parseFloat(presumidoRetencoesIR_AppFin || 0),
+          retencoesCS: presumidoRetencoesCS,
+          impostosDevolucao: presumidoImpostosDevolucao,
+          ajusteIrpj: cleanAjuste(presumidoAjusteIrpj),
+          ajusteCsll: cleanAjuste(presumidoAjusteCsll),
         } : (() => {
-            const k = `${selectedComp}_${selectedAno}_${m}`;
-            const d = taxDataStore[k] || {};
-            return {
-                outrasReceitas: d.presumidoOutrasReceitas,
-                cambioRealizado: d.presumidoCambioRealizado,
-                retencoesIR: parseFloat(d.presumidoRetencoesIR || 0) + parseFloat(d.presumidoRetencoesIR_AppFin || 0),
-                retencoesCS: d.presumidoRetencoesCS,
-                impostosDevolucao: d.presumidoImpostosDevolucao,
-                ajusteIrpj: cleanAjuste(d.presumidoAjusteIrpj),
-                ajusteCsll: cleanAjuste(d.presumidoAjusteCsll),
-            };
+          const k = `${selectedComp}_${selectedAno}_${m}`;
+          const d = taxDataStore[k] || {};
+          return {
+            outrasReceitas: d.presumidoOutrasReceitas,
+            cambioRealizado: d.presumidoCambioRealizado,
+            retencoesIR: parseFloat(d.presumidoRetencoesIR || 0) + parseFloat(d.presumidoRetencoesIR_AppFin || 0),
+            retencoesCS: d.presumidoRetencoesCS,
+            impostosDevolucao: d.presumidoImpostosDevolucao,
+            ajusteIrpj: cleanAjuste(d.presumidoAjusteIrpj),
+            ajusteCsll: cleanAjuste(d.presumidoAjusteCsll),
+          };
         })();
 
-        trimOutras += parseFloat(inp.outrasReceitas || 0);
-        trimCambio += parseFloat(inp.cambioRealizado || 0);
-        trimRetIR += parseFloat(inp.retencoesIR || 0);
-        trimRetCS += parseFloat(inp.retencoesCS || 0);
-        trimImpDev += parseFloat(inp.impostosDevolucao || 0);
+        qOutras += parseFloat(inp.outrasReceitas || 0);
+        qCambio += parseFloat(inp.cambioRealizado || 0);
+        qRetIR += parseFloat(inp.retencoesIR || 0);
+        qRetCS += parseFloat(inp.retencoesCS || 0);
+        qImpDev += parseFloat(inp.impostosDevolucao || 0);
         if (inp.ajusteIrpj !== null && inp.ajusteIrpj !== undefined && inp.ajusteIrpj !== '') {
-            hasAjusteIrpjTrim = true;
-            totalAjusteIrpjTrim += parseFloat(inp.ajusteIrpj);
+          hasAjusteIrpjQ = true;
+          totalAjusteIrpjQ += parseFloat(inp.ajusteIrpj);
         }
         if (inp.ajusteCsll !== null && inp.ajusteCsll !== undefined && inp.ajusteCsll !== '') {
-            hasAjusteCsllTrim = true;
-            totalAjusteCsllTrim += parseFloat(inp.ajusteCsll);
+          hasAjusteCsllQ = true;
+          totalAjusteCsllQ += parseFloat(inp.ajusteCsll);
         }
-    });
+      });
 
-    const monthsWithData = months.filter(m => dreAnualTotal.some(r => r.mes === m));
-    const numMesesTrim = Math.max(1, monthsWithData.length);
+      const monthsWithData = qMonths.filter(m => dreAnualTotal.some(r => r.mes === m));
+      const numMesesTrim = Math.max(1, monthsWithData.length);
 
-    const trimInputs = {
-        outrasReceitas: trimOutras,
-        cambioRealizado: trimCambio,
-        retencoesIR: trimRetIR,
-        retencoesCS: trimRetCS,
-        impostosDevolucao: trimImpDev,
-        ajusteIrpj: hasAjusteIrpjTrim ? totalAjusteIrpjTrim : null,
-        ajusteCsll: hasAjusteCsllTrim ? totalAjusteCsllTrim : null,
+      const trimInputs = {
+        outrasReceitas: qOutras,
+        cambioRealizado: qCambio,
+        retencoesIR: qRetIR,
+        retencoesCS: qRetCS,
+        impostosDevolucao: qImpDev,
+        ajusteIrpj: hasAjusteIrpjQ ? totalAjusteIrpjQ : null,
+        ajusteCsll: hasAjusteCsllQ ? totalAjusteCsllQ : null,
         majoracao: presumidoMajoracao
-    };
+      };
 
-    const cTotal = calcPresumidoData(
-        dreAnualTotal.filter(r => months.includes(r.mes)),
+      const cTotal = calcPresumidoData(
+        dreAnualTotal.filter(r => qMonths.includes(r.mes)),
         numMesesTrim,
         trimInputs
-    );
+      );
 
-    if (hasAjusteIrpjTrim) {
-        cTotal.irpjTotal = (c1.ajusteIrpj || c1.irpjTotal) + (c2.ajusteIrpj || c2.irpjTotal) + (c3.ajusteIrpj || c3.irpjTotal);
-        cTotal.ajusteIrpj = totalAjusteIrpjTrim;
-    }
-    if (hasAjusteCsllTrim) {
-        cTotal.csllTotal = (c1.ajusteCsll || c1.csllTotal) + (c2.ajusteCsll || c2.csllTotal) + (c3.ajusteCsll || c3.csllTotal);
-        cTotal.ajusteCsll = totalAjusteCsllTrim;
+      if (hasAjusteIrpjQ) {
+        cTotal.irpjTotal = monthDataList.reduce((acc, cm) => acc + (cm.ajusteIrpj || cm.irpjTotal || 0), 0);
+        cTotal.ajusteIrpj = totalAjusteIrpjQ;
+      }
+      if (hasAjusteCsllQ) {
+        cTotal.csllTotal = monthDataList.reduce((acc, cm) => acc + (cm.ajusteCsll || cm.csllTotal || 0), 0);
+        cTotal.ajusteCsll = totalAjusteCsllQ;
+      }
+
+      return cTotal;
+    };
+
+    const sumObjects = (objList) => {
+      const keys = [
+        'recRevenda', 'recServico', 'devolucoes', 'impostosDevolucaoAuto', 'impostosDevolucaoManual',
+        'ipi', 'icmsSt', 'recRevendaLiquida', 'outrasReceitasManual', 'outrasReceitasDre', 'cambioBase',
+        'variacaoCambial', 'baseRevendaIrpj', 'baseServicoIrpj', 'acrescimoIrpj', 'baseIrpj',
+        'irpjNormal', 'irpjAdicional', 'retencoesIR', 'ajusteIrpj', 'irpjTotal',
+        'baseRevendaCsll', 'baseServicoCsll', 'acrescimoCsll', 'baseCsll', 'csll',
+        'retencoesCS', 'ajusteCsll', 'csllTotal'
+      ];
+      const tot = {};
+      keys.forEach(k => {
+        tot[k] = objList.reduce((acc, o) => acc + (o[k] || 0), 0);
+      });
+      tot.recRevendaBreakdown = [...new Set(objList.flatMap(o => o.recRevendaBreakdown || []))];
+      tot.recServicoBreakdown = [...new Set(objList.flatMap(o => o.recServicoBreakdown || []))];
+      tot.devolucoesBreakdown = [...new Set(objList.flatMap(o => o.devolucoesBreakdown || []))];
+      tot.ipiIcmsDevolucaoBreakdown = [...new Set(objList.flatMap(o => o.ipiIcmsDevolucaoBreakdown || []))];
+      tot.ipiVendasBreakdown = [...new Set(objList.flatMap(o => o.ipiVendasBreakdown || []))];
+      tot.icmsStVendasBreakdown = [...new Set(objList.flatMap(o => o.icmsStVendasBreakdown || []))];
+      tot.outrasReceitasDreBreakdown = [...new Set(objList.flatMap(o => o.outrasReceitasDreBreakdown || []))];
+      return tot;
+    };
+
+    let columns = [];
+    let summaryCol = null;
+    let tableTitle = '';
+
+    if (resumoVisao === 'ano_trimestres') {
+      const q1 = calcQuarter(1);
+      const q2 = calcQuarter(2);
+      const q3 = calcQuarter(3);
+      const q4 = calcQuarter(4);
+      const qAno = sumObjects([q1, q2, q3, q4]);
+
+      columns = [
+        { label: '1º Trimestre (Jan-Mar)', data: q1 },
+        { label: '2º Trimestre (Abr-Jun)', data: q2 },
+        { label: '3º Trimestre (Jul-Set)', data: q3 },
+        { label: '4º Trimestre (Out-Dez)', data: q4 },
+      ];
+      summaryCol = { label: `Total do Ano ${selectedAno}`, data: qAno };
+      tableTitle = `📅 RESUMO DA APURAÇÃO ANUAL - POR TRIMESTRE (${selectedAno})`;
+    } else if (resumoVisao === 'ano_meses') {
+      const allMonths = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+      const monthCols = allMonths.map(m => ({ label: monthNames[m - 1], data: calcForMonth(m) }));
+      const q1 = calcQuarter(1);
+      const q2 = calcQuarter(2);
+      const q3 = calcQuarter(3);
+      const q4 = calcQuarter(4);
+      const qAno = sumObjects([q1, q2, q3, q4]);
+
+      columns = monthCols;
+      summaryCol = { label: `Total do Ano ${selectedAno}`, data: qAno };
+      tableTitle = `🗓️ RESUMO DA APURAÇÃO ANUAL - MÊS A MÊS (${selectedAno})`;
+    } else {
+      const c1 = calcForMonth(months[0]);
+      const c2 = calcForMonth(months[1]);
+      const c3 = calcForMonth(months[2]);
+      const cTotal = calcQuarter(trimNum);
+
+      columns = [
+        { label: monthNames[months[0] - 1], data: c1 },
+        { label: monthNames[months[1] - 1], data: c2 },
+        { label: monthNames[months[2] - 1], data: c3 },
+      ];
+      summaryCol = { label: `Total do ${trimNum}º Trimestre`, data: cTotal };
+      tableTitle = `📊 RESUMO DO ${trimNum}º TRIMESTRE (${monthNames[months[0]-1]} a ${monthNames[months[2]-1]})`;
     }
 
     const fmt = (v) => (v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
     return (
       <div style={{ marginTop: "2rem", paddingTop: "2rem", borderTop: "1px solid rgba(255,255,255,0.1)" }}>
-        <h4 style={{ color: "#fff", marginBottom: "0.5rem", textAlign: "center" }}>📊 RESUMO DO {trimNum}º TRIMESTRE ({monthNames[months[0]-1]} a {monthNames[months[2]-1]})</h4>
+        {/* Seletor de Visão do Resumo */}
+        <div style={{ display: 'flex', justifyContent: 'center', gap: '0.6rem', marginBottom: '1.2rem', flexWrap: 'wrap' }}>
+          <button 
+            type="button"
+            onClick={() => setResumoVisao('trimestre')}
+            style={{
+              padding: '0.55rem 1.3rem',
+              borderRadius: '24px',
+              border: '1px solid ' + (resumoVisao === 'trimestre' ? '#64B5F6' : '#444'),
+              background: resumoVisao === 'trimestre' ? 'rgba(33, 150, 243, 0.25)' : 'rgba(255, 255, 255, 0.04)',
+              color: resumoVisao === 'trimestre' ? '#fff' : '#aaa',
+              fontWeight: resumoVisao === 'trimestre' ? 'bold' : 'normal',
+              cursor: 'pointer',
+              fontSize: '0.85rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              boxShadow: resumoVisao === 'trimestre' ? '0 0 10px rgba(33, 150, 243, 0.3)' : 'none',
+              transition: 'all 0.2s'
+            }}
+          >
+            📊 {trimNum}º Trimestre ({monthNames[months[0]-1]} a {monthNames[months[2]-1]})
+          </button>
+          <button 
+            type="button"
+            onClick={() => setResumoVisao('ano_trimestres')}
+            style={{
+              padding: '0.55rem 1.3rem',
+              borderRadius: '24px',
+              border: '1px solid ' + (resumoVisao === 'ano_trimestres' ? '#64B5F6' : '#444'),
+              background: resumoVisao === 'ano_trimestres' ? 'rgba(33, 150, 243, 0.25)' : 'rgba(255, 255, 255, 0.04)',
+              color: resumoVisao === 'ano_trimestres' ? '#fff' : '#aaa',
+              fontWeight: resumoVisao === 'ano_trimestres' ? 'bold' : 'normal',
+              cursor: 'pointer',
+              fontSize: '0.85rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              boxShadow: resumoVisao === 'ano_trimestres' ? '0 0 10px rgba(33, 150, 243, 0.3)' : 'none',
+              transition: 'all 0.2s'
+            }}
+          >
+            📅 Resumo do Ano {selectedAno} (Por Trimestre)
+          </button>
+          <button 
+            type="button"
+            onClick={() => setResumoVisao('ano_meses')}
+            style={{
+              padding: '0.55rem 1.3rem',
+              borderRadius: '24px',
+              border: '1px solid ' + (resumoVisao === 'ano_meses' ? '#64B5F6' : '#444'),
+              background: resumoVisao === 'ano_meses' ? 'rgba(33, 150, 243, 0.25)' : 'rgba(255, 255, 255, 0.04)',
+              color: resumoVisao === 'ano_meses' ? '#fff' : '#aaa',
+              fontWeight: resumoVisao === 'ano_meses' ? 'bold' : 'normal',
+              cursor: 'pointer',
+              fontSize: '0.85rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.4rem',
+              boxShadow: resumoVisao === 'ano_meses' ? '0 0 10px rgba(33, 150, 243, 0.3)' : 'none',
+              transition: 'all 0.2s'
+            }}
+          >
+            🗓️ Resumo do Ano {selectedAno} (Mês a Mês)
+          </button>
+        </div>
+
+        <h4 style={{ color: "#fff", marginBottom: "0.5rem", textAlign: "center" }}>{tableTitle}</h4>
         <p style={{ textAlign: "center", color: "#aaa", fontSize: "0.8rem", marginBottom: "1rem" }}>
           💡 Passe o mouse sobre os valores de Vendas, Serviços, Devoluções ou Deduções para ver as contas contábeis correspondentes da DRE.
         </p>
@@ -1641,16 +1779,16 @@ export default function TaxModule({ companies }) {
             <thead>
               <tr style={{ background: "rgba(0,0,0,0.4)", color: "#ccc" }}>
                 <th style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>Indicador</th>
-                <th style={{ padding: "8px", border: "1px solid #444" }}>{monthNames[months[0]-1]}</th>
-                <th style={{ padding: "8px", border: "1px solid #444" }}>{monthNames[months[1]-1]}</th>
-                <th style={{ padding: "8px", border: "1px solid #444" }}>{monthNames[months[2]-1]}</th>
-                <th style={{ padding: "8px", border: "1px solid #444", color: "#64B5F6" }}>Total do Trimestre</th>
+                {columns.map((col, idx) => (
+                  <th key={idx} style={{ padding: "8px", border: "1px solid #444" }}>{col.label}</th>
+                ))}
+                <th style={{ padding: "8px", border: "1px solid #444", color: "#64B5F6" }}>{summaryCol.label}</th>
               </tr>
             </thead>
             <tbody>
               {/* 1. RECEITAS BRUTAS */}
               <tr style={{ background: "rgba(255, 255, 255, 0.03)" }}>
-                <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", fontWeight: "bold", color: "#64B5F6" }} colSpan={5}>
+                <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", fontWeight: "bold", color: "#64B5F6" }} colSpan={columns.length + 2}>
                   1. RECEITAS OPERACIONAIS BRUTAS
                 </td>
               </tr>
@@ -1658,33 +1796,33 @@ export default function TaxModule({ companies }) {
                 <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", paddingLeft: "1.2rem" }} title="Vendas de Mercadorias e Produtos (Presunção de 8% IRPJ / 12% CSLL)">
                   (+) Receita de Vendas / Revenda (Comércio)
                 </td>
-                <td style={{ border: "1px solid #444" }} title={(c1.recRevendaBreakdown || []).join('\n')}>{fmt(c1.recRevenda)}</td>
-                <td style={{ border: "1px solid #444" }} title={(c2.recRevendaBreakdown || []).join('\n')}>{fmt(c2.recRevenda)}</td>
-                <td style={{ border: "1px solid #444" }} title={(c3.recRevendaBreakdown || []).join('\n')}>{fmt(c3.recRevenda)}</td>
-                <td style={{ border: "1px solid #444", fontWeight: "bold" }} title={(cTotal.recRevendaBreakdown || []).join('\n')}>{fmt(cTotal.recRevenda)}</td>
+                {columns.map((col, idx) => (
+                  <td key={idx} style={{ border: "1px solid #444" }} title={(col.data.recRevendaBreakdown || []).join('\n')}>{fmt(col.data.recRevenda)}</td>
+                ))}
+                <td style={{ border: "1px solid #444", fontWeight: "bold" }} title={(summaryCol.data.recRevendaBreakdown || []).join('\n')}>{fmt(summaryCol.data.recRevenda)}</td>
               </tr>
               <tr>
                 <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", paddingLeft: "1.2rem" }} title="Prestação de Serviços (Presunção de 32% IRPJ / 32% CSLL)">
                   (+) Receita de Prestação de Serviços
                 </td>
-                <td style={{ border: "1px solid #444" }} title={(c1.recServicoBreakdown || []).join('\n')}>{fmt(c1.recServico)}</td>
-                <td style={{ border: "1px solid #444" }} title={(c2.recServicoBreakdown || []).join('\n')}>{fmt(c2.recServico)}</td>
-                <td style={{ border: "1px solid #444" }} title={(c3.recServicoBreakdown || []).join('\n')}>{fmt(c3.recServico)}</td>
-                <td style={{ border: "1px solid #444", fontWeight: "bold" }} title={(cTotal.recServicoBreakdown || []).join('\n')}>{fmt(cTotal.recServico)}</td>
+                {columns.map((col, idx) => (
+                  <td key={idx} style={{ border: "1px solid #444" }} title={(col.data.recServicoBreakdown || []).join('\n')}>{fmt(col.data.recServico)}</td>
+                ))}
+                <td style={{ border: "1px solid #444", fontWeight: "bold" }} title={(summaryCol.data.recServicoBreakdown || []).join('\n')}>{fmt(summaryCol.data.recServico)}</td>
               </tr>
               <tr style={{ background: "rgba(33, 150, 243, 0.08)", fontWeight: "bold" }}>
                 <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left" }}>
                   (=) Total da Receita Operacional Bruta
                 </td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c1.recRevenda + c1.recServico)}</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c2.recRevenda + c2.recServico)}</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c3.recRevenda + c3.recServico)}</td>
-                <td style={{ border: "1px solid #444", color: "#64B5F6" }}>{fmt(cTotal.recRevenda + cTotal.recServico)}</td>
+                {columns.map((col, idx) => (
+                  <td key={idx} style={{ border: "1px solid #444" }}>{fmt(col.data.recRevenda + col.data.recServico)}</td>
+                ))}
+                <td style={{ border: "1px solid #444", color: "#64B5F6" }}>{fmt(summaryCol.data.recRevenda + summaryCol.data.recServico)}</td>
               </tr>
 
               {/* 2. DEDUÇÕES DA RECEITA DE VENDAS */}
               <tr style={{ background: "rgba(255, 255, 255, 0.03)" }}>
-                <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", fontWeight: "bold", color: "#EF9A9A" }} colSpan={5}>
+                <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", fontWeight: "bold", color: "#EF9A9A" }} colSpan={columns.length + 2}>
                   2. DEDUÇÕES E IMPOSTOS S/ VENDAS
                 </td>
               </tr>
@@ -1692,57 +1830,57 @@ export default function TaxModule({ companies }) {
                 <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", paddingLeft: "1.2rem", color: "#FF5252" }}>
                   (-) Devoluções de Vendas
                 </td>
-                <td style={{ border: "1px solid #444" }} title={(c1.devolucoesBreakdown || []).join('\n')}>{fmt(c1.devolucoes)}</td>
-                <td style={{ border: "1px solid #444" }} title={(c2.devolucoesBreakdown || []).join('\n')}>{fmt(c2.devolucoes)}</td>
-                <td style={{ border: "1px solid #444" }} title={(c3.devolucoesBreakdown || []).join('\n')}>{fmt(c3.devolucoes)}</td>
-                <td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.devolucoes)}</td>
+                {columns.map((col, idx) => (
+                  <td key={idx} style={{ border: "1px solid #444" }} title={(col.data.devolucoesBreakdown || []).join('\n')}>{fmt(col.data.devolucoes)}</td>
+                ))}
+                <td style={{ border: "1px solid #444", fontWeight: "bold" }} title={(summaryCol.data.devolucoesBreakdown || []).join('\n')}>{fmt(summaryCol.data.devolucoes)}</td>
               </tr>
-              {(cTotal.impostosDevolucaoAuto > 0 || cTotal.impostosDevolucaoManual > 0) && (
+              {(summaryCol.data.impostosDevolucaoAuto > 0 || summaryCol.data.impostosDevolucaoManual > 0) && (
                 <tr>
                   <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", paddingLeft: "1.2rem", color: "#FFCA28" }}>
                     (+) IPI e ICMS ST s/ Devolução (Estorno)
                   </td>
-                  <td style={{ border: "1px solid #444" }} title={(c1.ipiIcmsDevolucaoBreakdown || []).join('\n')}>{fmt(c1.impostosDevolucaoAuto + (c1.impostosDevolucaoManual || 0))}</td>
-                  <td style={{ border: "1px solid #444" }} title={(c2.ipiIcmsDevolucaoBreakdown || []).join('\n')}>{fmt(c2.impostosDevolucaoAuto + (c2.impostosDevolucaoManual || 0))}</td>
-                  <td style={{ border: "1px solid #444" }} title={(c3.ipiIcmsDevolucaoBreakdown || []).join('\n')}>{fmt(c3.impostosDevolucaoAuto + (c3.impostosDevolucaoManual || 0))}</td>
-                  <td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.impostosDevolucaoAuto + (cTotal.impostosDevolucaoManual || 0))}</td>
+                  {columns.map((col, idx) => (
+                    <td key={idx} style={{ border: "1px solid #444" }} title={(col.data.ipiIcmsDevolucaoBreakdown || []).join('\n')}>{fmt(col.data.impostosDevolucaoAuto + (col.data.impostosDevolucaoManual || 0))}</td>
+                  ))}
+                  <td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(summaryCol.data.impostosDevolucaoAuto + (summaryCol.data.impostosDevolucaoManual || 0))}</td>
                 </tr>
               )}
-              {cTotal.ipi > 0 && (
+              {summaryCol.data.ipi > 0 && (
                 <tr>
                   <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", paddingLeft: "1.2rem", color: "#FF5252" }}>
                     (-) IPI sobre Vendas
                   </td>
-                  <td style={{ border: "1px solid #444" }} title={(c1.ipiVendasBreakdown || []).join('\n')}>{fmt(c1.ipi)}</td>
-                  <td style={{ border: "1px solid #444" }} title={(c2.ipiVendasBreakdown || []).join('\n')}>{fmt(c2.ipi)}</td>
-                  <td style={{ border: "1px solid #444" }} title={(c3.ipiVendasBreakdown || []).join('\n')}>{fmt(c3.ipi)}</td>
-                  <td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.ipi)}</td>
+                  {columns.map((col, idx) => (
+                    <td key={idx} style={{ border: "1px solid #444" }} title={(col.data.ipiVendasBreakdown || []).join('\n')}>{fmt(col.data.ipi)}</td>
+                  ))}
+                  <td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(summaryCol.data.ipi)}</td>
                 </tr>
               )}
-              {cTotal.icmsSt > 0 && (
+              {summaryCol.data.icmsSt > 0 && (
                 <tr>
                   <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", paddingLeft: "1.2rem", color: "#FF5252" }}>
                     (-) ICMS ST sobre Vendas
                   </td>
-                  <td style={{ border: "1px solid #444" }} title={(c1.icmsStVendasBreakdown || []).join('\n')}>{fmt(c1.icmsSt)}</td>
-                  <td style={{ border: "1px solid #444" }} title={(c2.icmsStVendasBreakdown || []).join('\n')}>{fmt(c2.icmsSt)}</td>
-                  <td style={{ border: "1px solid #444" }} title={(c3.icmsStVendasBreakdown || []).join('\n')}>{fmt(c3.icmsSt)}</td>
-                  <td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.icmsSt)}</td>
+                  {columns.map((col, idx) => (
+                    <td key={idx} style={{ border: "1px solid #444" }} title={(col.data.icmsStVendasBreakdown || []).join('\n')}>{fmt(col.data.icmsSt)}</td>
+                  ))}
+                  <td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(summaryCol.data.icmsSt)}</td>
                 </tr>
               )}
               <tr style={{ background: "rgba(255, 255, 255, 0.02)", fontWeight: "bold" }}>
                 <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left" }}>
                   (=) Receita Líquida de Vendas (Base p/ 8% e 12%)
                 </td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c1.recRevendaLiquida)}</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c2.recRevendaLiquida)}</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c3.recRevendaLiquida)}</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(cTotal.recRevendaLiquida)}</td>
+                {columns.map((col, idx) => (
+                  <td key={idx} style={{ border: "1px solid #444" }}>{fmt(col.data.recRevendaLiquida)}</td>
+                ))}
+                <td style={{ border: "1px solid #444" }}>{fmt(summaryCol.data.recRevendaLiquida)}</td>
               </tr>
 
               {/* 3. DEMAIS RECEITAS */}
               <tr style={{ background: "rgba(255, 255, 255, 0.03)" }}>
-                <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", fontWeight: "bold", color: "#FFE082" }} colSpan={5}>
+                <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", fontWeight: "bold", color: "#FFE082" }} colSpan={columns.length + 2}>
                   3. DEMAIS RECEITAS (Tributadas a 100%)
                 </td>
               </tr>
@@ -1750,24 +1888,24 @@ export default function TaxModule({ companies }) {
                 <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", paddingLeft: "1.2rem" }}>
                   (+) Rendimentos, Ganhos de Capital e Outras Receitas
                 </td>
-                <td style={{ border: "1px solid #444" }} title={(c1.outrasReceitasDreBreakdown || []).join('\n')}>{fmt((c1.outrasReceitasManual || 0) + c1.outrasReceitasDre)}</td>
-                <td style={{ border: "1px solid #444" }} title={(c2.outrasReceitasDreBreakdown || []).join('\n')}>{fmt((c2.outrasReceitasManual || 0) + c2.outrasReceitasDre)}</td>
-                <td style={{ border: "1px solid #444" }} title={(c3.outrasReceitasDreBreakdown || []).join('\n')}>{fmt((c3.outrasReceitasManual || 0) + c3.outrasReceitasDre)}</td>
-                <td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt((cTotal.outrasReceitasManual || 0) + cTotal.outrasReceitasDre)}</td>
+                {columns.map((col, idx) => (
+                  <td key={idx} style={{ border: "1px solid #444" }} title={(col.data.outrasReceitasDreBreakdown || []).join('\n')}>{fmt((col.data.outrasReceitasManual || 0) + col.data.outrasReceitasDre)}</td>
+                ))}
+                <td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt((summaryCol.data.outrasReceitasManual || 0) + summaryCol.data.outrasReceitasDre)}</td>
               </tr>
               <tr>
                 <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", paddingLeft: "1.2rem" }} title="Apenas variações cambiais tributáveis (positivas na competência ou realizadas no caixa) compõem a base">
                   {isCaixa ? '(+) Variação Cambial Realizada (Caixa)' : '(+) Variação Cambial Tributável (Competência)'}
                 </td>
-                <td style={{ border: "1px solid #444" }} title={c1.variacaoCambial !== 0 ? `Variação Cambial DRE: ${fmt(c1.variacaoCambial)}` : undefined}>{fmt(c1.cambioBase)}</td>
-                <td style={{ border: "1px solid #444" }} title={c2.variacaoCambial !== 0 ? `Variação Cambial DRE: ${fmt(c2.variacaoCambial)}` : undefined}>{fmt(c2.cambioBase)}</td>
-                <td style={{ border: "1px solid #444" }} title={c3.variacaoCambial !== 0 ? `Variação Cambial DRE: ${fmt(c3.variacaoCambial)}` : undefined}>{fmt(c3.cambioBase)}</td>
-                <td style={{ border: "1px solid #444", fontWeight: "bold" }} title={cTotal.variacaoCambial !== 0 ? `Variação Cambial DRE Total: ${fmt(cTotal.variacaoCambial)}` : undefined}>{fmt(cTotal.cambioBase)}</td>
+                {columns.map((col, idx) => (
+                  <td key={idx} style={{ border: "1px solid #444" }} title={col.data.variacaoCambial !== 0 ? `Variação Cambial DRE: ${fmt(col.data.variacaoCambial)}` : undefined}>{fmt(col.data.cambioBase)}</td>
+                ))}
+                <td style={{ border: "1px solid #444", fontWeight: "bold" }} title={summaryCol.data.variacaoCambial !== 0 ? `Variação Cambial DRE Total: ${fmt(summaryCol.data.variacaoCambial)}` : undefined}>{fmt(summaryCol.data.cambioBase)}</td>
               </tr>
 
               {/* 4. APURAÇÃO DO IRPJ */}
               <tr style={{ background: "rgba(255, 255, 255, 0.03)" }}>
-                <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", fontWeight: "bold", color: "#A5D6A7" }} colSpan={5}>
+                <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", fontWeight: "bold", color: "#A5D6A7" }} colSpan={columns.length + 2}>
                   4. APURAÇÃO DO IRPJ
                 </td>
               </tr>
@@ -1775,77 +1913,77 @@ export default function TaxModule({ companies }) {
                 <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", paddingLeft: "1.2rem", color: "#bbb" }}>
                   ↳ Base Presumida de Vendas (8% s/ Rec. Líquida)
                 </td>
-                <td style={{ border: "1px solid #444", color: "#bbb" }}>{fmt(c1.baseRevendaIrpj)}</td>
-                <td style={{ border: "1px solid #444", color: "#bbb" }}>{fmt(c2.baseRevendaIrpj)}</td>
-                <td style={{ border: "1px solid #444", color: "#bbb" }}>{fmt(c3.baseRevendaIrpj)}</td>
-                <td style={{ border: "1px solid #444", color: "#bbb" }}>{fmt(cTotal.baseRevendaIrpj)}</td>
+                {columns.map((col, idx) => (
+                  <td key={idx} style={{ border: "1px solid #444", color: "#bbb" }}>{fmt(col.data.baseRevendaIrpj)}</td>
+                ))}
+                <td style={{ border: "1px solid #444", color: "#bbb" }}>{fmt(summaryCol.data.baseRevendaIrpj)}</td>
               </tr>
               <tr>
                 <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", paddingLeft: "1.2rem", color: "#bbb" }}>
                   ↳ Base Presumida de Serviços (32% s/ Serviços)
                 </td>
-                <td style={{ border: "1px solid #444", color: "#bbb" }}>{fmt(c1.baseServicoIrpj)}</td>
-                <td style={{ border: "1px solid #444", color: "#bbb" }}>{fmt(c2.baseServicoIrpj)}</td>
-                <td style={{ border: "1px solid #444", color: "#bbb" }}>{fmt(c3.baseServicoIrpj)}</td>
-                <td style={{ border: "1px solid #444", color: "#bbb" }}>{fmt(cTotal.baseServicoIrpj)}</td>
+                {columns.map((col, idx) => (
+                  <td key={idx} style={{ border: "1px solid #444", color: "#bbb" }}>{fmt(col.data.baseServicoIrpj)}</td>
+                ))}
+                <td style={{ border: "1px solid #444", color: "#bbb" }}>{fmt(summaryCol.data.baseServicoIrpj)}</td>
               </tr>
-              {(cTotal.acrescimoIrpj > 0) && (
+              {(summaryCol.data.acrescimoIrpj > 0) && (
                 <tr>
                   <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", paddingLeft: "1.2rem", color: "#FFCA28" }}>
                     ↳ (+) Majoração de 10% (Lei 2026 - Excesso de R$ 1,25M)
                   </td>
-                  <td style={{ border: "1px solid #444", color: "#FFCA28" }}>{fmt(c1.acrescimoIrpj)}</td>
-                  <td style={{ border: "1px solid #444", color: "#FFCA28" }}>{fmt(c2.acrescimoIrpj)}</td>
-                  <td style={{ border: "1px solid #444", color: "#FFCA28" }}>{fmt(c3.acrescimoIrpj)}</td>
-                  <td style={{ border: "1px solid #444", color: "#FFCA28", fontWeight: "bold" }}>{fmt(cTotal.acrescimoIrpj)}</td>
+                  {columns.map((col, idx) => (
+                    <td key={idx} style={{ border: "1px solid #444", color: "#FFCA28" }}>{fmt(col.data.acrescimoIrpj)}</td>
+                  ))}
+                  <td style={{ border: "1px solid #444", color: "#FFCA28", fontWeight: "bold" }}>{fmt(summaryCol.data.acrescimoIrpj)}</td>
                 </tr>
               )}
               <tr style={{ background: "rgba(255, 255, 255, 0.05)", fontWeight: "bold" }}>
                 <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left" }}>Base de Cálculo Total IRPJ</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c1.baseIrpj)}</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c2.baseIrpj)}</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c3.baseIrpj)}</td>
-                <td style={{ border: "1px solid #444", color: "#FFD54F" }}>{fmt(cTotal.baseIrpj)}</td>
+                {columns.map((col, idx) => (
+                  <td key={idx} style={{ border: "1px solid #444" }}>{fmt(col.data.baseIrpj)}</td>
+                ))}
+                <td style={{ border: "1px solid #444", color: "#FFD54F" }}>{fmt(summaryCol.data.baseIrpj)}</td>
               </tr>
               <tr>
                 <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", paddingLeft: "1.2rem" }}>IRPJ Normal (15%)</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c1.irpjNormal)}</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c2.irpjNormal)}</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c3.irpjNormal)}</td>
-                <td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.irpjNormal)}</td>
+                {columns.map((col, idx) => (
+                  <td key={idx} style={{ border: "1px solid #444" }}>{fmt(col.data.irpjNormal)}</td>
+                ))}
+                <td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(summaryCol.data.irpjNormal)}</td>
               </tr>
               <tr>
                 <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", paddingLeft: "1.2rem" }}>IRPJ Adicional (10%)</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c1.irpjAdicional)}</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c2.irpjAdicional)}</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c3.irpjAdicional)}</td>
-                <td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.irpjAdicional)}</td>
+                {columns.map((col, idx) => (
+                  <td key={idx} style={{ border: "1px solid #444" }}>{fmt(col.data.irpjAdicional)}</td>
+                ))}
+                <td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(summaryCol.data.irpjAdicional)}</td>
               </tr>
               <tr>
                 <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", paddingLeft: "1.2rem" }}>(-) IRRF Retido na Fonte (Serviços / Aplicações)</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c1.retencoesIR)}</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c2.retencoesIR)}</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c3.retencoesIR)}</td>
-                <td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.retencoesIR)}</td>
+                {columns.map((col, idx) => (
+                  <td key={idx} style={{ border: "1px solid #444" }}>{fmt(col.data.retencoesIR)}</td>
+                ))}
+                <td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(summaryCol.data.retencoesIR)}</td>
               </tr>
               <tr>
                 <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", paddingLeft: "1.2rem", color: "#FFD54F" }}>Ajuste Manual / Declarado IRPJ</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c1.ajusteIrpj)}</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c2.ajusteIrpj)}</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c3.ajusteIrpj)}</td>
-                <td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.ajusteIrpj)}</td>
+                {columns.map((col, idx) => (
+                  <td key={idx} style={{ border: "1px solid #444" }}>{fmt(col.data.ajusteIrpj)}</td>
+                ))}
+                <td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(summaryCol.data.ajusteIrpj)}</td>
               </tr>
               <tr style={{ background: "rgba(76, 175, 80, 0.15)", fontWeight: "bold" }}>
                 <td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>IRPJ DEVIDO LÍQUIDO</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(Math.max(0, c1.irpjTotal))}</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(Math.max(0, c2.irpjTotal))}</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(Math.max(0, c3.irpjTotal))}</td>
-                <td style={{ border: "1px solid #444", fontWeight: "bold", color: "#81C784", fontSize: "0.95rem" }}>{fmt(Math.max(0, cTotal.irpjTotal))}</td>
+                {columns.map((col, idx) => (
+                  <td key={idx} style={{ border: "1px solid #444" }}>{fmt(Math.max(0, col.data.irpjTotal))}</td>
+                ))}
+                <td style={{ border: "1px solid #444", fontWeight: "bold", color: "#81C784", fontSize: "0.95rem" }}>{fmt(Math.max(0, summaryCol.data.irpjTotal))}</td>
               </tr>
 
               {/* 5. APURAÇÃO DA CSLL */}
               <tr style={{ background: "rgba(255, 255, 255, 0.03)" }}>
-                <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", fontWeight: "bold", color: "#80CBC4" }} colSpan={5}>
+                <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", fontWeight: "bold", color: "#80CBC4" }} colSpan={columns.length + 2}>
                   5. APURAÇÃO DA CSLL
                 </td>
               </tr>
@@ -1853,65 +1991,65 @@ export default function TaxModule({ companies }) {
                 <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", paddingLeft: "1.2rem", color: "#bbb" }}>
                   ↳ Base Presumida de Vendas (12% s/ Rec. Líquida)
                 </td>
-                <td style={{ border: "1px solid #444", color: "#bbb" }}>{fmt(c1.baseRevendaCsll)}</td>
-                <td style={{ border: "1px solid #444", color: "#bbb" }}>{fmt(c2.baseRevendaCsll)}</td>
-                <td style={{ border: "1px solid #444", color: "#bbb" }}>{fmt(c3.baseRevendaCsll)}</td>
-                <td style={{ border: "1px solid #444", color: "#bbb" }}>{fmt(cTotal.baseRevendaCsll)}</td>
+                {columns.map((col, idx) => (
+                  <td key={idx} style={{ border: "1px solid #444", color: "#bbb" }}>{fmt(col.data.baseRevendaCsll)}</td>
+                ))}
+                <td style={{ border: "1px solid #444", color: "#bbb" }}>{fmt(summaryCol.data.baseRevendaCsll)}</td>
               </tr>
               <tr>
                 <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", paddingLeft: "1.2rem", color: "#bbb" }}>
                   ↳ Base Presumida de Serviços (32% s/ Serviços)
                 </td>
-                <td style={{ border: "1px solid #444", color: "#bbb" }}>{fmt(c1.baseServicoCsll)}</td>
-                <td style={{ border: "1px solid #444", color: "#bbb" }}>{fmt(c2.baseServicoCsll)}</td>
-                <td style={{ border: "1px solid #444", color: "#bbb" }}>{fmt(c3.baseServicoCsll)}</td>
-                <td style={{ border: "1px solid #444", color: "#bbb" }}>{fmt(cTotal.baseServicoCsll)}</td>
+                {columns.map((col, idx) => (
+                  <td key={idx} style={{ border: "1px solid #444", color: "#bbb" }}>{fmt(col.data.baseServicoCsll)}</td>
+                ))}
+                <td style={{ border: "1px solid #444", color: "#bbb" }}>{fmt(summaryCol.data.baseServicoCsll)}</td>
               </tr>
-              {(cTotal.acrescimoCsll > 0) && (
+              {(summaryCol.data.acrescimoCsll > 0) && (
                 <tr>
                   <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", paddingLeft: "1.2rem", color: "#FFCA28" }}>
                     ↳ (+) Majoração de 10% (Lei 2026 - Excesso de R$ 1,25M)
                   </td>
-                  <td style={{ border: "1px solid #444", color: "#FFCA28" }}>{fmt(c1.acrescimoCsll)}</td>
-                  <td style={{ border: "1px solid #444", color: "#FFCA28" }}>{fmt(c2.acrescimoCsll)}</td>
-                  <td style={{ border: "1px solid #444", color: "#FFCA28" }}>{fmt(c3.acrescimoCsll)}</td>
-                  <td style={{ border: "1px solid #444", color: "#FFCA28", fontWeight: "bold" }}>{fmt(cTotal.acrescimoCsll)}</td>
+                  {columns.map((col, idx) => (
+                    <td key={idx} style={{ border: "1px solid #444", color: "#FFCA28" }}>{fmt(col.data.acrescimoCsll)}</td>
+                  ))}
+                  <td style={{ border: "1px solid #444", color: "#FFCA28", fontWeight: "bold" }}>{fmt(summaryCol.data.acrescimoCsll)}</td>
                 </tr>
               )}
               <tr style={{ background: "rgba(255, 255, 255, 0.05)", fontWeight: "bold" }}>
                 <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left" }}>Base de Cálculo Total CSLL</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c1.baseCsll)}</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c2.baseCsll)}</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c3.baseCsll)}</td>
-                <td style={{ border: "1px solid #444", color: "#FFD54F" }}>{fmt(cTotal.baseCsll)}</td>
+                {columns.map((col, idx) => (
+                  <td key={idx} style={{ border: "1px solid #444" }}>{fmt(col.data.baseCsll)}</td>
+                ))}
+                <td style={{ border: "1px solid #444", color: "#FFD54F" }}>{fmt(summaryCol.data.baseCsll)}</td>
               </tr>
               <tr>
                 <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", paddingLeft: "1.2rem" }}>CSLL Normal (9%)</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c1.csll)}</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c2.csll)}</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c3.csll)}</td>
-                <td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.csll)}</td>
+                {columns.map((col, idx) => (
+                  <td key={idx} style={{ border: "1px solid #444" }}>{fmt(col.data.csll)}</td>
+                ))}
+                <td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(summaryCol.data.csll)}</td>
               </tr>
               <tr>
                 <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", paddingLeft: "1.2rem" }}>(-) CSLL Retida na Fonte</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c1.retencoesCS)}</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c2.retencoesCS)}</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c3.retencoesCS)}</td>
-                <td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.retencoesCS)}</td>
+                {columns.map((col, idx) => (
+                  <td key={idx} style={{ border: "1px solid #444" }}>{fmt(col.data.retencoesCS)}</td>
+                ))}
+                <td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(summaryCol.data.retencoesCS)}</td>
               </tr>
               <tr>
                 <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", paddingLeft: "1.2rem", color: "#FFD54F" }}>Ajuste Manual / Declarado CSLL</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c1.ajusteCsll)}</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c2.ajusteCsll)}</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(c3.ajusteCsll)}</td>
-                <td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(cTotal.ajusteCsll)}</td>
+                {columns.map((col, idx) => (
+                  <td key={idx} style={{ border: "1px solid #444" }}>{fmt(col.data.ajusteCsll)}</td>
+                ))}
+                <td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt(summaryCol.data.ajusteCsll)}</td>
               </tr>
               <tr style={{ background: "rgba(76, 175, 80, 0.15)", fontWeight: "bold" }}>
                 <td style={{ padding: "8px", border: "1px solid #444", textAlign: "left" }}>CSLL DEVIDA LÍQUIDA</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(Math.max(0, c1.csllTotal))}</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(Math.max(0, c2.csllTotal))}</td>
-                <td style={{ border: "1px solid #444" }}>{fmt(Math.max(0, c3.csllTotal))}</td>
-                <td style={{ border: "1px solid #444", fontWeight: "bold", color: "#81C784", fontSize: "0.95rem" }}>{fmt(Math.max(0, cTotal.csllTotal))}</td>
+                {columns.map((col, idx) => (
+                  <td key={idx} style={{ border: "1px solid #444" }}>{fmt(Math.max(0, col.data.csllTotal))}</td>
+                ))}
+                <td style={{ border: "1px solid #444", fontWeight: "bold", color: "#81C784", fontSize: "0.95rem" }}>{fmt(Math.max(0, summaryCol.data.csllTotal))}</td>
               </tr>
             </tbody>
           </table>
