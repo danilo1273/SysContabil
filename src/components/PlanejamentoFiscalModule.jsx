@@ -49,6 +49,23 @@ export const hexToRgba = (hex, alpha = 0.15) => {
   return `rgba(0, 188, 212, ${alpha})`;
 };
 
+// Responsáveis & Funções Padronizadas
+export const RESPONSAVEIS_DEFAULT = [
+  { id: 'resp-1', nome: 'Danilo Machado', cargo: 'Diretoria Fiscal / Controladoria', assinaDocumento: true },
+  { id: 'resp-2', nome: 'Alex / Jonata', cargo: 'Diretoria Executiva / Operações', assinaDocumento: true },
+  { id: 'resp-3', nome: 'Mayara / Andre', cargo: 'Diretoria Administrativa / RH', assinaDocumento: true },
+  { id: 'resp-4', nome: 'Danilo', cargo: 'Diretoria Fiscal / Controladoria', assinaDocumento: false },
+  { id: 'resp-5', nome: 'Alex', cargo: 'Diretoria Executiva / Operações', assinaDocumento: false },
+  { id: 'resp-6', nome: 'Jonata', cargo: 'Diretoria Financeira', assinaDocumento: false },
+  { id: 'resp-7', nome: 'Andre', cargo: 'Diretoria Geral', assinaDocumento: false },
+  { id: 'resp-8', nome: 'Mayara', cargo: 'Diretoria Administrativa / RH', assinaDocumento: false },
+  { id: 'resp-9', nome: 'Ryan Santos', cargo: 'Pricing & Compliance Fiscal', assinaDocumento: false },
+  { id: 'resp-10', nome: 'Octávio (Lacada)', cargo: 'Consultoria Tributária Externa', assinaDocumento: false },
+  { id: 'resp-11', nome: 'Jurídico', cargo: 'Assessoria Jurídica', assinaDocumento: false },
+  { id: 'resp-12', nome: 'Fiscal', cargo: 'Equipe Fiscal / Tributária', assinaDocumento: false },
+  { id: 'resp-13', nome: 'Diretoria', cargo: 'Diretoria Colegiada', assinaDocumento: false }
+];
+
 export const STATUS_PROJETO = [
   { id: 'ideia', label: 'Ideia / Levantamento', color: '#9E9E9E', bg: 'rgba(158, 158, 158, 0.15)' },
   { id: 'estudo', label: 'Em Estudo / Parecer', color: '#FFC107', bg: 'rgba(255, 193, 7, 0.15)' },
@@ -359,6 +376,8 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
   const [isEditReuniaoModalOpen, setIsEditReuniaoModalOpen] = useState(false);
   const [pilares, setPilares] = useState(PILARES_ESTRATEGICOS_DEFAULT);
   const [isPilaresModalOpen, setIsPilaresModalOpen] = useState(false);
+  const [responsaveis, setResponsaveis] = useState(RESPONSAVEIS_DEFAULT);
+  const [isResponsaveisModalOpen, setIsResponsaveisModalOpen] = useState(false);
 
   // Carregar dados salvos ou inicializar com o padrão
   useEffect(() => {
@@ -368,11 +387,12 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [savedAtas, savedProjetos, savedReuniao, savedPilares] = await Promise.all([
+      const [savedAtas, savedProjetos, savedReuniao, savedPilares, savedResponsaveis] = await Promise.all([
         getSettings('agf_planejamento_atas', false),
         getSettings('agf_planejamento_projetos', false),
         getSettings('agf_planejamento_reuniao_custom', false),
-        getSettings('agf_planejamento_pilares', false)
+        getSettings('agf_planejamento_pilares', false),
+        getSettings('agf_planejamento_responsaveis', false)
       ]);
 
       if (Array.isArray(savedAtas) && savedAtas.length > 0) {
@@ -399,13 +419,33 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
         setPilares(PILARES_ESTRATEGICOS_DEFAULT);
         await saveSettings('agf_planejamento_pilares', PILARES_ESTRATEGICOS_DEFAULT);
       }
+
+      if (Array.isArray(savedResponsaveis) && savedResponsaveis.length > 0) {
+        setResponsaveis(savedResponsaveis);
+      } else {
+        setResponsaveis(RESPONSAVEIS_DEFAULT);
+        await saveSettings('agf_planejamento_responsaveis', RESPONSAVEIS_DEFAULT);
+      }
     } catch (err) {
       console.error('Erro ao carregar planejamento fiscal:', err);
       setAtas(INITIAL_ATAS);
       setProjetos(INITIAL_PROJETOS);
       setPilares(PILARES_ESTRATEGICOS_DEFAULT);
+      setResponsaveis(RESPONSAVEIS_DEFAULT);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const persistResponsaveis = async (newResponsaveis) => {
+    setResponsaveis(newResponsaveis);
+    setIsSaving(true);
+    try {
+      await saveSettings('agf_planejamento_responsaveis', newResponsaveis);
+    } catch (err) {
+      console.error('Erro ao salvar responsáveis:', err);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -491,15 +531,18 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
     return { totalProjetos, emExecucao, concluidos, emEstudo, economiaTotal, mediaProgresso };
   }, [projetos]);
 
-  // Lista de Responsáveis únicos
+  // Lista de Responsáveis únicos (mesclando cadastrados e nomes nos projetos)
   const responsaveisList = useMemo(() => {
     const set = new Set();
+    (responsaveis || []).forEach(r => {
+      if (r.nome) set.add(r.nome);
+    });
     projetos.forEach(p => {
       if (p.responsavel) set.add(p.responsavel);
       if (Array.isArray(p.coresponsaveis)) p.coresponsaveis.forEach(c => set.add(c));
     });
     return Array.from(set).sort();
-  }, [projetos]);
+  }, [responsaveis, projetos]);
 
   // Projetos filtrados
   const filteredProjetos = useMemo(() => {
@@ -1450,6 +1493,29 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
                 <Sparkles size={14} /> Pilares Estratégicos
               </button>
 
+              {/* BOTAO GERENCIAR RESPONSAVEIS & FUNCOES */}
+              <button
+                type="button"
+                onClick={() => setIsResponsaveisModalOpen(true)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '0.5rem 0.85rem',
+                  background: 'rgba(76, 175, 80, 0.12)',
+                  border: '1px solid rgba(76, 175, 80, 0.35)',
+                  color: '#81C784',
+                  borderRadius: '6px',
+                  fontSize: '0.82rem',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                title="Cadastrar, padronizar responsáveis e funções da diretoria"
+              >
+                <Users size={14} /> Responsáveis & Funções
+              </button>
+
             </div>
 
             {/* TOGGLE VISÃO KANBAN / TABELA */}
@@ -1733,6 +1799,8 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
           setSelectedProjeto={setSelectedProjeto}
           pilares={pilares}
           onOpenManagePilares={() => setIsPilaresModalOpen(true)}
+          responsaveis={responsaveis}
+          onOpenManageResponsaveis={() => setIsResponsaveisModalOpen(true)}
         />
       )}
 
@@ -1743,6 +1811,7 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
           projetos={projetos}
           kpis={kpis}
           pilares={pilares}
+          responsaveis={responsaveis}
           onClose={() => setIsPrintModalOpen(false)}
         />
       )}
@@ -1763,6 +1832,16 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
           projetos={projetos}
           onClose={() => setIsPilaresModalOpen(false)}
           onSave={persistPilares}
+        />
+      )}
+
+      {/* MODAL 6: GERENCIAR RESPONSÁVEIS & FUNÇÕES */}
+      {isResponsaveisModalOpen && (
+        <GerenciarResponsaveisModal
+          responsaveis={responsaveis}
+          projetos={projetos}
+          onClose={() => setIsResponsaveisModalOpen(false)}
+          onSave={persistResponsaveis}
         />
       )}
 
@@ -2130,7 +2209,9 @@ function ProjetoModal({
   selectedProjeto,
   setSelectedProjeto,
   pilares = PILARES_ESTRATEGICOS_DEFAULT,
-  onOpenManagePilares
+  onOpenManagePilares,
+  responsaveis = RESPONSAVEIS_DEFAULT,
+  onOpenManageResponsaveis
 }) {
   const isEditing = Boolean(projeto?.id);
   const [formData, setFormData] = useState({
@@ -2420,15 +2501,46 @@ function ProjetoModal({
             </div>
 
             <div>
-              <label style={{ display: 'block', color: '#90a4ae', fontSize: '0.85rem', marginBottom: '4px' }}>Líder do Projeto (Responsável)</label>
-              <input
-                type="text"
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <label style={{ color: '#90a4ae', fontSize: '0.85rem' }}>Líder do Projeto (Responsável)</label>
+                {onOpenManageResponsaveis && (
+                  <button
+                    type="button"
+                    onClick={onOpenManageResponsaveis}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#81C784',
+                      fontSize: '0.76rem',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: 0,
+                      textDecoration: 'underline',
+                      fontWeight: 'bold'
+                    }}
+                    title="Cadastrar novo responsável ou alterar funções"
+                  >
+                    <Plus size={12} /> Gerenciar / Novo
+                  </button>
+                )}
+              </div>
+              <select
                 value={formData.responsavel}
                 onChange={e => setFormData({ ...formData, responsavel: e.target.value })}
                 style={{ width: '100%', padding: '0.6rem', background: '#0f1218', border: '1px solid #333', borderRadius: '6px', color: '#fff' }}
-                placeholder="Ex: Danilo, Mayara, Alex..."
                 required
-              />
+              >
+                {formData.responsavel && !responsaveis.some(r => r.nome === formData.responsavel) && (
+                  <option value={formData.responsavel}>{formData.responsavel}</option>
+                )}
+                {responsaveis.map(r => (
+                  <option key={r.id} value={r.nome}>
+                    {r.nome} {r.cargo ? `— (${r.cargo})` : ''}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div>
@@ -2527,13 +2639,18 @@ function ProjetoModal({
                         style={{ flex: 2, padding: '0.45rem', background: '#0f1218', border: '1px solid #444', borderRadius: '4px', color: '#fff', fontSize: '0.85rem' }}
                         autoFocus
                       />
-                      <input
-                        type="text"
+                      <select
                         value={editingEtapaResp}
                         onChange={e => setEditingEtapaResp(e.target.value)}
-                        placeholder="Responsável"
                         style={{ flex: 1, padding: '0.45rem', background: '#0f1218', border: '1px solid #444', borderRadius: '4px', color: '#fff', fontSize: '0.85rem' }}
-                      />
+                      >
+                        {editingEtapaResp && !responsaveis.some(r => r.nome === editingEtapaResp) && (
+                          <option value={editingEtapaResp}>{editingEtapaResp}</option>
+                        )}
+                        {responsaveis.map(r => (
+                          <option key={r.id} value={r.nome}>{r.nome}</option>
+                        ))}
+                      </select>
                       <button
                         type="button"
                         onClick={() => handleSaveEditEtapa(etapa.id)}
@@ -2626,13 +2743,18 @@ function ProjetoModal({
                 style={{ flex: 2, padding: '0.5rem', background: '#0f1218', border: '1px solid #333', borderRadius: '6px', color: '#fff', fontSize: '0.85rem' }}
                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddEtapa(); } }}
               />
-              <input
-                type="text"
+              <select
                 value={newEtapaResp}
                 onChange={e => setNewEtapaResp(e.target.value)}
-                placeholder="Responsável"
                 style={{ flex: 1, padding: '0.5rem', background: '#0f1218', border: '1px solid #333', borderRadius: '6px', color: '#fff', fontSize: '0.85rem' }}
-              />
+              >
+                {newEtapaResp && !responsaveis.some(r => r.nome === newEtapaResp) && (
+                  <option value={newEtapaResp}>{newEtapaResp}</option>
+                )}
+                {responsaveis.map(r => (
+                  <option key={r.id} value={r.nome}>{r.nome}</option>
+                ))}
+              </select>
               <button
                 type="button"
                 onClick={handleAddEtapa}
@@ -2777,12 +2899,22 @@ function ProjetoModal({
 }
 
 // SUB-COMPONENTE: MODAL DE IMPRESSÃO EXECUTIVA / RELATÓRIO PDF TIMBRADO
-function PrintModal({ atas, projetos, kpis, onClose, pilares }) {
+function PrintModal({ atas, projetos, kpis, onClose, pilares, responsaveis }) {
   const handlePrint = () => {
     window.print();
   };
 
   const formatMoney = (val) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
+
+  const signatarios = useMemo(() => {
+    const list = (responsaveis || []).filter(r => r.assinaDocumento);
+    if (list.length > 0) return list;
+    return [
+      { id: '1', nome: 'Danilo Machado', cargo: 'Diretoria Fiscal / Controladoria' },
+      { id: '2', nome: 'Alex / Jonata', cargo: 'Diretoria Executiva / Operações' },
+      { id: '3', nome: 'Mayara / Andre', cargo: 'Diretoria Administrativa / RH' }
+    ];
+  }, [responsaveis]);
 
   return (
     <div style={{
@@ -2920,22 +3052,19 @@ function PrintModal({ atas, projetos, kpis, onClose, pilares }) {
           <div style={{ textAlign: 'center', fontSize: '0.8rem', color: '#666', marginBottom: '2rem' }}>
             Documento aprovado pelos membros da Diretoria Executiva do AGF GROUP:
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2rem', textAlign: 'center' }}>
-            <div>
-              <div style={{ borderTop: '1px solid #333', width: '80%', margin: '0 auto 6px auto' }} />
-              <div style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>Danilo Machado</div>
-              <div style={{ fontSize: '0.7rem', color: '#666' }}>Diretoria Fiscal / Controladoria</div>
-            </div>
-            <div>
-              <div style={{ borderTop: '1px solid #333', width: '80%', margin: '0 auto 6px auto' }} />
-              <div style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>Alex / Jonata</div>
-              <div style={{ fontSize: '0.7rem', color: '#666' }}>Diretoria Executiva / Operações</div>
-            </div>
-            <div>
-              <div style={{ borderTop: '1px solid #333', width: '80%', margin: '0 auto 6px auto' }} />
-              <div style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>Mayara / Andre</div>
-              <div style={{ fontSize: '0.7rem', color: '#666' }}>Diretoria Administrativa / RH</div>
-            </div>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: `repeat(${Math.min(Math.max(signatarios.length, 1), 4)}, 1fr)`,
+            gap: '2rem',
+            textAlign: 'center'
+          }}>
+            {signatarios.map((sig, idx) => (
+              <div key={sig.id || idx}>
+                <div style={{ borderTop: '1px solid #333', width: '85%', margin: '0 auto 6px auto' }} />
+                <div style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>{sig.nome}</div>
+                <div style={{ fontSize: '0.7rem', color: '#666' }}>{sig.cargo}</div>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -3218,6 +3347,311 @@ function GerenciarPilaresModal({ pilares, projetos, onClose, onSave }) {
               type="button"
               onClick={onClose}
               style={{ padding: '0.6rem 1.4rem', background: '#00BCD4', border: 'none', color: '#000', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}
+            >
+              Concluir
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// SUB-COMPONENTE: MODAL DE GERENCIAMENTO DE RESPONSÁVEIS & FUNÇÕES
+function GerenciarResponsaveisModal({ responsaveis, projetos, onClose, onSave }) {
+  const [lista, setLista] = useState(responsaveis);
+  const [novoNome, setNovoNome] = useState('');
+  const [novoCargo, setNovoCargo] = useState('');
+  const [novoAssina, setNovoAssina] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editingNome, setEditingNome] = useState('');
+  const [editingCargo, setEditingCargo] = useState('');
+  const [editingAssina, setEditingAssina] = useState(false);
+
+  const handleAdd = (e) => {
+    e.preventDefault();
+    if (!novoNome.trim()) return;
+
+    const id = `resp_${Date.now()}`;
+    const novoResp = {
+      id,
+      nome: novoNome.trim(),
+      cargo: novoCargo.trim() || 'Colaborador / Fiscal',
+      assinaDocumento: novoAssina
+    };
+
+    const updated = [...lista, novoResp];
+    setLista(updated);
+    onSave(updated);
+    setNovoNome('');
+    setNovoCargo('');
+    setNovoAssina(false);
+    window.$toast?.(`Responsável "${novoNome.trim()}" cadastrado com sucesso!`, { type: 'success' });
+  };
+
+  const handleStartEdit = (item) => {
+    setEditingId(item.id);
+    setEditingNome(item.nome);
+    setEditingCargo(item.cargo || '');
+    setEditingAssina(Boolean(item.assinaDocumento));
+  };
+
+  const handleSaveEdit = (id) => {
+    if (!editingNome.trim()) return;
+    const updated = lista.map(item => item.id === id ? {
+      ...item,
+      nome: editingNome.trim(),
+      cargo: editingCargo.trim() || 'Colaborador / Fiscal',
+      assinaDocumento: editingAssina
+    } : item);
+    setLista(updated);
+    onSave(updated);
+    setEditingId(null);
+    window.$toast?.('Responsável atualizado com sucesso!', { type: 'success' });
+  };
+
+  const handleDelete = (id, nome) => {
+    const emUso = (projetos || []).filter(p => p.responsavel === nome || (p.coresponsaveis || []).includes(nome)).length;
+    if (emUso > 0) {
+      window.$alert?.(`Não é possível excluir pois existem ${emUso} projeto(s) associado(s) a este responsável.`);
+      return;
+    }
+    if (window.confirm(`Tem certeza que deseja excluir o responsável "${nome}"?`)) {
+      const updated = lista.filter(item => item.id !== id);
+      setLista(updated);
+      onSave(updated);
+      window.$toast?.('Responsável removido com sucesso.', { type: 'info' });
+    }
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+      background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 99999, padding: '1rem'
+    }}>
+      <div style={{
+        background: '#161a23',
+        border: '1px solid rgba(76, 175, 80, 0.4)',
+        borderRadius: '16px',
+        width: '100%',
+        maxWidth: '700px',
+        maxHeight: '90vh',
+        overflowY: 'auto',
+        boxShadow: '0 20px 40px rgba(0,0,0,0.6)',
+        display: 'flex',
+        flexDirection: 'column'
+      }}>
+        {/* Header */}
+        <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <Users size={22} color="#81C784" />
+              <h3 style={{ margin: 0, color: '#fff', fontSize: '1.2rem', fontWeight: '700' }}>
+                Gerenciar Responsáveis & Funções
+              </h3>
+            </div>
+            <p style={{ margin: '4px 0 0 0', color: '#888', fontSize: '0.8rem' }}>
+              Padronize os membros da equipe, cargos e os signatários que aprovam o relatório de diretoria.
+            </p>
+          </div>
+          <button type="button" onClick={onClose} style={{ background: 'transparent', border: 'none', color: '#888', cursor: 'pointer', padding: '4px' }}>
+            <X size={20} />
+          </button>
+        </div>
+
+        <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          {/* Formulário Novo Responsável */}
+          <form onSubmit={handleAdd} style={{ background: 'rgba(255,255,255,0.03)', padding: '1.1rem', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)' }}>
+            <h4 style={{ margin: '0 0 0.8rem 0', color: '#81C784', fontSize: '0.9rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Plus size={16} /> Cadastrar Novo Responsável
+            </h4>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.8rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: '#aaa', marginBottom: '4px', fontWeight: 'bold' }}>
+                    Nome do Responsável *
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ex: Danilo Machado, Talita Alves..."
+                    value={novoNome}
+                    onChange={e => setNovoNome(e.target.value)}
+                    style={{ width: '100%', padding: '0.6rem', background: '#0e1219', border: '1px solid #333', borderRadius: '6px', color: '#fff', fontSize: '0.9rem' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: '#aaa', marginBottom: '4px', fontWeight: 'bold' }}>
+                    Cargo / Função / Área *
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ex: Diretoria Fiscal, Supervisão..."
+                    value={novoCargo}
+                    onChange={e => setNovoCargo(e.target.value)}
+                    style={{ width: '100%', padding: '0.6rem', background: '#0e1219', border: '1px solid #333', borderRadius: '6px', color: '#fff', fontSize: '0.9rem' }}
+                  />
+                </div>
+              </div>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.85rem', color: '#cfd8dc' }}>
+                <input
+                  type="checkbox"
+                  checked={novoAssina}
+                  onChange={e => setNovoAssina(e.target.checked)}
+                  style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                />
+                <span>Exibir como <strong>Signatário da Diretoria</strong> no Relatório Oficial (PDF)</span>
+              </label>
+
+              <button
+                type="submit"
+                disabled={!novoNome.trim()}
+                style={{
+                  padding: '0.6rem 1.2rem',
+                  background: novoNome.trim() ? '#4CAF50' : '#333',
+                  color: novoNome.trim() ? '#fff' : '#888',
+                  border: 'none',
+                  borderRadius: '6px',
+                  fontWeight: 'bold',
+                  fontSize: '0.85rem',
+                  cursor: novoNome.trim() ? 'pointer' : 'not-allowed',
+                  marginTop: '4px',
+                  alignSelf: 'flex-start'
+                }}
+              >
+                + Cadastrar Responsável
+              </button>
+            </div>
+          </form>
+
+          {/* Lista de Responsáveis Cadastrados */}
+          <div>
+            <h4 style={{ margin: '0 0 0.8rem 0', color: '#ccc', fontSize: '0.9rem', fontWeight: 'bold' }}>
+              Equipe & Cargos Cadastrados ({lista.length})
+            </h4>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '320px', overflowY: 'auto' }}>
+              {lista.map(item => {
+                const isEditing = editingId === item.id;
+                const emUso = (projetos || []).filter(p => p.responsavel === item.nome || (p.coresponsaveis || []).includes(item.nome)).length;
+
+                if (isEditing) {
+                  return (
+                    <div key={item.id} style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: '#1c2230', padding: '0.8rem', borderRadius: '8px', border: '1px solid #81C784' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                        <input
+                          type="text"
+                          value={editingNome}
+                          onChange={e => setEditingNome(e.target.value)}
+                          placeholder="Nome"
+                          style={{ padding: '0.5rem', background: '#0e1219', border: '1px solid #444', borderRadius: '4px', color: '#fff', fontSize: '0.85rem' }}
+                        />
+                        <input
+                          type="text"
+                          value={editingCargo}
+                          onChange={e => setEditingCargo(e.target.value)}
+                          placeholder="Cargo / Função"
+                          style={{ padding: '0.5rem', background: '#0e1219', border: '1px solid #444', borderRadius: '4px', color: '#fff', fontSize: '0.85rem' }}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: '#bbb', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={editingAssina}
+                            onChange={e => setEditingAssina(e.target.checked)}
+                          />
+                          <span>Signatário no Relatório PDF</span>
+                        </label>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleSaveEdit(item.id)}
+                            style={{ padding: '0.35rem 0.8rem', background: '#4CAF50', border: 'none', color: '#fff', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.75rem' }}
+                          >
+                            Salvar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingId(null)}
+                            style={{ padding: '0.35rem 0.6rem', background: '#333', border: 'none', color: '#aaa', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem' }}
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div
+                    key={item.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      background: 'rgba(0,0,0,0.35)',
+                      padding: '0.65rem 0.9rem',
+                      borderRadius: '8px',
+                      borderLeft: item.assinaDocumento ? '4px solid #81C784' : '4px solid rgba(255,255,255,0.15)'
+                    }}
+                  >
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <strong style={{ color: '#fff', fontSize: '0.9rem' }}>{item.nome}</strong>
+                        {item.assinaDocumento && (
+                          <span style={{ background: 'rgba(76, 175, 80, 0.2)', color: '#81C784', padding: '1px 6px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 'bold' }}>
+                            ✓ Signatário da Diretoria
+                          </span>
+                        )}
+                        <span style={{ fontSize: '0.72rem', color: '#888', background: 'rgba(255,255,255,0.06)', padding: '1px 5px', borderRadius: '4px' }}>
+                          {emUso} projeto(s)
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: '#90a4ae', marginTop: '2px' }}>
+                        {item.cargo}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <button
+                        type="button"
+                        onClick={() => handleStartEdit(item)}
+                        style={{ background: 'transparent', border: 'none', color: '#64B5F6', cursor: 'pointer', padding: '3px' }}
+                        title="Editar Responsável"
+                      >
+                        <Edit3 size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(item.id, item.nome)}
+                        disabled={emUso > 0}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: emUso > 0 ? '#555' : '#EF5350',
+                          cursor: emUso > 0 ? 'not-allowed' : 'pointer',
+                          padding: '3px'
+                        }}
+                        title={emUso > 0 ? 'Não pode excluir: há projetos associados' : 'Excluir Responsável'}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '0.8rem', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{ padding: '0.6rem 1.4rem', background: '#4CAF50', border: 'none', color: '#fff', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}
             >
               Concluir
             </button>
