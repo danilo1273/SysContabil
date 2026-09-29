@@ -805,7 +805,7 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
         {[
           { id: 'dashboard', label: '📊 Painel Executivo', count: null },
           { id: 'atas', label: '📝 Atas de Reunião', count: atas.length },
-          { id: 'projetos', label: '🚀 Projetos & Pipeline', count: projetos.length }
+          { id: 'projetos', label: '🚀 Projetos', count: projetos.length }
         ].map(tab => (
           <button
             key={tab.id}
