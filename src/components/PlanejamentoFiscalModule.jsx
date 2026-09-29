@@ -3,9 +3,92 @@ import {
   FileText, Target, CheckCircle2, Clock, AlertTriangle, Plus, 
   Trash2, Edit3, ArrowLeft, Printer, Users, TrendingUp, Calendar, 
   ChevronRight, Building2, Shield, DollarSign, Search, Filter, 
-  Sparkles, CheckSquare, MessageSquare, ExternalLink, RefreshCw, X, Save
+  Sparkles, CheckSquare, MessageSquare, ExternalLink, RefreshCw, X, Save, Download
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { getSettings, saveSettings } from '../utils/db';
+
+// Exportação padronizada para Excel com nome da rotina
+export const exportPlanejamentoToExcel = (projetos, pilares, atas) => {
+  try {
+    const now = new Date();
+    const dataFormatada = now.toISOString().split('T')[0];
+    const filename = `Planejamento_Estrategico_Fiscal_Projetos_AGF_${dataFormatada}.xlsx`;
+
+    const rows = (projetos || []).map(p => {
+      const pilarObj = (pilares || PILARES_ESTRATEGICOS_DEFAULT).find(pil => pil.id === p.pilar);
+      const statusObj = STATUS_PROJETO.find(s => s.id === p.status);
+      const etapasTotal = (p.etapas || []).length;
+      const etapasConcluidas = (p.etapas || []).filter(e => e.concluido).length;
+      const ultimaAtualizacao = (p.timeline || [])[p.timeline?.length - 1]?.texto || '';
+
+      return {
+        'Código': p.codigo || '',
+        'Título do Projeto': p.titulo || '',
+        'Pilar Estratégico': pilarObj ? pilarObj.label : (p.pilar || ''),
+        'Líder / Responsável': p.responsavel || '',
+        'Status': statusObj ? statusObj.label : (p.status || ''),
+        'Progresso (%)': `${p.progresso || 0}%`,
+        'Impacto Financeiro Estimado (R$)': Number(p.impactoValor) || 0,
+        'Tipo de Impacto': p.impactoTipo || '',
+        'Descrição do Impacto': p.impactoDesc || '',
+        'Data Limite': p.dataLimite || '',
+        'Descrição do Projeto': p.descricao || '',
+        'Qtd Etapas': etapasTotal,
+        'Etapas Concluídas': etapasConcluidas,
+        'Última Atualização Diário': ultimaAtualizacao
+      };
+    });
+
+    const wsProjetos = XLSX.utils.json_to_sheet(rows);
+    wsProjetos['!cols'] = [
+      { wch: 10 },
+      { wch: 45 },
+      { wch: 30 },
+      { wch: 18 },
+      { wch: 22 },
+      { wch: 14 },
+      { wch: 25 },
+      { wch: 22 },
+      { wch: 40 },
+      { wch: 14 },
+      { wch: 50 },
+      { wch: 12 },
+      { wch: 16 },
+      { wch: 45 }
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, wsProjetos, 'Projetos');
+
+    if (Array.isArray(atas) && atas.length > 0) {
+      const ataRows = atas.map(a => ({
+        'Título da Reunião': a.titulo || '',
+        'Data': a.data || '',
+        'Local': a.local || '',
+        'Participantes': Array.isArray(a.participantes) ? a.participantes.join(', ') : '',
+        'Objetivo Master': a.objetivoMaster || '',
+        'Deliberações da Diretoria': a.anotacoesMestres || ''
+      }));
+      const wsAtas = XLSX.utils.json_to_sheet(ataRows);
+      wsAtas['!cols'] = [
+        { wch: 35 },
+        { wch: 12 },
+        { wch: 25 },
+        { wch: 30 },
+        { wch: 40 },
+        { wch: 60 }
+      ];
+      XLSX.utils.book_append_sheet(wb, wsAtas, 'Atas Diretoria');
+    }
+
+    XLSX.writeFile(wb, filename);
+    window.$toast?.(`Planilha exportada com sucesso: ${filename}`, { type: 'success' });
+  } catch (err) {
+    console.error('Erro ao exportar Excel:', err);
+    window.$toast?.('Erro ao gerar arquivo Excel.', { type: 'error' });
+  }
+};
 
 // Pilares Estratégicos com cores e ícones padrão
 export const PILARES_ESTRATEGICOS_DEFAULT = [
@@ -723,8 +806,11 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
   };
 
   return (
-    <div style={{ padding: '1.5rem', color: '#fff', minHeight: '85vh' }}>
+    <div className="planejamento-module-root" style={{ padding: '1.5rem', color: '#fff', minHeight: '85vh' }}>
       
+      {/* WRAPPER PRINCIPAL DA INTERFACE (OCULTO EM IMPRESSÃO QUANDO O MODAL DE RELATÓRIO ESTÁ ABERTO) */}
+      <div className={`planejamento-main-interface ${isPrintModalOpen ? 'print-hide' : ''}`}>
+
       {/* HEADER SUPERIOR EXECUTIVO */}
       <div style={{
         display: 'flex',
@@ -819,6 +905,26 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
             }}
           >
             <Plus size={16} /> Novo Projeto
+          </button>
+
+          <button
+            onClick={() => exportPlanejamentoToExcel(projetos, pilares, atas)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '0.55rem 0.9rem',
+              background: 'rgba(76, 175, 80, 0.15)',
+              border: '1px solid rgba(76, 175, 80, 0.4)',
+              color: '#81C784',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontWeight: '500',
+              fontSize: '0.85rem'
+            }}
+            title="Exportar dados para Excel (.xlsx) com o nome oficial da rotina"
+          >
+            <Download size={16} /> Exportar Excel
           </button>
 
           <button
@@ -1795,6 +1901,8 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
 
         </div>
       )}
+
+      </div> {/* Fim de planejamento-main-interface */}
 
       {/* MODAL 1: EDITAR / CRIAR ATA DE REUNIÃO */}
       {isAtaModalOpen && (
@@ -2925,8 +3033,31 @@ function ProjetoModal({
 
 // SUB-COMPONENTE: MODAL DE IMPRESSÃO EXECUTIVA / RELATÓRIO PDF TIMBRADO
 function PrintModal({ atas, projetos, kpis, onClose, pilares, responsaveis }) {
+  // Impressão com título dinâmico para o arquivo PDF sair com o nome da rotina
   const handlePrint = () => {
+    const originalTitle = document.title;
+    const now = new Date();
+    const dataFormatada = now.toISOString().split('T')[0];
+    
+    // Nome oficial da rotina para o arquivo PDF ao Salvar
+    document.title = `Planejamento_Estrategico_Fiscal_Relatorio_AGF_${dataFormatada}`;
+
+    const restoreTitle = () => {
+      document.title = originalTitle;
+      window.removeEventListener('afterprint', restoreTitle);
+    };
+
+    window.addEventListener('afterprint', restoreTitle);
     window.print();
+
+    // Fallback de segurança para restauração do título da aba
+    setTimeout(() => {
+      document.title = originalTitle;
+    }, 2000);
+  };
+
+  const handleExportExcel = () => {
+    exportPlanejamentoToExcel(projetos, pilares, atas);
   };
 
   const formatMoney = (val) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
@@ -2942,93 +3073,303 @@ function PrintModal({ atas, projetos, kpis, onClose, pilares, responsaveis }) {
   }, [responsaveis]);
 
   return (
-    <div style={{
+    <div className="planejamento-print-backdrop" style={{
       position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
       background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000, padding: '1rem'
     }}>
-      <div style={{
+      {/* ESTILOS DE IMPRESSÃO EMBUTIDOS PARA PDF PROFISSIONAL TIMBRADO */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          @page {
+            size: A4 portrait !important;
+            margin: 10mm 10mm 12mm 10mm !important;
+          }
+
+          /* Ocultar elementos desnecessários da aplicação */
+          .app-header,
+          .print-hide,
+          .no-print,
+          nav,
+          header,
+          footer,
+          aside,
+          button,
+          input,
+          select {
+            display: none !important;
+          }
+
+          html, body {
+            background: #ffffff !important;
+            color: #0f172a !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            height: auto !important;
+            min-height: auto !important;
+            overflow: visible !important;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+
+          .app-container,
+          .planejamento-module-root {
+            padding: 0 !important;
+            margin: 0 !important;
+            background: #ffffff !important;
+            min-height: auto !important;
+          }
+
+          /* Reset do Backdrop do Modal */
+          .planejamento-print-backdrop {
+            position: static !important;
+            inset: auto !important;
+            background: transparent !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            width: 100% !important;
+            height: auto !important;
+            overflow: visible !important;
+            display: block !important;
+            backdrop-filter: none !important;
+            box-shadow: none !important;
+            z-index: auto !important;
+          }
+
+          /* Reset do Dialog para Fluxo A4 Contínuo */
+          .planejamento-print-dialog {
+            position: static !important;
+            background: #ffffff !important;
+            color: #0f172a !important;
+            border: none !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+            max-width: 100% !important;
+            width: 100% !important;
+            height: auto !important;
+            max-height: none !important;
+            overflow: visible !important;
+            display: block !important;
+            padding: 0 !important;
+            margin: 0 !important;
+          }
+
+          /* Tabela de Projetos */
+          .planejamento-report-table {
+            width: 100% !important;
+            border-collapse: collapse !important;
+            margin-top: 8px !important;
+          }
+
+          .planejamento-report-table thead {
+            display: table-header-group !important;
+          }
+
+          .planejamento-report-table thead th {
+            background-color: #00838F !important;
+            color: #ffffff !important;
+            font-size: 8pt !important;
+            font-weight: 700 !important;
+            text-transform: uppercase !important;
+            letter-spacing: 0.5px !important;
+            padding: 6px 8px !important;
+            border: 1px solid #00838F !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+
+          .planejamento-report-table tbody tr {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+
+          .planejamento-report-table tbody td {
+            border: 1px solid #cbd5e1 !important;
+            padding: 5px 7px !important;
+            font-size: 7.5pt !important;
+            line-height: 1.3 !important;
+            vertical-align: top !important;
+          }
+
+          /* Seções que não devem quebrar ao meio */
+          .planejamento-avoid-break {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+
+          /* Forçar exibição de cores e background exatos no papel/PDF */
+          * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+        }
+      `}} />
+
+      <div className="planejamento-print-dialog" style={{
         background: '#fff',
-        color: '#000',
+        color: '#0f172a',
         borderRadius: '12px',
         width: '100%',
-        maxWidth: '900px',
+        maxWidth: '960px',
         maxHeight: '94vh',
         overflowY: 'auto',
         padding: '2.5rem',
         boxShadow: '0 25px 60px rgba(0,0,0,0.8)',
         position: 'relative'
       }}>
-        {/* BOTÕES DE CONTROLE SUPERIORES */}
-        <div className="no-print" style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginBottom: '1.5rem', borderBottom: '1px solid #ddd', paddingBottom: '1rem' }}>
-          <button
-            onClick={handlePrint}
-            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0.6rem 1.2rem', background: '#00838F', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}
-          >
-            <Printer size={16} /> Imprimir / Salvar PDF
-          </button>
-          <button
-            onClick={onClose}
-            style={{ padding: '0.6rem 1rem', background: '#e0e0e0', color: '#333', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
-          >
-            Fechar
-          </button>
+        {/* BARRA SUPERIOR DE AÇÕES (NÃO IMPRESSA) */}
+        <div className="no-print" style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '1.5rem',
+          borderBottom: '1px solid #e2e8f0',
+          paddingBottom: '1rem',
+          flexWrap: 'wrap',
+          gap: '10px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: '600' }}>
+              Rotina: <strong style={{ color: '#00838F' }}>Planejamento Estratégico Fiscal</strong>
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <button
+              onClick={handleExportExcel}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '0.6rem 1.1rem',
+                background: '#2e7d32',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '6px',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                fontSize: '0.85rem'
+              }}
+              title="Salvar arquivo Excel com o nome da rotina"
+            >
+              <Download size={16} /> Exportar Excel (.xlsx)
+            </button>
+
+            <button
+              onClick={handlePrint}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '0.6rem 1.2rem',
+                background: '#00838F',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '6px',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                fontSize: '0.85rem'
+              }}
+              title="Salvar arquivo PDF com o nome da rotina"
+            >
+              <Printer size={16} /> Imprimir / Salvar PDF
+            </button>
+
+            <button
+              onClick={onClose}
+              style={{
+                padding: '0.6rem 1rem',
+                background: '#f1f5f9',
+                color: '#475569',
+                border: '1px solid #cbd5e1',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontWeight: '600',
+                fontSize: '0.85rem'
+              }}
+            >
+              Fechar
+            </button>
+          </div>
         </div>
 
         {/* CABEÇALHO DO DOCUMENTO TIMBRADO */}
-        <div style={{ borderBottom: '2px solid #00838F', paddingBottom: '1rem', marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+        <div style={{
+          borderBottom: '3px solid #00838F',
+          paddingBottom: '1.2rem',
+          marginBottom: '1.5rem',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-end',
+          flexWrap: 'wrap',
+          gap: '12px'
+        }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: '1.6rem', color: '#00838F', fontWeight: '900', letterSpacing: '-0.5px' }}>
-              AGF GROUP • DIRETORIA EXECUTIVA
-            </h1>
-            <div style={{ fontSize: '0.95rem', fontWeight: 'bold', color: '#333', marginTop: '2px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h1 style={{ margin: 0, fontSize: '1.6rem', color: '#00838F', fontWeight: '900', letterSpacing: '-0.5px' }}>
+                AGF GROUP • DIRETORIA EXECUTIVA
+              </h1>
+            </div>
+            <div style={{ fontSize: '1rem', fontWeight: '800', color: '#0f172a', marginTop: '4px' }}>
               RELATÓRIO DE PLANEJAMENTO ESTRATÉGICO FISCAL & GOVERNANÇA
             </div>
-            <div style={{ fontSize: '0.8rem', color: '#666', marginTop: '2px' }}>
-              Documento Confidencial • Uso Interno Corporativo
+            <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '2px' }}>
+              Documento Confidencial • Uso Interno Corporativo • Diretoria Colegiada
             </div>
           </div>
-          <div style={{ textAlign: 'right', fontSize: '0.8rem', color: '#555' }}>
-            <div>Emissão: {new Date().toLocaleDateString('pt-BR')}</div>
-            <div>Status Geral: <strong>{kpis.mediaProgresso}% Concluído</strong></div>
+          <div style={{ textAlign: 'right', fontSize: '0.8rem', color: '#475569', lineHeight: '1.5' }}>
+            <div>Emissão: <strong>{new Date().toLocaleDateString('pt-BR')}</strong></div>
+            <div>Status Geral: <strong style={{ color: '#00838F' }}>{kpis.mediaProgresso}% Concluído</strong></div>
+            <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Rotina: Planejamento_Estrategico_Fiscal</div>
           </div>
         </div>
 
-        {/* SUMÁRIO EXECUTIVO */}
-        <div style={{ background: '#f5f7fa', border: '1px solid #e0e0e0', borderRadius: '8px', padding: '1rem', marginBottom: '1.5rem', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', textAlign: 'center' }}>
+        {/* SUMÁRIO EXECUTIVO (KPIS) */}
+        <div className="planejamento-avoid-break" style={{
+          background: '#f8fafc',
+          border: '1px solid #cbd5e1',
+          borderRadius: '8px',
+          padding: '1rem',
+          marginBottom: '1.5rem',
+          display: 'grid',
+          gridTemplateColumns: 'repeat(4, 1fr)',
+          gap: '1rem',
+          textAlign: 'center'
+        }}>
           <div>
-            <div style={{ fontSize: '0.75rem', color: '#666' }}>PROJETOS MAPEADOS</div>
-            <div style={{ fontSize: '1.3rem', fontWeight: 'bold', color: '#00838F' }}>{kpis.totalProjetos}</div>
+            <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: '700', letterSpacing: '0.5px' }}>PROJETOS MAPEADOS</div>
+            <div style={{ fontSize: '1.4rem', fontWeight: '900', color: '#00838F', marginTop: '2px' }}>{kpis.totalProjetos}</div>
           </div>
           <div>
-            <div style={{ fontSize: '0.75rem', color: '#666' }}>EM EXECUÇÃO</div>
-            <div style={{ fontSize: '1.3rem', fontWeight: 'bold', color: '#1976D2' }}>{kpis.emExecucao}</div>
+            <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: '700', letterSpacing: '0.5px' }}>EM EXECUÇÃO</div>
+            <div style={{ fontSize: '1.4rem', fontWeight: '900', color: '#0284c7', marginTop: '2px' }}>{kpis.emExecucao}</div>
           </div>
           <div>
-            <div style={{ fontSize: '0.75rem', color: '#666' }}>IMPACTO FINANCEIRO ESTIMADO</div>
-            <div style={{ fontSize: '1.3rem', fontWeight: 'bold', color: '#2E7D32' }}>{formatMoney(kpis.economiaTotal)}</div>
+            <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: '700', letterSpacing: '0.5px' }}>IMPACTO FINANCEIRO ESTIMADO</div>
+            <div style={{ fontSize: '1.4rem', fontWeight: '900', color: '#16a34a', marginTop: '2px' }}>{formatMoney(kpis.economiaTotal)}</div>
           </div>
           <div>
-            <div style={{ fontSize: '0.75rem', color: '#666' }}>ATAS REGISTRADAS</div>
-            <div style={{ fontSize: '1.3rem', fontWeight: 'bold', color: '#7B1FA2' }}>{atas.length}</div>
+            <div style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: '700', letterSpacing: '0.5px' }}>ATAS REGISTRADAS</div>
+            <div style={{ fontSize: '1.4rem', fontWeight: '900', color: '#9333ea', marginTop: '2px' }}>{atas.length}</div>
           </div>
         </div>
 
-        {/* TABELA DE PROJETOS E AÇÕES */}
+        {/* SEÇÃO 1: TABELA DE PROJETOS E AÇÕES */}
         <div style={{ marginBottom: '2rem' }}>
-          <h3 style={{ margin: '0 0 0.8rem 0', fontSize: '1.1rem', color: '#00838F', borderBottom: '1px solid #ccc', paddingBottom: '4px' }}>
+          <h3 style={{ margin: '0 0 0.8rem 0', fontSize: '1.05rem', color: '#00838F', borderBottom: '2px solid #e2e8f0', paddingBottom: '4px', fontWeight: '700' }}>
             1. Quadro Geral de Ações Estratégicas
           </h3>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+          <table className="planejamento-report-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
             <thead>
               <tr style={{ background: '#00838F', color: '#fff', textAlign: 'left' }}>
-                <th style={{ padding: '6px' }}>Cód.</th>
-                <th style={{ padding: '6px' }}>Projeto</th>
-                <th style={{ padding: '6px' }}>Pilar</th>
-                <th style={{ padding: '6px' }}>Líder</th>
-                <th style={{ padding: '6px' }}>Ganho/Ano</th>
-                <th style={{ padding: '6px' }}>Status</th>
-                <th style={{ padding: '6px' }}>Progresso</th>
+                <th style={{ padding: '6px', width: '60px', textAlign: 'center' }}>Cód.</th>
+                <th style={{ padding: '6px' }}>Projeto / Escopo Estratégico</th>
+                <th style={{ padding: '6px', width: '115px' }}>Pilar</th>
+                <th style={{ padding: '6px', width: '85px' }}>Líder</th>
+                <th style={{ padding: '6px', width: '105px', textAlign: 'right' }}>Ganho/Ano</th>
+                <th style={{ padding: '6px', width: '100px' }}>Status</th>
+                <th style={{ padding: '6px', width: '65px', textAlign: 'center' }}>Progresso</th>
               </tr>
             </thead>
             <tbody>
@@ -3036,19 +3377,43 @@ function PrintModal({ atas, projetos, kpis, onClose, pilares, responsaveis }) {
                 const statusObj = STATUS_PROJETO.find(s => s.id === proj.status) || STATUS_PROJETO[0];
                 const pilarObj = (pilares || PILARES_ESTRATEGICOS).find(p => p.id === proj.pilar) || (pilares || PILARES_ESTRATEGICOS)[0];
                 return (
-                  <tr key={proj.id} style={{ borderBottom: '1px solid #eee', background: idx % 2 === 0 ? '#fafafa' : '#fff' }}>
-                    <td style={{ padding: '6px', fontWeight: 'bold' }}>{proj.codigo}</td>
-                    <td style={{ padding: '6px' }}>
-                      <strong>{proj.titulo}</strong>
-                      <div style={{ fontSize: '0.72rem', color: '#666' }}>{proj.descricao}</div>
+                  <tr key={proj.id} style={{ borderBottom: '1px solid #cbd5e1', background: idx % 2 === 0 ? '#f8fafc' : '#ffffff' }}>
+                    <td style={{ padding: '6px', fontWeight: 'bold', textAlign: 'center', color: '#00838F', border: '1px solid #cbd5e1' }}>
+                      {proj.codigo}
                     </td>
-                    <td style={{ padding: '6px' }}>{pilarObj.label.split('(')[0]}</td>
-                    <td style={{ padding: '6px' }}>{proj.responsavel}</td>
-                    <td style={{ padding: '6px', fontWeight: 'bold', color: '#2E7D32' }}>
+                    <td style={{ padding: '6px', border: '1px solid #cbd5e1' }}>
+                      <strong style={{ color: '#0f172a', fontSize: '0.82rem' }}>{proj.titulo}</strong>
+                      {proj.descricao && (
+                        <div style={{ fontSize: '0.72rem', color: '#475569', marginTop: '2px', lineHeight: '1.3' }}>
+                          {proj.descricao}
+                        </div>
+                      )}
+                    </td>
+                    <td style={{ padding: '6px', border: '1px solid #cbd5e1', fontSize: '0.75rem', color: '#334155' }}>
+                      {pilarObj.label.split('(')[0]}
+                    </td>
+                    <td style={{ padding: '6px', border: '1px solid #cbd5e1', fontWeight: '600', color: '#1e293b' }}>
+                      {proj.responsavel}
+                    </td>
+                    <td style={{ padding: '6px', border: '1px solid #cbd5e1', fontWeight: 'bold', color: proj.impactoValor > 0 ? '#15803d' : '#64748b', textAlign: 'right' }}>
                       {proj.impactoValor > 0 ? formatMoney(proj.impactoValor) : '-'}
                     </td>
-                    <td style={{ padding: '6px' }}>{statusObj.label}</td>
-                    <td style={{ padding: '6px', fontWeight: 'bold' }}>{proj.progresso}%</td>
+                    <td style={{ padding: '6px', border: '1px solid #cbd5e1' }}>
+                      <span style={{
+                        display: 'inline-block',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        fontSize: '0.7rem',
+                        fontWeight: '600',
+                        background: '#f1f5f9',
+                        color: '#334155'
+                      }}>
+                        {statusObj.label}
+                      </span>
+                    </td>
+                    <td style={{ padding: '6px', border: '1px solid #cbd5e1', textAlign: 'center' }}>
+                      <span style={{ fontWeight: 'bold', color: '#0f172a', fontSize: '0.8rem' }}>{proj.progresso}%</span>
+                    </td>
                   </tr>
                 );
               })}
@@ -3056,40 +3421,61 @@ function PrintModal({ atas, projetos, kpis, onClose, pilares, responsaveis }) {
           </table>
         </div>
 
-        {/* DELIBERAÇÕES DAS ÚLTIMAS ATAS */}
-        <div style={{ marginBottom: '2rem' }}>
-          <h3 style={{ margin: '0 0 0.8rem 0', fontSize: '1.1rem', color: '#00838F', borderBottom: '1px solid #ccc', paddingBottom: '4px' }}>
-            2. Deliberações da Diretoria (Última Ata)
+        {/* SEÇÃO 2: DELIBERAÇÕES DA DIRETORIA (ATAS) */}
+        <div className="planejamento-avoid-break" style={{ marginBottom: '2rem' }}>
+          <h3 style={{ margin: '0 0 0.8rem 0', fontSize: '1.05rem', color: '#00838F', borderBottom: '2px solid #e2e8f0', paddingBottom: '4px', fontWeight: '700' }}>
+            2. Deliberações da Diretoria & Alinhamentos Estratégicos
           </h3>
-          {atas[0] && (
-            <div style={{ fontSize: '0.85rem', lineHeight: '1.6', color: '#333' }}>
-              <div><strong>Ata:</strong> {atas[0].titulo} (Data: {atas[0].data})</div>
-              <div><strong>Participantes:</strong> {(atas[0].participantes || []).join(', ')}</div>
-              <div style={{ marginTop: '0.5rem', background: '#f5f5f5', padding: '0.8rem', borderRadius: '6px', whiteSpace: 'pre-wrap' }}>
-                {atas[0].anotacoesMestres}
-              </div>
+          {atas && atas.length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {atas.slice(0, 2).map((ataItem) => (
+                <div key={ataItem.id} style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '1rem', fontSize: '0.82rem', lineHeight: '1.5', color: '#1e293b' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #e2e8f0', paddingBottom: '6px', marginBottom: '8px', fontWeight: 'bold', flexWrap: 'wrap', gap: '6px' }}>
+                    <span style={{ color: '#0f172a', fontSize: '0.9rem' }}>{ataItem.titulo}</span>
+                    <span style={{ color: '#64748b' }}>Data: {ataItem.data ? ataItem.data.split('-').reverse().join('/') : '-'} {ataItem.local ? `• Local: ${ataItem.local}` : ''}</span>
+                  </div>
+                  <div style={{ marginBottom: '6px', color: '#334155' }}>
+                    <strong>Participantes:</strong> {Array.isArray(ataItem.participantes) ? ataItem.participantes.join(', ') : 'Diretoria Colegiada'}
+                  </div>
+                  {ataItem.objetivoMaster && (
+                    <div style={{ marginBottom: '6px', color: '#00838F', fontWeight: '700' }}>
+                      🎯 {ataItem.objetivoMaster}
+                    </div>
+                  )}
+                  {ataItem.anotacoesMestres && (
+                    <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '0.75rem', whiteSpace: 'pre-wrap', color: '#334155', fontSize: '0.78rem' }}>
+                      {ataItem.anotacoesMestres}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
+          ) : (
+            <div style={{ fontSize: '0.85rem', color: '#64748b', fontStyle: 'italic' }}>Nenhuma ata registrada até o momento.</div>
           )}
         </div>
 
-        {/* CAMPO DE ASSINATURAS */}
-        <div style={{ marginTop: '3rem', paddingTop: '1.5rem', borderTop: '1px solid #ccc' }}>
-          <div style={{ textAlign: 'center', fontSize: '0.8rem', color: '#666', marginBottom: '2rem' }}>
-            Documento aprovado pelos membros da Diretoria Executiva do AGF GROUP:
+        {/* SEÇÃO 3: CAMPO DE ASSINATURAS */}
+        <div className="planejamento-avoid-break" style={{ marginTop: '2.5rem', paddingTop: '1.5rem', borderTop: '2px solid #00838F' }}>
+          <div style={{ textAlign: 'center', fontSize: '0.82rem', color: '#475569', marginBottom: '2rem', fontWeight: '600' }}>
+            Documento deliberado e homologado pelos membros da Diretoria Executiva do AGF GROUP:
           </div>
           <div style={{
             display: 'grid',
-            gridTemplateColumns: `repeat(${Math.min(Math.max(signatarios.length, 1), 4)}, 1fr)`,
-            gap: '2rem',
+            gridTemplateColumns: `repeat(${Math.min(Math.max(signatarios.length, 1), 3)}, 1fr)`,
+            gap: '2.5rem 1.5rem',
             textAlign: 'center'
           }}>
             {signatarios.map((sig, idx) => (
-              <div key={sig.id || idx}>
-                <div style={{ borderTop: '1px solid #333', width: '85%', margin: '0 auto 6px auto' }} />
-                <div style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>{sig.nome}</div>
-                <div style={{ fontSize: '0.7rem', color: '#666' }}>{sig.cargo}</div>
+              <div key={sig.id || idx} style={{ pageBreakInside: 'avoid', breakInside: 'avoid' }}>
+                <div style={{ borderTop: '1px solid #1e293b', width: '80%', margin: '0 auto 6px auto' }} />
+                <div style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#0f172a' }}>{sig.nome}</div>
+                <div style={{ fontSize: '0.72rem', color: '#64748b' }}>{sig.cargo}</div>
               </div>
             ))}
+          </div>
+          <div style={{ textAlign: 'center', fontSize: '0.7rem', color: '#94a3b8', marginTop: '2rem', borderTop: '1px dashed #cbd5e1', paddingTop: '0.5rem' }}>
+            SysContábil • AGF Group • Módulo: Planejamento Estratégico Fiscal • Documento emitido em {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
           </div>
         </div>
 
