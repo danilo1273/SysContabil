@@ -148,6 +148,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
   const [loadingDb, setLoadingDb] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const loadIdRef = useRef(0);
+  const [results, setResults] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [editingValue, setEditingValue] = useState('');
   const [selectedCompany, setSelectedCompany] = useState('consolidado');
