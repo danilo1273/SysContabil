@@ -157,7 +157,7 @@ export const protheusMapping = {
     "PATRIMONIO LIQUIDO": {
       "Capital Social": ["2.9.1"],
       "Reserva de Lucros": ["2.9.4.1.01.00001"],
-      "Lucros Acumulados": ["2.9.8.1.01.00002"],
+      "Lucros Acumulados": ["2.9.8.1.01.00002", "2.9.8.1.01.00001"],
       "Ajustes Exercicios Anteriores": ["2.9.8.1.01.00007", "2.9.8.1.01.00004"],
       "Lucro do Exercício": [],
       "(-) Dividendos Distribuídos": ["2.9.9.1.01.00002"]

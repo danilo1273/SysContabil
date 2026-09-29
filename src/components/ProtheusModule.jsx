@@ -254,7 +254,10 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
           try {
             const { data: _cmData } = await supabase.from("settings").select("value").eq("key", "customMapping").single();
             if (_cmData && _cmData.value) {
-              try { setCustomMappings(JSON.parse(_cmData.value)); } catch(e){}
+              try { 
+                const parsed = typeof _cmData.value === 'string' ? JSON.parse(_cmData.value) : _cmData.value;
+                setCustomMappings(parsed); 
+              } catch(e){}
             }
           } catch (e) {
             console.error('Erro ao carregar customMappings', e);
@@ -713,7 +716,7 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
           
           Object.entries(rawAccounts).forEach(([conta, data]) => {
             if (!data.isAnalitica) return;
-            if (isResultadoOuEncerramentoConta(conta, data.descricao)) return;
+            if (isResultadoOuEncerramentoConta(conta, data.descricao, comp.id, dbAno, dbMes)) return;
             if (conta.startsWith('2.1.1.6') || conta.startsWith('5.1.1.1.01') || conta.startsWith('6') || conta.startsWith('7')) return;
             const val = Math.abs(data.mensal || data.acumulado || 0);
             if (val > 0.01 && !cleanPrefixesAll.some(p => conta.startsWith(p))) {
@@ -807,13 +810,13 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
 
           if ((tipo === 'ativo' && d.conta.startsWith('1')) || (tipo === 'passivo' && d.conta.startsWith('2'))) {
              if (!cleanPrefixes.some(p => d.conta.startsWith(p))) {
-                if (!isResultadoOuEncerramentoConta(d.conta, d.descricao) && !d.conta.startsWith('2.1.1.6')) {
+                if (!isResultadoOuEncerramentoConta(d.conta, d.descricao, compId, pAno, pMes) && !d.conta.startsWith('2.1.1.6')) {
                   unmappedAccounts.push({ ...d, tipo, compId, valor: val });
                 }
              }
           } else if (tipo === 'dre' && (d.conta.startsWith('3') || d.conta.startsWith('4') || d.conta.startsWith('5') || d.conta.startsWith('6') || d.conta.startsWith('7'))) {
              if (!cleanPrefixes.some(p => d.conta.startsWith(p))) {
-                if (!isResultadoOuEncerramentoConta(d.conta, d.descricao) && !d.conta.startsWith('5.1.1.1.01') && !d.conta.startsWith('6') && !d.conta.startsWith('7')) {
+                if (!isResultadoOuEncerramentoConta(d.conta, d.descricao, compId, pAno, pMes) && !d.conta.startsWith('5.1.1.1.01') && !d.conta.startsWith('6') && !d.conta.startsWith('7')) {
                   unmappedAccounts.push({ ...d, tipo: 'dre', compId, valor: val });
                 }
              }
