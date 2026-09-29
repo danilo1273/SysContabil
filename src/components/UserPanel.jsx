@@ -174,6 +174,14 @@ const UserPanel = ({ onClose }) => {
                   }} disabled={(['danilo', 'ryan.santos', 'carol.cons', 'talita.alves'].includes(formData.username)) || formData.role === 'superadmin'} />
                   📦 Movimento de Estoque (Auditoria de TMs e Filiais)
                 </label>
+
+                <label style={{ color: '#fff', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={formData.permissions?.includes('planejamento_fiscal') || (['danilo', 'ryan.santos', 'carol.cons', 'talita.alves'].includes(formData.username)) || formData.role === 'superadmin'} onChange={(e) => {
+                    const newPerms = e.target.checked ? [...(formData.permissions || []), 'planejamento_fiscal'] : (formData.permissions || []).filter(p => p !== 'planejamento_fiscal');
+                    setFormData({...formData, permissions: newPerms});
+                  }} disabled={(['danilo', 'ryan.santos', 'carol.cons', 'talita.alves'].includes(formData.username)) || formData.role === 'superadmin'} />
+                  🎯 Planejamento Estratégico Fiscal (Atas e Projetos de Diretoria)
+                </label>
                 
               </div>
             </div>

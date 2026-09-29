@@ -1,10 +1,11 @@
 import React from 'react';
-import { BarChart3, Calculator, Lock, ArrowRight } from 'lucide-react';
+import { BarChart3, Calculator, Lock, ArrowRight, Target, Sparkles } from 'lucide-react';
 
 export default function ModuleSelectionScreen({ user, onSelectModule }) {
   const isSuperadmin = user?.role === 'superadmin' || ['danilo', 'ryan.santos', 'carol.cons', 'talita.alves'].includes(user?.username);
   const hasContabil = isSuperadmin || user?.permissions?.includes('contabil') || user?.permissions?.includes('db');
   const hasIndicadores = isSuperadmin || user?.permissions?.includes('dash') || true;
+  const hasPlanejamentoFiscal = isSuperadmin || user?.permissions?.includes('planejamento_fiscal');
 
   return (
     <div style={{
@@ -15,7 +16,7 @@ export default function ModuleSelectionScreen({ user, onSelectModule }) {
       alignItems: 'center',
       padding: '2rem 1rem'
     }}>
-      <div style={{ textAlign: 'center', marginBottom: '2.5rem', maxWidth: '500px' }}>
+      <div style={{ textAlign: 'center', marginBottom: '2.5rem', maxWidth: '600px' }}>
         <div style={{ 
           display: 'inline-flex', 
           alignItems: 'center', 
@@ -32,20 +33,20 @@ export default function ModuleSelectionScreen({ user, onSelectModule }) {
           <strong style={{ color: 'var(--color-primary)' }}>{user?.username}</strong>
           {isSuperadmin && <span style={{ background: 'rgba(33, 150, 243, 0.2)', color: '#64B5F6', fontSize: '0.65rem', padding: '1px 6px', borderRadius: '4px', fontWeight: 'bold' }}>SUPERADMIN</span>}
         </div>
-        <h2 style={{ fontSize: '1.9rem', color: '#fff', margin: '0 0 0.5rem 0', fontWeight: '700' }}>
+        <h2 style={{ fontSize: '2rem', color: '#fff', margin: '0 0 0.5rem 0', fontWeight: '800', letterSpacing: '-0.5px' }}>
           Selecione o Ambiente
         </h2>
-        <p style={{ color: '#777', fontSize: '0.95rem', margin: 0 }}>
-          Escolha o módulo para acessar o sistema
+        <p style={{ color: '#888', fontSize: '0.95rem', margin: 0 }}>
+          Escolha o módulo corporativo para acessar o sistema
         </p>
       </div>
 
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 380px))',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
         gap: '1.5rem',
         width: '100%',
-        maxWidth: '800px',
+        maxWidth: '1200px',
         justifyContent: 'center'
       }}>
         {/* CARD 1: INDICADORES */}
@@ -226,6 +227,124 @@ export default function ModuleSelectionScreen({ user, onSelectModule }) {
           >
             {hasContabil ? (
               <>Acessar Sistema Contábil <ArrowRight size={16} /></>
+            ) : (
+              <>Acesso Restrito</>
+            )}
+          </button>
+        </div>
+
+        {/* CARD 3: PLANEJAMENTO ESTRATÉGICO FISCAL */}
+        <div 
+          onClick={() => hasPlanejamentoFiscal && onSelectModule('planejamento_fiscal')}
+          style={{
+            background: hasPlanejamentoFiscal 
+              ? 'linear-gradient(145deg, rgba(20, 26, 36, 0.85) 0%, rgba(13, 20, 28, 0.75) 100%)' 
+              : 'rgba(18, 18, 22, 0.5)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            border: hasPlanejamentoFiscal ? '1px solid rgba(0, 188, 212, 0.35)' : '1px solid rgba(255, 255, 255, 0.05)',
+            borderRadius: '16px',
+            padding: '2rem',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            cursor: hasPlanejamentoFiscal ? 'pointer' : 'not-allowed',
+            opacity: hasPlanejamentoFiscal ? 1 : 0.6,
+            transition: 'all 0.25s ease',
+            boxShadow: hasPlanejamentoFiscal ? '0 8px 24px rgba(0, 188, 212, 0.15)' : '0 8px 24px rgba(0, 0, 0, 0.4)',
+            position: 'relative',
+            minHeight: '260px'
+          }}
+          onMouseEnter={(e) => {
+            if (hasPlanejamentoFiscal) {
+              e.currentTarget.style.transform = 'translateY(-4px)';
+              e.currentTarget.style.borderColor = '#00BCD4';
+              e.currentTarget.style.boxShadow = '0 12px 32px rgba(0, 188, 212, 0.25)';
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (hasPlanejamentoFiscal) {
+              e.currentTarget.style.transform = 'translateY(0)';
+              e.currentTarget.style.borderColor = 'rgba(0, 188, 212, 0.35)';
+              e.currentTarget.style.boxShadow = '0 8px 24px rgba(0, 188, 212, 0.15)';
+            }
+          }}
+        >
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.2rem' }}>
+              <div style={{
+                width: '52px',
+                height: '52px',
+                borderRadius: '12px',
+                background: hasPlanejamentoFiscal ? 'linear-gradient(135deg, rgba(0, 188, 212, 0.2) 0%, rgba(0, 121, 107, 0.2) 100%)' : 'rgba(255, 255, 255, 0.04)',
+                border: hasPlanejamentoFiscal ? '1px solid rgba(0, 188, 212, 0.4)' : '1px solid rgba(255, 255, 255, 0.06)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: hasPlanejamentoFiscal ? '#80deea' : '#666',
+                boxShadow: hasPlanejamentoFiscal ? '0 0 15px rgba(0, 188, 212, 0.2)' : 'none'
+              }}>
+                <Target size={26} />
+              </div>
+              {hasPlanejamentoFiscal ? (
+                <span style={{
+                  background: 'rgba(0, 188, 212, 0.15)',
+                  color: '#80deea',
+                  border: '1px solid rgba(0, 188, 212, 0.3)',
+                  padding: '2px 8px',
+                  borderRadius: '6px',
+                  fontSize: '0.7rem',
+                  fontWeight: 'bold',
+                  letterSpacing: '0.5px'
+                }}>
+                  DIRETORIA
+                </span>
+              ) : (
+                <span style={{ 
+                  color: '#EF5350', 
+                  fontSize: '0.72rem', 
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  fontWeight: '500'
+                }}>
+                  <Lock size={12} /> Restrito
+                </span>
+              )}
+            </div>
+
+            <h3 style={{ fontSize: '1.35rem', color: '#fff', margin: '0 0 0.5rem 0', fontWeight: '600' }}>
+              Planejamento Estratégico Fiscal
+            </h3>
+
+            <p style={{ color: '#888', fontSize: '0.88rem', lineHeight: '1.5', margin: '0 0 1.8rem 0' }}>
+              Atas de Reunião da Diretoria, Projetos Tributários, Pipeline de Ações e Aumento de Lucratividade.
+            </p>
+          </div>
+
+          <button 
+            type="button"
+            disabled={!hasPlanejamentoFiscal}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              width: '100%',
+              padding: '0.8rem 1rem',
+              background: hasPlanejamentoFiscal ? 'linear-gradient(135deg, #00BCD4 0%, #0097A7 100%)' : '#2a2a30',
+              color: hasPlanejamentoFiscal ? '#fff' : '#666',
+              border: 'none',
+              borderRadius: '8px',
+              fontSize: '0.95rem',
+              fontWeight: '600',
+              cursor: hasPlanejamentoFiscal ? 'pointer' : 'not-allowed',
+              boxShadow: hasPlanejamentoFiscal ? '0 4px 14px rgba(0, 188, 212, 0.3)' : 'none',
+              transition: 'all 0.2s'
+            }}
+          >
+            {hasPlanejamentoFiscal ? (
+              <>Acessar Planejamento Fiscal <ArrowRight size={16} /></>
             ) : (
               <>Acesso Restrito</>
             )}

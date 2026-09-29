@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import ProtheusModule from './components/ProtheusModule';
 import LoginScreen from './components/LoginScreen';
 import ModuleSelectionScreen from './components/ModuleSelectionScreen';
@@ -6,6 +6,7 @@ import UserPanel from './components/UserPanel';
 import UserProfileModal from './components/UserProfileModal';
 import OnlineUsersModal from './components/OnlineUsersModal';
 import GlobalDialog from './components/GlobalDialog';
+const PlanejamentoFiscalModule = lazy(() => import('./components/PlanejamentoFiscalModule'));
 import { getSettings, saveSettings } from './utils/db';
 import './utils/dialog';
 import './App.css';
@@ -197,9 +198,9 @@ function App() {
               <button
                 onClick={() => setShowModuleMenu(!showModuleMenu)}
                 style={{
-                  background: selectedModule === 'indicadores' ? 'rgba(33, 150, 243, 0.18)' : 'rgba(212, 175, 55, 0.18)',
-                  color: selectedModule === 'indicadores' ? '#64B5F6' : '#FFD54F',
-                  border: `1px solid ${selectedModule === 'indicadores' ? 'rgba(33, 150, 243, 0.45)' : 'rgba(212, 175, 55, 0.45)'}`,
+                  background: selectedModule === 'indicadores' ? 'rgba(33, 150, 243, 0.18)' : selectedModule === 'planejamento_fiscal' ? 'rgba(0, 188, 212, 0.18)' : 'rgba(212, 175, 55, 0.18)',
+                  color: selectedModule === 'indicadores' ? '#64B5F6' : selectedModule === 'planejamento_fiscal' ? '#80deea' : '#FFD54F',
+                  border: `1px solid ${selectedModule === 'indicadores' ? 'rgba(33, 150, 243, 0.45)' : selectedModule === 'planejamento_fiscal' ? 'rgba(0, 188, 212, 0.45)' : 'rgba(212, 175, 55, 0.45)'}`,
                   padding: '0.4rem 0.85rem',
                   borderRadius: '8px',
                   fontSize: '0.88rem',
@@ -213,7 +214,7 @@ function App() {
                 }}
                 title="Clique para alternar o módulo de acesso"
               >
-                <span>{selectedModule === 'indicadores' ? '📊 Indicadores Executivos' : '💼 Sistema Contábil'}</span>
+                <span>{selectedModule === 'indicadores' ? '📊 Indicadores Executivos' : selectedModule === 'planejamento_fiscal' ? '🎯 Planejamento Fiscal' : '💼 Sistema Contábil'}</span>
                 <span style={{ fontSize: '0.68rem', transition: 'transform 0.2s', transform: showModuleMenu ? 'rotate(180deg)' : 'rotate(0deg)', opacity: 0.8 }}>▼</span>
               </button>
 
@@ -228,7 +229,7 @@ function App() {
                     position: 'absolute',
                     top: 'calc(100% + 6px)',
                     left: '1rem',
-                    minWidth: '220px',
+                    minWidth: '240px',
                     background: '#181924',
                     border: '1px solid rgba(255, 255, 255, 0.12)',
                     borderRadius: '8px',
@@ -301,6 +302,39 @@ function App() {
                         </span>
                         {selectedModule === 'indicadores' && <span style={{ color: '#64B5F6', fontSize: '0.85rem', fontWeight: 'bold' }}>✓</span>}
                       </button>
+
+                      {/* OPÇÃO 3: PLANEJAMENTO ESTRATÉGICO FISCAL */}
+                      {(isSuperAdmin || user?.permissions?.includes('planejamento_fiscal')) && (
+                        <button
+                          onClick={() => {
+                            setSelectedModule('planejamento_fiscal');
+                            setShowModuleMenu(false);
+                          }}
+                          style={{
+                            background: selectedModule === 'planejamento_fiscal' ? 'rgba(0, 188, 212, 0.15)' : 'transparent',
+                            border: 'none',
+                            borderRadius: '6px',
+                            padding: '0.5rem 0.75rem',
+                            textAlign: 'left',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '8px',
+                            color: selectedModule === 'planejamento_fiscal' ? '#80deea' : '#e0e0e0',
+                            fontSize: '0.85rem',
+                            fontWeight: selectedModule === 'planejamento_fiscal' ? '700' : '500',
+                            transition: 'all 0.15s'
+                          }}
+                          onMouseEnter={(e) => { if (selectedModule !== 'planejamento_fiscal') e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
+                          onMouseLeave={(e) => { if (selectedModule !== 'planejamento_fiscal') e.currentTarget.style.background = 'transparent'; }}
+                        >
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span>🎯</span> Planejamento Estratégico Fiscal
+                          </span>
+                          {selectedModule === 'planejamento_fiscal' && <span style={{ color: '#00BCD4', fontSize: '0.85rem', fontWeight: 'bold' }}>✓</span>}
+                        </button>
+                      )}
 
                     </div>
 
@@ -433,6 +467,14 @@ function App() {
     <main className="main-content">
       {!selectedModule ? (
         <ModuleSelectionScreen user={user} onSelectModule={(mod) => setSelectedModule(mod)} />
+      ) : selectedModule === 'planejamento_fiscal' ? (
+        <Suspense fallback={<div style={{ textAlign: 'center', padding: '3rem', color: '#00BCD4', fontWeight: 'bold' }}>Carregando Planejamento Fiscal...</div>}>
+          <PlanejamentoFiscalModule
+            user={user}
+            isSuperAdmin={isSuperAdmin}
+            onBackToModules={() => setSelectedModule(null)}
+          />
+        </Suspense>
       ) : (
         <ProtheusModule 
           userRole={user.role} 
