@@ -8,26 +8,77 @@ import {
 import * as XLSX from 'xlsx';
 import { getSettings, saveSettings } from '../utils/db';
 
-// Exportação padronizada para Excel com nome da rotina
+// Grau de Prioridade dos Projetos (Executivo / Diretoria)
+export const PRIORIDADES_PROJETO = [
+  { id: 'p1', codigo: 'P1', label: 'P1 - Imediata', cor: '#EF5350', bg: 'rgba(239, 83, 80, 0.15)', border: '#EF5350', peso: 1, icon: '🔴', desc: 'Risco iminente ou retorno financeiro urgente' },
+  { id: 'p2', codigo: 'P2', label: 'P2 - Alta', cor: '#FF9800', bg: 'rgba(255, 152, 0, 0.15)', border: '#FF9800', peso: 2, icon: '🟠', desc: 'Relevância estratégica e impacto tributário alto' },
+  { id: 'p3', codigo: 'P3', label: 'P3 - Média', cor: '#FFC107', bg: 'rgba(255, 193, 7, 0.15)', border: '#FFC107', peso: 3, icon: '🟡', desc: 'Melhorias de processos e projetos estruturais' },
+  { id: 'p4', codigo: 'P4', label: 'P4 - Baixa', cor: '#4CAF50', bg: 'rgba(76, 175, 80, 0.15)', border: '#4CAF50', peso: 4, icon: '🔵', desc: 'Projetos exploratórios ou de longo prazo' }
+];
+
+export const getPrioridadeObj = (prioridadeId) => {
+  return PRIORIDADES_PROJETO.find(p => p.id === prioridadeId) || PRIORIDADES_PROJETO[2]; // Default P3
+};
+
+// Ordenação inteligente por Grau de Prioridade (P1 -> P2 -> P3 -> P4) -> Maior Ganho (R$) -> Prazo
+export const sortProjetosByPrioridade = (projetosList) => {
+  if (!Array.isArray(projetosList)) return [];
+  const getPeso = (p) => {
+    const prio = p.prioridade || (p.status === 'aguardando' ? 'p1' : 'p3');
+    const obj = PRIORIDADES_PROJETO.find(pr => pr.id === prio);
+    return obj ? obj.peso : 5;
+  };
+
+  return [...projetosList].sort((a, b) => {
+    // 1º Grau de Prioridade
+    const pesoA = getPeso(a);
+    const pesoB = getPeso(b);
+    if (pesoA !== pesoB) return pesoA - pesoB;
+
+    // 2º Maior Impacto Financeiro Estimado (R$)
+    const valA = Number(a.impactoValor) || 0;
+    const valB = Number(b.impactoValor) || 0;
+    if (valB !== valA) return valB - valA;
+
+    // 3º Data Limite (mais próxima primeiro)
+    if (a.dataLimite && b.dataLimite) return a.dataLimite.localeCompare(b.dataLimite);
+    if (a.dataLimite) return -1;
+    if (b.dataLimite) return 1;
+
+    return (a.codigo || '').localeCompare(b.codigo || '');
+  });
+};
+
+// Exportação padronizada para Excel com nome da rotina e ordenação por prioridade
 export const exportPlanejamentoToExcel = (projetos, pilares, atas) => {
   try {
     const now = new Date();
     const dataFormatada = now.toISOString().split('T')[0];
     const filename = `Planejamento_Estrategico_Fiscal_Projetos_AGF_${dataFormatada}.xlsx`;
 
-    const rows = (projetos || []).map(p => {
+    const sortedProjetos = sortProjetosByPrioridade(projetos || []);
+
+    const rows = sortedProjetos.map(p => {
       const pilarObj = (pilares || PILARES_ESTRATEGICOS_DEFAULT).find(pil => pil.id === p.pilar);
-      const statusObj = STATUS_PROJETO.find(s => s.id === p.status);
+      const prioObj = getPrioridadeObj(p.prioridade);
+      const statusObj = STATUS_PROJETO.find(s => s.id === p.status) || { label: p.status || '' };
+      
+      let statusTexto = statusObj.label;
+      if (p.status === 'estudo' && (p.substatus === 'aguardando_consultoria' || p.status === 'aguardando')) {
+        statusTexto = `Em Estudo (${p.consultoriaNome ? `Aguardando ${p.consultoriaNome}` : 'Aguardando Consultoria'})`;
+      }
+
       const etapasTotal = (p.etapas || []).length;
       const etapasConcluidas = (p.etapas || []).filter(e => e.concluido).length;
       const ultimaAtualizacao = (p.timeline || [])[p.timeline?.length - 1]?.texto || '';
 
       return {
+        'Prioridade': prioObj.label,
         'Código': p.codigo || '',
         'Título do Projeto': p.titulo || '',
         'Pilar Estratégico': pilarObj ? pilarObj.label : (p.pilar || ''),
         'Líder / Responsável': p.responsavel || '',
-        'Status': statusObj ? statusObj.label : (p.status || ''),
+        'Status': statusTexto,
         'Progresso (%)': `${p.progresso || 0}%`,
         'Impacto Financeiro Estimado (R$)': Number(p.impactoValor) || 0,
         'Tipo de Impacto': p.impactoTipo || '',
@@ -42,11 +93,12 @@ export const exportPlanejamentoToExcel = (projetos, pilares, atas) => {
 
     const wsProjetos = XLSX.utils.json_to_sheet(rows);
     wsProjetos['!cols'] = [
+      { wch: 16 },
       { wch: 10 },
       { wch: 45 },
       { wch: 30 },
       { wch: 18 },
-      { wch: 22 },
+      { wch: 32 },
       { wch: 14 },
       { wch: 25 },
       { wch: 22 },
@@ -152,7 +204,6 @@ export const STATUS_PROJETO = [
   { id: 'ideia', label: 'Ideia / Levantamento', color: '#9E9E9E', bg: 'rgba(158, 158, 158, 0.15)' },
   { id: 'estudo', label: 'Em Estudo / Parecer', color: '#FFC107', bg: 'rgba(255, 193, 7, 0.15)' },
   { id: 'execucao', label: 'Em Execução', color: '#2196F3', bg: 'rgba(33, 150, 243, 0.15)' },
-  { id: 'aguardando', label: 'Aguardando Consultoria / Terceiros', color: '#FF9800', bg: 'rgba(255, 152, 0, 0.15)' },
   { id: 'concluido', label: 'Concluído / Operando', color: '#4CAF50', bg: 'rgba(76, 175, 80, 0.15)' },
   { id: 'pausado', label: 'Pausado', color: '#F44336', bg: 'rgba(244, 67, 54, 0.15)' }
 ];
@@ -191,6 +242,7 @@ const INITIAL_PROJETOS = [
     codigo: 'PEF-01',
     titulo: 'Adesão ao PAT (Programa de Alimentação do Trabalhador)',
     pilar: 'tributos_diretos',
+    prioridade: 'p1',
     responsavel: 'Mayara',
     coresponsaveis: ['Danilo'],
     impactoTipo: 'economia_anual',
@@ -217,12 +269,14 @@ const INITIAL_PROJETOS = [
     codigo: 'PEF-02',
     titulo: 'Queda do PIS/COFINS Monofásico em 2027 (Operação Rompedores)',
     pilar: 'reforma_compliance',
+    prioridade: 'p2',
     responsavel: 'Danilo',
     coresponsaveis: ['Alex', 'Jonata'],
     impactoTipo: 'risco_custo',
     impactoValor: 450000,
     impactoDesc: 'Prevenção de aumento brusco da alíquota com o fim do regime monofásico.',
     status: 'estudo',
+    substatus: 'interno',
     progresso: 30,
     dataLimite: '2026-11-30',
     descricao: 'Com a mudança legislativa do PIS/COFINS monofásico prevista para 2027, faz-se necessário rever todo o modelo comercial e tributário da AGF Rompedores.',
@@ -241,12 +295,15 @@ const INITIAL_PROJETOS = [
     codigo: 'PEF-03',
     titulo: 'Incentivos Regionais: SUDENE, Compete-ES e InvestE',
     pilar: 'incentivos_regionais',
+    prioridade: 'p1',
     responsavel: 'Danilo',
     coresponsaveis: ['Alex'],
     impactoTipo: 'economia_anual',
     impactoValor: 850000,
     impactoDesc: 'Redução de 75% no IRPJ (SUDENE) e benefício de até 1% de ICMS no Espírito Santo.',
-    status: 'aguardando',
+    status: 'estudo',
+    substatus: 'aguardando_consultoria',
+    consultoriaNome: 'Dr. Octávio (Lacada)',
     progresso: 40,
     dataLimite: '2026-09-30',
     descricao: 'Levantamento de viabilidade de abertura de filial ou transferência operacional para regiões com incentivo fiscal: Espírito Santo (Compete-ES / InvestE) e área SUDENE (75% redução de IRPJ).',
@@ -266,12 +323,14 @@ const INITIAL_PROJETOS = [
     codigo: 'PEF-04',
     titulo: 'Estruturação de Holding e Integralização da AGF',
     pilar: 'holding_societario',
+    prioridade: 'p2',
     responsavel: 'Alex',
     coresponsaveis: ['Danilo', 'Jonata'],
     impactoTipo: 'blindagem_eficiencia',
     impactoValor: 200000,
     impactoDesc: 'Blindagem patrimonial, segregação de ativos e redução da tributação de locações.',
     status: 'estudo',
+    substatus: 'interno',
     progresso: 25,
     dataLimite: '2026-10-31',
     descricao: 'Passar as quotas da AGF para a Holding patrimonial. Avaliar locação de ativos e máquinas através da Holding com alíquotas reduzidas de IRPJ/CSLL.',
@@ -291,12 +350,14 @@ const INITIAL_PROJETOS = [
     codigo: 'PEF-05',
     titulo: 'Lei do Bem - Estruturação de Centros de Custo de P&D',
     pilar: 'inovacao_pesquisa',
+    prioridade: 'p3',
     responsavel: 'Danilo',
     coresponsaveis: ['Andre'],
     impactoTipo: 'economia_anual',
     impactoValor: 320000,
     impactoDesc: 'Exclusão fiscal de até 80% das despesas de P&D da base de cálculo do Lucro Real.',
     status: 'estudo',
+    substatus: 'interno',
     progresso: 20,
     dataLimite: '2026-11-30',
     descricao: 'Mapear e segregar em centro de custo próprio os gastos com engenharia, projetos mecânicos e desenvolvimento de equipamentos para fruição dos benefícios da Lei do Bem (Lei 11.196/05).',
@@ -316,6 +377,7 @@ const INITIAL_PROJETOS = [
     codigo: 'PEF-06',
     titulo: 'Reforma Tributária 2027: Dossiê de 25 NCMs e Pricing (CONFIA - CBS/IBS)',
     pilar: 'reforma_compliance',
+    prioridade: 'p2',
     responsavel: 'Ryan',
     coresponsaveis: ['Danilo'],
     impactoTipo: 'compliance_estrategico',
@@ -341,12 +403,14 @@ const INITIAL_PROJETOS = [
     codigo: 'PEF-07',
     titulo: 'Drawback & Reintegra na Exportação (Auditoria 5 Anos)',
     pilar: 'tributos_diretos',
+    prioridade: 'p3',
     responsavel: 'Danilo',
     coresponsaveis: ['Jonata'],
     impactoTipo: 'recuperacao_credito',
     impactoValor: 180000,
     impactoDesc: 'Recuperação de créditos fiscais e suspensão tributária em insumos importados.',
     status: 'estudo',
+    substatus: 'interno',
     progresso: 35,
     dataLimite: '2026-08-31',
     descricao: 'Auditoria das importações e exportações dos últimos 5 anos para aproveitamento de Drawback Integrado e apuração do crédito do Reintegra para exportadores.',
@@ -365,6 +429,7 @@ const INITIAL_PROJETOS = [
     codigo: 'PEF-08',
     titulo: 'Estruturação FIDIC e Securitizadora para Vendas > 24x',
     pilar: 'financeiro_funding',
+    prioridade: 'p4',
     responsavel: 'Alex',
     coresponsaveis: ['Jonata'],
     impactoTipo: 'funding_liquidez',
@@ -389,12 +454,14 @@ const INITIAL_PROJETOS = [
     codigo: 'PEF-09',
     titulo: 'AGF Steel - Transição da Usinagem para Lucro Presumido',
     pilar: 'holding_societario',
+    prioridade: 'p3',
     responsavel: 'Alex',
     coresponsaveis: ['Danilo'],
     impactoTipo: 'economia_anual',
     impactoValor: 140000,
     impactoDesc: 'Carga tributária reduzida sobre a prestação de serviços de usinagem industrial.',
     status: 'estudo',
+    substatus: 'interno',
     progresso: 25,
     dataLimite: '2026-10-31',
     descricao: 'Análise de segregação das atividades de usinagem na AGF Steel com opção pelo Lucro Presumido, reduzindo a alíquota efetiva sobre a prestação de serviços.',
@@ -413,6 +480,7 @@ const INITIAL_PROJETOS = [
     codigo: 'PEF-10',
     titulo: 'Auditoria e Baixa de Perdas por Inadimplência (Lucro Real)',
     pilar: 'tributos_diretos',
+    prioridade: 'p1',
     responsavel: 'Danilo',
     coresponsaveis: ['Fiscal'],
     impactoTipo: 'deducao_fiscal',
@@ -444,8 +512,11 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
   const [filtroPilar, setFiltroPilar] = useState('todos');
   const [filtroStatus, setFiltroStatus] = useState('todos');
   const [filtroResponsavel, setFiltroResponsavel] = useState('todos');
+  const [filtroPrioridade, setFiltroPrioridade] = useState('todos');
+  const [filtroOrdenacao, setFiltroOrdenacao] = useState('prioridade'); // 'prioridade', 'impacto', 'prazo', 'progresso'
   const [buscaTexto, setBuscaTexto] = useState('');
   const [viewMode, setViewMode] = useState('kanban'); // 'kanban', 'tabela'
+  const [subfiltroEstudo, setSubfiltroEstudo] = useState('todos'); // 'todos', 'interno', 'consultoria'
 
   // Modais
   const [selectedAta, setSelectedAta] = useState(null);
@@ -488,6 +559,28 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
         let modifiedProj = false;
         const sanitizedProjetos = savedProjetos.map(p => {
           let pCopy = { ...p };
+          // Migração retrocompatível: status 'aguardando' vira subseção de 'estudo'
+          if (pCopy.status === 'aguardando') {
+            pCopy.status = 'estudo';
+            pCopy.substatus = 'aguardando_consultoria';
+            if (!pCopy.consultoriaNome && pCopy.codigo === 'PEF-03') pCopy.consultoriaNome = 'Dr. Octávio (Lacada)';
+            modifiedProj = true;
+          }
+          if (!pCopy.substatus) {
+            pCopy.substatus = 'interno';
+            modifiedProj = true;
+          }
+          // Atribuição padrão de prioridades para projetos antigos
+          if (!pCopy.prioridade) {
+            if (pCopy.codigo === 'PEF-01' || pCopy.codigo === 'PEF-03' || pCopy.codigo === 'PEF-10') {
+              pCopy.prioridade = 'p1';
+            } else if (pCopy.codigo === 'PEF-02' || pCopy.codigo === 'PEF-04' || pCopy.codigo === 'PEF-06') {
+              pCopy.prioridade = 'p2';
+            } else {
+              pCopy.prioridade = 'p3';
+            }
+            modifiedProj = true;
+          }
           if (Array.isArray(pCopy.coresponsaveis) && pCopy.coresponsaveis.some(c => /oct[aá]vio/i.test(c))) {
             pCopy.coresponsaveis = pCopy.coresponsaveis.filter(c => !/oct[aá]vio/i.test(c));
             modifiedProj = true;
@@ -633,11 +726,20 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
     const totalProjetos = projetos.length;
     const emExecucao = projetos.filter(p => p.status === 'execucucao' || p.status === 'execucao').length;
     const concluidos = projetos.filter(p => p.status === 'concluido').length;
-    const emEstudo = projetos.filter(p => p.status === 'estudo').length;
+    const emEstudo = projetos.filter(p => p.status === 'estudo' || p.status === 'aguardando').length;
+    const aguardandoConsultoria = projetos.filter(p => (p.status === 'estudo' && p.substatus === 'aguardando_consultoria') || p.status === 'aguardando').length;
+    const p1Count = projetos.filter(p => (p.prioridade || 'p3') === 'p1').length;
+    const p2Count = projetos.filter(p => (p.prioridade || 'p3') === 'p2').length;
+    const p3Count = projetos.filter(p => (p.prioridade || 'p3') === 'p3').length;
+    const p4Count = projetos.filter(p => (p.prioridade || 'p3') === 'p4').length;
     const economiaTotal = projetos.reduce((acc, p) => acc + (Number(p.impactoValor) || 0), 0);
     const mediaProgresso = totalProjetos > 0 ? Math.round(projetos.reduce((acc, p) => acc + (Number(p.progresso) || 0), 0) / totalProjetos) : 0;
 
-    return { totalProjetos, emExecucao, concluidos, emEstudo, economiaTotal, mediaProgresso };
+    return { 
+      totalProjetos, emExecucao, concluidos, emEstudo, aguardandoConsultoria,
+      p1Count, p2Count, p3Count, p4Count,
+      economiaTotal, mediaProgresso 
+    };
   }, [projetos]);
 
   // Lista de Responsáveis únicos (mesclando cadastrados e líderes nos projetos)
@@ -652,12 +754,18 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
     return Array.from(set).sort();
   }, [responsaveis, projetos]);
 
-  // Projetos filtrados
+  // Projetos filtrados e ordenados por prioridade / critério selecionado
   const filteredProjetos = useMemo(() => {
-    return projetos.filter(p => {
+    const list = projetos.map(p => {
+      if (p.status === 'aguardando') {
+        return { ...p, status: 'estudo', substatus: p.substatus || 'aguardando_consultoria' };
+      }
+      return p;
+    }).filter(p => {
       if (filtroPilar !== 'todos' && p.pilar !== filtroPilar) return false;
       if (filtroStatus !== 'todos' && p.status !== filtroStatus) return false;
       if (filtroResponsavel !== 'todos' && p.responsavel !== filtroResponsavel) return false;
+      if (filtroPrioridade !== 'todos' && (p.prioridade || 'p3') !== filtroPrioridade) return false;
       if (buscaTexto.trim()) {
         const text = buscaTexto.toLowerCase();
         const matchTitle = (p.titulo || '').toLowerCase().includes(text);
@@ -668,7 +776,18 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
       }
       return true;
     });
-  }, [projetos, filtroPilar, filtroStatus, filtroResponsavel, buscaTexto]);
+
+    if (filtroOrdenacao === 'prioridade') {
+      return sortProjetosByPrioridade(list);
+    } else if (filtroOrdenacao === 'impacto') {
+      return [...list].sort((a, b) => (Number(b.impactoValor) || 0) - (Number(a.impactoValor) || 0));
+    } else if (filtroOrdenacao === 'prazo') {
+      return [...list].sort((a, b) => (a.dataLimite || '9999').localeCompare(b.dataLimite || '9999'));
+    } else if (filtroOrdenacao === 'progresso') {
+      return [...list].sort((a, b) => (b.progresso || 0) - (a.progresso || 0));
+    }
+    return sortProjetosByPrioridade(list);
+  }, [projetos, filtroPilar, filtroStatus, filtroResponsavel, filtroPrioridade, filtroOrdenacao, buscaTexto]);
 
   // Salvar ou Editar Ata
   const handleSaveAta = (ataData) => {
@@ -1084,7 +1203,47 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
 
           </div>
 
-          {/* CARD DE DESTAQUE: PRÓXIMA REUNIÃO AGENDADA & MARCOS CRÍTICOS */}
+          {/* DISTRIBUIÇÃO POR GRAU DE PRIORIDADE */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+            gap: '0.85rem'
+          }}>
+            {PRIORIDADES_PROJETO.map(pr => {
+              const prList = projetos.filter(p => (p.prioridade || 'p3') === pr.id);
+              const prImpacto = prList.reduce((acc, p) => acc + (Number(p.impactoValor) || 0), 0);
+              return (
+                <div
+                  key={pr.id}
+                  onClick={() => { setFiltroPrioridade(pr.id); setActiveTab('projetos'); }}
+                  style={{
+                    background: pr.bg,
+                    border: `1px solid ${pr.border}`,
+                    borderRadius: '10px',
+                    padding: '0.85rem 1rem',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '4px'
+                  }}
+                  title={`Clique para ver projetos com prioridade ${pr.label}`}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: pr.cor }}>
+                      {pr.icon} {pr.label}
+                    </span>
+                    <span style={{ fontSize: '1.15rem', fontWeight: '900', color: pr.cor }}>
+                      {prList.length}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: '#ccc' }}>
+                    {formatMoney(prImpacto)}/ano
+                  </div>
+                </div>
+              );
+            })}
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem' }}>
             
             {/* PRÓXIMA REUNIÃO */}
@@ -1544,6 +1703,25 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
                 />
               </div>
 
+              {/* FILTRO DE PRIORIDADE */}
+              <select
+                value={filtroPrioridade}
+                onChange={e => setFiltroPrioridade(e.target.value)}
+                style={{
+                  padding: '0.5rem',
+                  background: '#13161c',
+                  border: '1px solid #333',
+                  borderRadius: '6px',
+                  color: '#fff',
+                  fontSize: '0.85rem'
+                }}
+              >
+                <option value="todos">Todas as Prioridades</option>
+                {PRIORIDADES_PROJETO.map(pr => (
+                  <option key={pr.id} value={pr.id}>{pr.icon} {pr.label}</option>
+                ))}
+              </select>
+
               {/* FILTRO DE PILAR */}
               <select
                 value={filtroPilar}
@@ -1600,6 +1778,29 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
                   <option key={s.id} value={s.id}>{s.label}</option>
                 ))}
               </select>
+
+              {/* SELETOR DE ORDENAÇÃO */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontSize: '0.78rem', color: '#888' }}>Ordenar:</span>
+                <select
+                  value={filtroOrdenacao}
+                  onChange={e => setFiltroOrdenacao(e.target.value)}
+                  style={{
+                    padding: '0.5rem',
+                    background: '#13161c',
+                    border: '1px solid rgba(0, 188, 212, 0.4)',
+                    borderRadius: '6px',
+                    color: '#80deea',
+                    fontSize: '0.82rem',
+                    fontWeight: '600'
+                  }}
+                >
+                  <option value="prioridade">🎯 Grau de Prioridade (P1 ➔ P4)</option>
+                  <option value="impacto">💰 Maior Impacto (R$)</option>
+                  <option value="prazo">📅 Prazo / Data Limite</option>
+                  <option value="progresso">📈 Progresso (%)</option>
+                </select>
+              </div>
 
               {/* BOTAO GERENCIAR PILARES */}
               <button
@@ -1685,7 +1886,7 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
 
           </div>
 
-          {/* VISÃO 1: KANBAN POR STATUS */}
+          {/* VISÃO 1: KANBAN POR STATUS COM ORDENAÇÃO DE PRIORIDADE */}
           {viewMode === 'kanban' && (
             <div style={{
               display: 'grid',
@@ -1694,7 +1895,17 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
               alignItems: 'flex-start'
             }}>
               {STATUS_PROJETO.map(col => {
-                const colProjects = filteredProjetos.filter(p => p.status === col.id);
+                let colProjects = filteredProjetos.filter(p => p.status === col.id || (col.id === 'estudo' && p.status === 'aguardando'));
+                const totalInCol = colProjects.length;
+                const countInterno = colProjects.filter(p => p.substatus !== 'aguardando_consultoria').length;
+                const countConsultoria = colProjects.filter(p => p.substatus === 'aguardando_consultoria').length;
+
+                if (col.id === 'estudo' && subfiltroEstudo === 'interno') {
+                  colProjects = colProjects.filter(p => p.substatus !== 'aguardando_consultoria');
+                } else if (col.id === 'estudo' && subfiltroEstudo === 'consultoria') {
+                  colProjects = colProjects.filter(p => p.substatus === 'aguardando_consultoria');
+                }
+
                 return (
                   <div
                     key={col.id}
@@ -1717,20 +1928,90 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
                       borderBottom: `2px solid ${col.color}`,
                       paddingBottom: '0.5rem'
                     }}>
-                      <div style={{ fontWeight: 'bold', fontSize: '0.88rem', color: col.color }}>
-                        {col.label}
+                      <div style={{ fontWeight: 'bold', fontSize: '0.88rem', color: col.color, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span>{col.label}</span>
                       </div>
                       <span style={{ background: col.bg, color: col.color, padding: '2px 8px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 'bold' }}>
-                        {colProjects.length}
+                        {totalInCol}
                       </span>
                     </div>
 
-                    {/* CARDS DOS PROJETOS */}
+                    {/* SUBSEÇÃO QUANDO COLUNA FOR 'EM ESTUDO / PARECER' */}
+                    {col.id === 'estudo' && (
+                      <div style={{
+                        display: 'flex',
+                        gap: '4px',
+                        background: 'rgba(0, 0, 0, 0.35)',
+                        padding: '3px',
+                        borderRadius: '6px',
+                        border: '1px solid rgba(255, 193, 7, 0.2)'
+                      }}>
+                        <button
+                          type="button"
+                          onClick={() => setSubfiltroEstudo('todos')}
+                          style={{
+                            flex: 1,
+                            padding: '3px 4px',
+                            background: subfiltroEstudo === 'todos' ? '#FFC107' : 'transparent',
+                            color: subfiltroEstudo === 'todos' ? '#000' : '#888',
+                            border: 'none',
+                            borderRadius: '4px',
+                            fontSize: '0.68rem',
+                            fontWeight: 'bold',
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          Todos ({totalInCol})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSubfiltroEstudo('interno')}
+                          style={{
+                            flex: 1,
+                            padding: '3px 4px',
+                            background: subfiltroEstudo === 'interno' ? '#FFC107' : 'transparent',
+                            color: subfiltroEstudo === 'interno' ? '#000' : '#888',
+                            border: 'none',
+                            borderRadius: '4px',
+                            fontSize: '0.68rem',
+                            fontWeight: 'bold',
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          Interno ({countInterno})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSubfiltroEstudo('consultoria')}
+                          style={{
+                            flex: 1.2,
+                            padding: '3px 4px',
+                            background: subfiltroEstudo === 'consultoria' ? '#FF9800' : 'transparent',
+                            color: subfiltroEstudo === 'consultoria' ? '#fff' : '#FFB74D',
+                            border: 'none',
+                            borderRadius: '4px',
+                            fontSize: '0.68rem',
+                            fontWeight: 'bold',
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap'
+                          }}
+                          title="Aguardando parecer de consultoria externa ou parecer jurídico"
+                        >
+                          ⏳ Consultoria ({countConsultoria})
+                        </button>
+                      </div>
+                    )}
+
+                    {/* CARDS DOS PROJETOS ORDENADOS POR PRIORIDADE */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
                       {colProjects.map(proj => {
                         const pilarObj = pilares.find(p => p.id === proj.pilar) || pilares[0] || { label: proj.pilar || 'Geral', color: '#00BCD4', bg: 'rgba(0, 188, 212, 0.15)' };
+                        const prioObj = getPrioridadeObj(proj.prioridade);
                         const totalEtapas = (proj.etapas || []).length;
                         const concEtapas = (proj.etapas || []).filter(e => e.concluido).length;
+                        const isConsultoria = (proj.status === 'estudo' || proj.status === 'aguardando') && proj.substatus === 'aguardando_consultoria';
 
                         return (
                           <div
@@ -1738,7 +2019,7 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
                             onClick={() => { setSelectedProjeto(proj); setIsProjetoModalOpen(true); }}
                             style={{
                               background: 'rgba(25, 30, 42, 0.95)',
-                              border: '1px solid rgba(255, 255, 255, 0.08)',
+                              border: isConsultoria ? '1px solid rgba(255, 152, 0, 0.4)' : '1px solid rgba(255, 255, 255, 0.08)',
                               borderRadius: '10px',
                               padding: '1rem',
                               cursor: 'pointer',
@@ -1746,16 +2027,29 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
                               boxShadow: '0 4px 12px rgba(0,0,0,0.25)'
                             }}
                             onMouseEnter={e => {
-                              e.currentTarget.style.borderColor = '#00BCD4';
+                              e.currentTarget.style.borderColor = prioObj.cor;
                               e.currentTarget.style.transform = 'translateY(-2px)';
                             }}
                             onMouseLeave={e => {
-                              e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)';
+                              e.currentTarget.style.borderColor = isConsultoria ? 'rgba(255, 152, 0, 0.4)' : 'rgba(255, 255, 255, 0.08)';
                               e.currentTarget.style.transform = 'translateY(0)';
                             }}
                           >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                              <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#00BCD4' }}>{proj.codigo}</span>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px', gap: '6px', flexWrap: 'wrap' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#00BCD4' }}>{proj.codigo}</span>
+                                <span style={{
+                                  fontSize: '0.68rem',
+                                  fontWeight: '700',
+                                  color: prioObj.cor,
+                                  background: prioObj.bg,
+                                  border: `1px solid ${prioObj.border}`,
+                                  padding: '1px 6px',
+                                  borderRadius: '4px'
+                                }}>
+                                  {prioObj.icon} {prioObj.codigo}
+                                </span>
+                              </div>
                               <span style={{ fontSize: '0.7rem', color: pilarObj.color, background: pilarObj.bg, padding: '1px 6px', borderRadius: '4px', fontWeight: '600' }}>
                                 {pilarObj.label.split('(')[0]}
                               </span>
@@ -1764,6 +2058,25 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
                             <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '0.92rem', color: '#fff', fontWeight: '600', lineHeight: '1.4' }}>
                               {proj.titulo}
                             </h4>
+
+                            {/* SUBSEÇÃO CONSULTORIA QUANDO APLICÁVEL */}
+                            {isConsultoria && (
+                              <div style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '5px',
+                                background: 'rgba(255, 152, 0, 0.15)',
+                                color: '#FFB74D',
+                                border: '1px solid rgba(255, 152, 0, 0.4)',
+                                borderRadius: '4px',
+                                padding: '2px 7px',
+                                fontSize: '0.72rem',
+                                fontWeight: 'bold',
+                                marginBottom: '0.6rem'
+                              }}>
+                                ⏳ Aguardando Consultoria {proj.consultoriaNome ? `• ${proj.consultoriaNome}` : ''}
+                              </div>
+                            )}
 
                             {proj.impactoValor > 0 && (
                               <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#81C784', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '0.6rem' }}>
@@ -1826,6 +2139,7 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
                   <thead>
                     <tr style={{ background: 'rgba(0, 188, 212, 0.1)', borderBottom: '1px solid rgba(0, 188, 212, 0.25)', textAlign: 'left', color: '#80deea' }}>
+                      <th style={{ padding: '0.75rem 0.8rem', textAlign: 'center' }}>Prioridade</th>
                       <th style={{ padding: '0.75rem 1rem' }}>Código</th>
                       <th style={{ padding: '0.75rem 1rem' }}>Projeto / Objetivo</th>
                       <th style={{ padding: '0.75rem 1rem' }}>Pilar Estratégico</th>
@@ -1840,7 +2154,10 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
                   <tbody>
                     {filteredProjetos.map((proj, idx) => {
                       const pilarObj = pilares.find(p => p.id === proj.pilar) || pilares[0] || { label: proj.pilar || 'Geral', color: '#00BCD4', bg: 'rgba(0, 188, 212, 0.15)' };
+                      const prioObj = getPrioridadeObj(proj.prioridade);
                       const statusObj = STATUS_PROJETO.find(s => s.id === proj.status) || STATUS_PROJETO[0];
+                      const isConsultoria = (proj.status === 'estudo' || proj.status === 'aguardando') && proj.substatus === 'aguardando_consultoria';
+
                       return (
                         <tr 
                           key={proj.id}
@@ -1851,6 +2168,21 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
                           }}
                           onClick={() => { setSelectedProjeto(proj); setIsProjetoModalOpen(true); }}
                         >
+                          <td style={{ padding: '0.75rem 0.8rem', textAlign: 'center' }}>
+                            <span style={{
+                              display: 'inline-block',
+                              background: prioObj.bg,
+                              color: prioObj.cor,
+                              border: `1px solid ${prioObj.border}`,
+                              padding: '2px 8px',
+                              borderRadius: '4px',
+                              fontSize: '0.74rem',
+                              fontWeight: 'bold',
+                              whiteSpace: 'nowrap'
+                            }}>
+                              {prioObj.icon} {prioObj.codigo}
+                            </span>
+                          </td>
                           <td style={{ padding: '0.75rem 1rem', fontWeight: 'bold', color: '#00BCD4' }}>{proj.codigo}</td>
                           <td style={{ padding: '0.75rem 1rem' }}>
                             <div style={{ fontWeight: '600', color: '#fff' }}>{proj.titulo}</div>
@@ -1868,9 +2200,16 @@ export default function PlanejamentoFiscalModule({ user, isSuperAdmin, onBackToM
                             {proj.impactoValor > 0 ? formatMoney(proj.impactoValor) : '-'}
                           </td>
                           <td style={{ padding: '0.75rem 1rem' }}>
-                            <span style={{ background: statusObj.bg, color: statusObj.color, padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold' }}>
-                              {statusObj.label}
-                            </span>
+                            <div>
+                              <span style={{ background: statusObj.bg, color: statusObj.color, padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                                {statusObj.label}
+                              </span>
+                              {isConsultoria && (
+                                <div style={{ color: '#FFB74D', fontSize: '0.7rem', fontWeight: 'bold', marginTop: '3px' }}>
+                                  ⏳ Consultoria {proj.consultoriaNome ? `(${proj.consultoriaNome})` : ''}
+                                </div>
+                              )}
+                            </div>
                           </td>
                           <td style={{ padding: '0.75rem 1rem', minWidth: '110px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -2353,12 +2692,15 @@ function ProjetoModal({
     ataId: projeto?.ataId || (atas[0]?.id || ''),
     titulo: projeto?.titulo || '',
     pilar: projeto?.pilar || 'tributos_diretos',
+    prioridade: projeto?.prioridade || 'p2',
     responsavel: projeto?.responsavel || user?.username || 'Danilo',
     coresponsaveisStr: (projeto?.coresponsaveis || []).join(', '),
     impactoTipo: projeto?.impactoTipo || 'economia_anual',
     impactoValor: projeto?.impactoValor || 0,
     impactoDesc: projeto?.impactoDesc || '',
-    status: projeto?.status || 'estudo',
+    status: projeto?.status === 'aguardando' ? 'estudo' : (projeto?.status || 'estudo'),
+    substatus: projeto?.substatus || (projeto?.status === 'aguardando' ? 'aguardando_consultoria' : 'interno'),
+    consultoriaNome: projeto?.consultoriaNome || '',
     progresso: projeto?.progresso || 0,
     dataLimite: projeto?.dataLimite || '',
     descricao: projeto?.descricao || '',
@@ -2389,12 +2731,15 @@ function ProjetoModal({
         ataId: projeto.ataId || prev.ataId,
         titulo: projeto.titulo || prev.titulo,
         pilar: projeto.pilar || prev.pilar,
+        prioridade: projeto.prioridade || prev.prioridade || 'p2',
         responsavel: projeto.responsavel || prev.responsavel,
         coresponsaveisStr: (projeto.coresponsaveis || []).join(', '),
         impactoTipo: projeto.impactoTipo || prev.impactoTipo,
         impactoValor: projeto.impactoValor ?? prev.impactoValor,
         impactoDesc: projeto.impactoDesc || prev.impactoDesc,
-        status: projeto.status || prev.status,
+        status: projeto.status === 'aguardando' ? 'estudo' : (projeto.status || prev.status),
+        substatus: projeto.substatus || (projeto.status === 'aguardando' ? 'aguardando_consultoria' : (prev.substatus || 'interno')),
+        consultoriaNome: projeto.consultoriaNome || prev.consultoriaNome || '',
         progresso: projeto.progresso ?? prev.progresso,
         dataLimite: projeto.dataLimite || prev.dataLimite,
         descricao: projeto.descricao || prev.descricao,
@@ -2690,6 +3035,46 @@ function ProjetoModal({
             </div>
           </div>
 
+          {/* SELETOR DE GRAU DE PRIORIDADE */}
+          <div>
+            <label style={{ display: 'block', color: '#90a4ae', fontSize: '0.85rem', marginBottom: '6px', fontWeight: 'bold' }}>
+              Grau de Prioridade Estratégica *
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '8px' }}>
+              {PRIORIDADES_PROJETO.map(pr => {
+                const isSel = formData.prioridade === pr.id;
+                return (
+                  <button
+                    key={pr.id}
+                    type="button"
+                    onClick={() => setFormData({ ...formData, prioridade: pr.id })}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: '8px 6px',
+                      background: isSel ? pr.bg : 'rgba(255,255,255,0.03)',
+                      border: `2px solid ${isSel ? pr.cor : 'rgba(255,255,255,0.1)'}`,
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      textAlign: 'center'
+                    }}
+                  >
+                    <span style={{ fontSize: '1rem', marginBottom: '2px' }}>{pr.icon}</span>
+                    <span style={{ fontSize: '0.82rem', fontWeight: 'bold', color: isSel ? pr.cor : '#ccc' }}>
+                      {pr.label}
+                    </span>
+                    <span style={{ fontSize: '0.67rem', color: isSel ? '#fff' : '#777', marginTop: '2px', lineHeight: '1.2' }}>
+                      {pr.desc}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
             <div>
               <label style={{ display: 'block', color: '#90a4ae', fontSize: '0.85rem', marginBottom: '4px' }}>Status Atual</label>
@@ -2737,6 +3122,60 @@ function ProjetoModal({
               />
             </div>
           </div>
+
+          {/* SUBSEÇÃO QUANDO STATUS FOR 'EM ESTUDO / PARECER' */}
+          {formData.status === 'estudo' && (
+            <div style={{
+              background: 'rgba(255, 193, 7, 0.08)',
+              border: '1px solid rgba(255, 193, 7, 0.3)',
+              borderRadius: '8px',
+              padding: '0.85rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px'
+            }}>
+              <div style={{ fontSize: '0.82rem', fontWeight: 'bold', color: '#FFD54F' }}>
+                Enquadramento da Fase de Estudo / Parecer:
+              </div>
+              <div style={{ display: 'flex', gap: '1.2rem', flexWrap: 'wrap' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', cursor: 'pointer', color: '#fff' }}>
+                  <input
+                    type="radio"
+                    name="substatus_modal"
+                    value="interno"
+                    checked={formData.substatus !== 'aguardando_consultoria'}
+                    onChange={() => setFormData({ ...formData, substatus: 'interno' })}
+                  />
+                  <span>🏛️ Estudo Técnico Interno (Equipe AGF)</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', cursor: 'pointer', color: '#FFB74D', fontWeight: 'bold' }}>
+                  <input
+                    type="radio"
+                    name="substatus_modal"
+                    value="aguardando_consultoria"
+                    checked={formData.substatus === 'aguardando_consultoria'}
+                    onChange={() => setFormData({ ...formData, substatus: 'aguardando_consultoria' })}
+                  />
+                  <span>⏳ Aguardando Parecer / Consultoria Externa</span>
+                </label>
+              </div>
+
+              {formData.substatus === 'aguardando_consultoria' && (
+                <div style={{ marginTop: '4px' }}>
+                  <label style={{ display: 'block', fontSize: '0.78rem', color: '#FFB74D', marginBottom: '3px', fontWeight: 'bold' }}>
+                    Consultoria / Escritório / Advogado Responsável:
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.consultoriaNome || ''}
+                    onChange={e => setFormData({ ...formData, consultoriaNome: e.target.value })}
+                    placeholder="Ex: Dr. Octávio (Lacada), Consultora Daniela, Escritório Lacada..."
+                    style={{ width: '100%', padding: '0.5rem', background: '#0e1219', border: '1px solid rgba(255, 152, 0, 0.5)', borderRadius: '6px', color: '#fff', fontSize: '0.85rem' }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
 
           <div>
             <label style={{ display: 'block', color: '#90a4ae', fontSize: '0.85rem', marginBottom: '4px' }}>Descrição & Escopo do Projeto</label>
@@ -3357,29 +3796,52 @@ function PrintModal({ atas, projetos, kpis, onClose, pilares, responsaveis }) {
 
         {/* SEÇÃO 1: TABELA DE PROJETOS E AÇÕES */}
         <div style={{ marginBottom: '2rem' }}>
-          <h3 style={{ margin: '0 0 0.8rem 0', fontSize: '1.05rem', color: '#00838F', borderBottom: '2px solid #e2e8f0', paddingBottom: '4px', fontWeight: '700' }}>
-            1. Quadro Geral de Ações Estratégicas
-          </h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderBottom: '2px solid #e2e8f0', paddingBottom: '4px', marginBottom: '0.8rem', flexWrap: 'wrap', gap: '6px' }}>
+            <h3 style={{ margin: 0, fontSize: '1.05rem', color: '#00838F', fontWeight: '700' }}>
+              1. Quadro Geral de Ações Estratégicas (Ordenado por Grau de Prioridade)
+            </h3>
+            <span style={{ fontSize: '0.74rem', color: '#64748b', fontWeight: '600' }}>
+              P1 Imediata ➔ P2 Alta ➔ P3 Média ➔ P4 Baixa
+            </span>
+          </div>
           <table className="planejamento-report-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
             <thead>
               <tr style={{ background: '#00838F', color: '#fff', textAlign: 'left' }}>
-                <th style={{ padding: '6px', width: '60px', textAlign: 'center' }}>Cód.</th>
+                <th style={{ padding: '6px', width: '50px', textAlign: 'center' }}>Cód.</th>
+                <th style={{ padding: '6px', width: '65px', textAlign: 'center' }}>Prioridade</th>
                 <th style={{ padding: '6px' }}>Projeto / Escopo Estratégico</th>
-                <th style={{ padding: '6px', width: '115px' }}>Pilar</th>
+                <th style={{ padding: '6px', width: '110px' }}>Pilar</th>
                 <th style={{ padding: '6px', width: '85px' }}>Líder</th>
-                <th style={{ padding: '6px', width: '105px', textAlign: 'right' }}>Ganho/Ano</th>
-                <th style={{ padding: '6px', width: '100px' }}>Status</th>
-                <th style={{ padding: '6px', width: '65px', textAlign: 'center' }}>Progresso</th>
+                <th style={{ padding: '6px', width: '100px', textAlign: 'right' }}>Ganho/Ano</th>
+                <th style={{ padding: '6px', width: '115px' }}>Status</th>
+                <th style={{ padding: '6px', width: '60px', textAlign: 'center' }}>Progresso</th>
               </tr>
             </thead>
             <tbody>
-              {projetos.map((proj, idx) => {
+              {sortProjetosByPrioridade(projetos || []).map((proj, idx) => {
+                const prioObj = getPrioridadeObj(proj.prioridade);
                 const statusObj = STATUS_PROJETO.find(s => s.id === proj.status) || STATUS_PROJETO[0];
                 const pilarObj = (pilares || PILARES_ESTRATEGICOS).find(p => p.id === proj.pilar) || (pilares || PILARES_ESTRATEGICOS)[0];
+                const isConsultoria = (proj.status === 'estudo' || proj.status === 'aguardando') && proj.substatus === 'aguardando_consultoria';
+
                 return (
                   <tr key={proj.id} style={{ borderBottom: '1px solid #cbd5e1', background: idx % 2 === 0 ? '#f8fafc' : '#ffffff' }}>
                     <td style={{ padding: '6px', fontWeight: 'bold', textAlign: 'center', color: '#00838F', border: '1px solid #cbd5e1' }}>
                       {proj.codigo}
+                    </td>
+                    <td style={{ padding: '6px', textAlign: 'center', border: '1px solid #cbd5e1' }}>
+                      <span style={{
+                        display: 'inline-block',
+                        padding: '2px 5px',
+                        borderRadius: '3px',
+                        fontSize: '0.68rem',
+                        fontWeight: 'bold',
+                        color: prioObj.cor,
+                        background: prioObj.bg,
+                        border: `1px solid ${prioObj.border}`
+                      }}>
+                        {prioObj.codigo}
+                      </span>
                     </td>
                     <td style={{ padding: '6px', border: '1px solid #cbd5e1' }}>
                       <strong style={{ color: '#0f172a', fontSize: '0.82rem' }}>{proj.titulo}</strong>
@@ -3410,6 +3872,11 @@ function PrintModal({ atas, projetos, kpis, onClose, pilares, responsaveis }) {
                       }}>
                         {statusObj.label}
                       </span>
+                      {isConsultoria && (
+                        <div style={{ color: '#d97706', fontSize: '0.67rem', fontWeight: 'bold', marginTop: '2px' }}>
+                          ⏳ Consultoria {proj.consultoriaNome ? `(${proj.consultoriaNome})` : ''}
+                        </div>
+                      )}
                     </td>
                     <td style={{ padding: '6px', border: '1px solid #cbd5e1', textAlign: 'center' }}>
                       <span style={{ fontWeight: 'bold', color: '#0f172a', fontSize: '0.8rem' }}>{proj.progresso}%</span>
