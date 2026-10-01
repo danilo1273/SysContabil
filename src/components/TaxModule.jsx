@@ -347,6 +347,24 @@ export default function TaxModule({ companies }) {
         if (r.valorMensal !== 0) {
           ganhoCapitalBreakdown.push(`${r.conta} (${r.descricao}): R$ ${(r.valorMensal || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`);
         }
+      } else if (r.conta.startsWith('4.3.1.1.01.00003') || (r.conta.startsWith('4.3.1.1.01') && (r.descricao || '').toUpperCase().includes('JUROS'))) {
+        // Juros Ativos / Recebidos
+        if ((r.valorMensal || 0) > 0) {
+          outrasReceitasDre += (r.valorMensal || 0);
+          outrasReceitasDreBreakdown.push(`${r.conta} (${r.descricao}): R$ ${(r.valorMensal || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`);
+        }
+      } else if (r.conta.startsWith('4.3.1.1.01.00004') || (r.conta.startsWith('4.3.1.1.01') && (r.descricao || '').toUpperCase().includes('DESCONTO')) || (r.descricao || '').toUpperCase().includes('DESCONTOS OBTIDOS')) {
+        // Descontos Obtidos
+        if ((r.valorMensal || 0) > 0) {
+          outrasReceitasDre += (r.valorMensal || 0);
+          outrasReceitasDreBreakdown.push(`${r.conta} (${r.descricao}): R$ ${(r.valorMensal || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`);
+        }
+      } else if (r.conta.startsWith('4.3.1.1.01.00005') || r.conta.startsWith('4.9.1.2.02')) {
+        // Outras Receitas Operacionais / Financeiras da DRE
+        if ((r.valorMensal || 0) > 0) {
+          outrasReceitasDre += (r.valorMensal || 0);
+          outrasReceitasDreBreakdown.push(`${r.conta} (${r.descricao}): R$ ${(r.valorMensal || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`);
+        }
       } else if (isEstimativa && (r.conta.startsWith('4.9.1.2') || r.conta.startsWith('4.3.1.1.01'))) {
         if ((r.valorMensal || 0) > 0) {
           outrasReceitasDre += (r.valorMensal || 0);
@@ -380,8 +398,13 @@ export default function TaxModule({ companies }) {
     const impostosDevolucao = parseFloat(inputs.impostosDevolucao || 0) + ipiDevolucao + icmsStDevolucao;
     const recRevendaLiquida = Math.max(0, recRevenda - devolucoes + impostosDevolucao - ipi - icmsSt);
 
-    let baseIrpj = (recRevendaLiquida * 0.08) + (recServico * 0.32);
-    let baseCsll = (recRevendaLiquida * 0.12) + (recServico * 0.32);
+    const baseRevendaIrpj = recRevendaLiquida * 0.08;
+    const baseServicoIrpj = recServico * 0.32;
+    let baseIrpj = baseRevendaIrpj + baseServicoIrpj;
+
+    const baseRevendaCsll = recRevendaLiquida * 0.12;
+    const baseServicoCsll = recServico * 0.32;
+    let baseCsll = baseRevendaCsll + baseServicoCsll;
 
     let acrescimoIrpj = 0;
     let acrescimoCsll = 0;
@@ -390,14 +413,14 @@ export default function TaxModule({ companies }) {
     const limiteMajoracao = (1250000 / 3) * mesesNoPeriodo;
 
     if (inputs.majoracao) {
-        // A planilha rateia o limite com base na receita total (incluindo financeiras)
-        // A planilha rateia o limite com base na receita operacional apenas (sem financeiras)
-        const totalReceitas = recRevenda + recServico;
+        // LC 224/2025 e IN RFB 2.305/2025 (art. 15):
+        // Rateio proporcional do limite de R$ 1.250.000 com base na receita operacional líquida
+        const totalReceitas = recRevendaLiquida + recServico;
         
-        const limiteRevenda = totalReceitas > 0 ? limiteMajoracao * (recRevenda / totalReceitas) : 0;
+        const limiteRevenda = totalReceitas > 0 ? limiteMajoracao * (recRevendaLiquida / totalReceitas) : 0;
         const limiteServico = totalReceitas > 0 ? limiteMajoracao * (recServico / totalReceitas) : 0;
         
-        const excessoRevenda = Math.max(0, recRevenda - limiteRevenda);
+        const excessoRevenda = Math.max(0, recRevendaLiquida - limiteRevenda);
         const excessoServico = Math.max(0, recServico - limiteServico);
 
         // IRPJ: Vale a partir de 2026
@@ -429,7 +452,44 @@ export default function TaxModule({ companies }) {
         csllTotal = parseFloat(inputs.ajusteCsll);
     }
 
-    return { retencoesIR: parseFloat(inputs.retencoesIR || 0), retencoesCS: parseFloat(inputs.retencoesCS || 0), impostosDevolucaoManual: parseFloat(inputs.impostosDevolucao || 0), outrasReceitasManual: parseFloat(inputs.outrasReceitas || 0), ajusteIrpj: parseFloat(inputs.ajusteIrpj || 0), ajusteCsll: parseFloat(inputs.ajusteCsll || 0), recRevenda, recRevendaLiquida, devolucoes, impostosDevolucaoAuto: ipiDevolucao + icmsStDevolucao, ipi, icmsSt, recServico, baseIrpj, baseCsll, irpjNormal, irpjAdicional, irpjTotal, csll, csllTotal, variacaoCambial, cambioBase, outrasReceitasDre: Math.max(0, outrasReceitasDre), outrasReceitasDreBreakdown, devolucoesBreakdown, ipiIcmsDevolucaoBreakdown, ipiVendasBreakdown, icmsStVendasBreakdown, recRevendaBreakdown, recServicoBreakdown };
+    return {
+      retencoesIR: parseFloat(inputs.retencoesIR || 0),
+      retencoesCS: parseFloat(inputs.retencoesCS || 0),
+      impostosDevolucaoManual: parseFloat(inputs.impostosDevolucao || 0),
+      outrasReceitasManual: parseFloat(inputs.outrasReceitas || 0),
+      ajusteIrpj: parseFloat(inputs.ajusteIrpj || 0),
+      ajusteCsll: parseFloat(inputs.ajusteCsll || 0),
+      recRevenda,
+      recRevendaLiquida,
+      devolucoes,
+      impostosDevolucaoAuto: ipiDevolucao + icmsStDevolucao,
+      ipi,
+      icmsSt,
+      recServico,
+      baseRevendaIrpj,
+      baseServicoIrpj,
+      acrescimoIrpj,
+      baseIrpj,
+      baseRevendaCsll,
+      baseServicoCsll,
+      acrescimoCsll,
+      baseCsll,
+      irpjNormal,
+      irpjAdicional,
+      irpjTotal,
+      csll,
+      csllTotal,
+      variacaoCambial,
+      cambioBase,
+      outrasReceitasDre: Math.max(0, outrasReceitasDre),
+      outrasReceitasDreBreakdown,
+      devolucoesBreakdown,
+      ipiIcmsDevolucaoBreakdown,
+      ipiVendasBreakdown,
+      icmsStVendasBreakdown,
+      recRevendaBreakdown,
+      recServicoBreakdown
+    };
   };
 
   const calcPresumido = () => {
@@ -1236,10 +1296,10 @@ export default function TaxModule({ companies }) {
 </div>
             
             <div title={(cM.outrasReceitasDreBreakdown || []).join('\n')}>
-              <Row label={isEstimativa ? "(+) Rendimentos, Juros e Ganhos (Extraído da DRE) [Passe o mouse]:" : "(+) Ganho de Capital (Extraído da DRE) [Passe o mouse p/ ver contas]:"} m={cM.outrasReceitasDre} a={cA.outrasReceitasDre} color="#888" />
+              <Row label={isEstimativa ? "(+) Rendimentos, Juros e Ganhos (Extraído da DRE) [Passe o mouse]:" : "(+) Ganho de Capital, Juros e Descontos Obtidos (Extraído da DRE) [Passe o mouse]:"} m={cM.outrasReceitasDre} a={cA.outrasReceitasDre} color="#888" />
             </div>
             <div style={{ marginBottom: '1rem', marginTop: '1.5rem' }}>
-              <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(+) Ajuste Manual: Rendimentos (Resgates), Venda de Ativos, etc - <b>Valor do Mês</b></label>
+              <label style={{ display: 'block', fontSize: '0.85rem', color: '#aaa', marginBottom: '0.3rem' }}>(+) Rendimentos de Aplicações Financeiras (Resgates) - <b>Valor do Mês</b></label>
               <input 
                 type="text" 
                 inputMode="decimal"
@@ -1252,8 +1312,12 @@ export default function TaxModule({ companies }) {
                   setPresumidoOutrasReceitas(cleaned);
                   persistTaxData(selectedComp, selectedAno, selectedMes, { presumidoOutrasReceitas: cleaned });
                 }}
+                placeholder="0.00"
                 style={{ width: '100%' }} 
               />
+              <span style={{ fontSize: '0.75rem', color: '#777', display: 'block', marginTop: '0.25rem' }}>
+                Ganho de Capital, Juros e Descontos Obtidos já são apurados automaticamente da DRE acima.
+              </span>
             </div>
             
             {cambioConfig[selectedComp] === 'caixa' ? (
@@ -1287,6 +1351,12 @@ export default function TaxModule({ companies }) {
             )}
 
             <div style={{ marginTop: '1.5rem' }}>
+               {((cM.acrescimoIrpj || 0) > 0 || (cA.acrescimoIrpj || 0) > 0) && (
+                 <Row label="(+) Majoração IRPJ (10% s/ Presunção - LC 224):" m={cM.acrescimoIrpj} a={cA.acrescimoIrpj} color="#FFCA28" />
+               )}
+               {((cM.acrescimoCsll || 0) > 0 || (cA.acrescimoCsll || 0) > 0) && (
+                 <Row label="(+) Majoração CSLL (10% s/ Presunção - LC 224):" m={cM.acrescimoCsll} a={cA.acrescimoCsll} color="#FFCA28" />
+               )}
                <Row label="Base IRPJ:" m={cM.baseIrpj} a={cA.baseIrpj} color="#FFCA28" bold={true} />
                <Row label="Base CSLL:" m={cM.baseCsll} a={cA.baseCsll} color="#FFCA28" bold={true} />
             </div>
@@ -1902,10 +1972,19 @@ export default function TaxModule({ companies }) {
                 <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", paddingLeft: "1.2rem" }}>
                   (+) Rendimentos, Ganhos de Capital e Outras Receitas
                 </td>
-                {columns.map((col, idx) => (
-                  <td key={idx} style={{ border: "1px solid #444" }} title={(col.data.outrasReceitasDreBreakdown || []).join('\n')}>{fmt((col.data.outrasReceitasManual || 0) + col.data.outrasReceitasDre)}</td>
-                ))}
-                <td style={{ border: "1px solid #444", fontWeight: "bold" }}>{fmt((summaryCol.data.outrasReceitasManual || 0) + summaryCol.data.outrasReceitasDre)}</td>
+                {columns.map((col, idx) => {
+                  const bList = [
+                    ...(col.data.outrasReceitasManual > 0 ? [`Rendimentos Aplicações (Manual): ${fmt(col.data.outrasReceitasManual)}`] : []),
+                    ...(col.data.outrasReceitasDreBreakdown || [])
+                  ];
+                  return (
+                    <td key={idx} style={{ border: "1px solid #444" }} title={bList.join('\n')}>{fmt((col.data.outrasReceitasManual || 0) + col.data.outrasReceitasDre)}</td>
+                  );
+                })}
+                <td style={{ border: "1px solid #444", fontWeight: "bold" }} title={[
+                  ...(summaryCol.data.outrasReceitasManual > 0 ? [`Total Rendimentos Aplicações (Manual): ${fmt(summaryCol.data.outrasReceitasManual)}`] : []),
+                  ...(summaryCol.data.outrasReceitasDreBreakdown || [])
+                ].join('\n')}>{fmt((summaryCol.data.outrasReceitasManual || 0) + summaryCol.data.outrasReceitasDre)}</td>
               </tr>
               <tr>
                 <td style={{ padding: "6px 8px", border: "1px solid #444", textAlign: "left", paddingLeft: "1.2rem" }} title="Apenas variações cambiais tributáveis (positivas na competência ou realizadas no caixa) compõem a base">
