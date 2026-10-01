@@ -2442,25 +2442,52 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
             </div>
           </div>
 
-          <nav className="secondary-nav" style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid #333', marginBottom: '2rem' }}>
-            {['dash', 'dre', 'balanco', 'dfc', 'faturamento', 'perdcomp'].map(tab => (
-              <button
-                key={tab}
-                onClick={() => setSecondaryTab(tab)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: secondaryTab === tab ? 'var(--color-primary)' : '#888',
-                  borderBottom: secondaryTab === tab ? '2px solid var(--color-primary)' : 'none',
-                  padding: '1rem',
-                  fontSize: '1rem',
-                  cursor: 'pointer',
-                  fontWeight: secondaryTab === tab ? 'bold' : 'normal'
-                }}
-              >
-                {tab === 'dash' ? '📊 Dashboard' : tab === 'dre' ? '📄 DRE' : tab === 'balanco' ? '⚖️ Balanço Patrimonial' : tab === 'dfc' ? '💸 Fluxo de Caixa (DFC)' : tab === 'faturamento' ? '📈 Relação de Faturamento' : '📋 PER/DCOMP'}
-              </button>
-            ))}
+          <nav className="secondary-nav" style={{ 
+            display: 'flex', 
+            gap: '0.5rem', 
+            borderBottom: '1px solid rgba(255, 255, 255, 0.1)', 
+            marginBottom: '1.75rem',
+            overflowX: 'auto',
+            scrollbarWidth: 'none',
+            paddingBottom: '2px'
+          }}>
+            {['dash', 'dre', 'balanco', 'dfc', 'faturamento', 'perdcomp'].map(tab => {
+              const isActive = secondaryTab === tab;
+              const labels = {
+                dash: '📊 Dashboard',
+                dre: '📄 DRE',
+                balanco: '⚖️ Balanço Patrimonial',
+                dfc: '💸 Fluxo de Caixa (DFC)',
+                faturamento: '📈 Relação de Faturamento',
+                perdcomp: '📋 PER/DCOMP'
+              };
+              return (
+                <button
+                  key={tab}
+                  onClick={() => setSecondaryTab(tab)}
+                  style={{
+                    background: isActive ? 'rgba(255, 183, 77, 0.12)' : 'transparent',
+                    border: 'none',
+                    borderBottom: isActive ? '2px solid var(--color-primary)' : '2px solid transparent',
+                    color: isActive ? 'var(--color-primary)' : '#9ca3af',
+                    padding: '0.75rem 1.1rem',
+                    fontSize: '0.92rem',
+                    cursor: 'pointer',
+                    fontWeight: isActive ? 'bold' : 500,
+                    borderRadius: '8px 8px 0 0',
+                    whiteSpace: 'nowrap',
+                    transition: 'all 0.2s ease',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                  onMouseEnter={e => { if (!isActive) e.currentTarget.style.color = '#fff'; }}
+                  onMouseLeave={e => { if (!isActive) e.currentTarget.style.color = '#9ca3af'; }}
+                >
+                  {labels[tab]}
+                </button>
+              );
+            })}
           </nav>
 
           <div style={{ opacity: isProcessing ? 0.6 : 1, transition: 'opacity 0.25s ease', pointerEvents: isProcessing ? 'none' : 'auto' }}>
@@ -2483,107 +2510,210 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                 alignItems: 'center', 
                 gap: '1rem', 
                 flexWrap: 'wrap', 
-                marginBottom: '1rem',
-                background: 'rgba(0,0,0,0.2)',
-                padding: '0.6rem 0.85rem',
-                borderRadius: '8px',
-                border: '1px solid rgba(255,255,255,0.08)'
+                marginBottom: '1.25rem',
+                background: 'rgba(22, 22, 30, 0.75)',
+                backdropFilter: 'blur(12px)',
+                padding: '0.65rem 1rem',
+                borderRadius: '12px',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25)'
               }}>
-                {/* Lado Esquerdo: Modo de Visão e Filtros */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', flexWrap: 'wrap' }}>
-                  {/* Segmented Control: Simples vs Detalhada */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <span style={{ fontSize: '0.78rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 }}>Visão:</span>
-                    <div style={{
-                      display: 'inline-flex',
-                      background: 'rgba(0,0,0,0.4)',
-                      padding: '3px',
-                      borderRadius: '8px',
-                      border: '1px solid rgba(255,255,255,0.12)'
-                    }}>
-                      <button
-                        type="button"
-                        onClick={() => setIsDREDetalhada(false)}
-                        style={{
-                          padding: '0.35rem 0.75rem',
-                          fontSize: '0.8rem',
-                          fontWeight: !isDREDetalhada ? 600 : 500,
-                          borderRadius: '6px',
-                          border: 'none',
-                          cursor: 'pointer',
-                          transition: 'all 0.2s ease',
-                          background: !isDREDetalhada ? '#2563eb' : 'transparent',
-                          color: !isDREDetalhada ? '#ffffff' : '#9ca3af',
-                          boxShadow: !isDREDetalhada ? '0 2px 6px rgba(37,99,235,0.4)' : 'none'
-                        }}
-                        title="Visualizar DRE sintetizada por grupos e subtotais"
-                      >
-                        📋 Simples
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setIsDREDetalhada(true)}
-                        style={{
-                          padding: '0.35rem 0.75rem',
-                          fontSize: '0.8rem',
-                          fontWeight: isDREDetalhada ? 600 : 500,
-                          borderRadius: '6px',
-                          border: 'none',
-                          cursor: 'pointer',
-                          transition: 'all 0.2s ease',
-                          background: isDREDetalhada ? '#2563eb' : 'transparent',
-                          color: isDREDetalhada ? '#ffffff' : '#9ca3af',
-                          boxShadow: isDREDetalhada ? '0 2px 6px rgba(37,99,235,0.4)' : 'none'
-                        }}
-                        title="Visualizar DRE completa com todas as contas analíticas detalhadas"
-                      >
-                        📄 Detalhada
-                      </button>
-                    </div>
+                {/* Grupo 1 (Esquerda): Modo de Visão */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  <span style={{ fontSize: '0.74rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                    Visão:
+                  </span>
+                  <div style={{
+                    display: 'inline-flex',
+                    background: 'rgba(0, 0, 0, 0.45)',
+                    padding: '3px',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    height: '34px',
+                    alignItems: 'center'
+                  }}>
+                    <button
+                      type="button"
+                      onClick={() => setIsDREDetalhada(false)}
+                      style={{
+                        padding: '0.3rem 0.85rem',
+                        fontSize: '0.8rem',
+                        fontWeight: !isDREDetalhada ? 600 : 500,
+                        borderRadius: '6px',
+                        border: 'none',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        background: !isDREDetalhada ? '#2563eb' : 'transparent',
+                        color: !isDREDetalhada ? '#ffffff' : '#9ca3af',
+                        boxShadow: !isDREDetalhada ? '0 2px 6px rgba(37, 99, 235, 0.4)' : 'none',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        whiteSpace: 'nowrap',
+                        height: '28px'
+                      }}
+                      title="Visualizar DRE sintetizada por grupos e subtotais"
+                    >
+                      <span>📋</span> Simples
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsDREDetalhada(true)}
+                      style={{
+                        padding: '0.3rem 0.85rem',
+                        fontSize: '0.8rem',
+                        fontWeight: isDREDetalhada ? 600 : 500,
+                        borderRadius: '6px',
+                        border: 'none',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        background: isDREDetalhada ? '#2563eb' : 'transparent',
+                        color: isDREDetalhada ? '#ffffff' : '#9ca3af',
+                        boxShadow: isDREDetalhada ? '0 2px 6px rgba(37, 99, 235, 0.4)' : 'none',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        whiteSpace: 'nowrap',
+                        height: '28px'
+                      }}
+                      title="Visualizar DRE completa com todas as contas analíticas detalhadas"
+                    >
+                      <span>📄</span> Detalhada
+                    </button>
                   </div>
+                </div>
 
-                  {/* Separador vertical */}
-                  <div style={{ width: '1px', height: '22px', background: 'rgba(255,255,255,0.12)' }} />
-
+                {/* Grupo 2 (Centro): Filtros de Tabela (AV % e Ocultar Zerados) */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
                   {/* Seletor AV % */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'rgba(255,255,255,0.05)', padding: '0.25rem 0.6rem', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.12)', fontSize: '0.82rem' }}>
-                    <span style={{ color: '#aaa', fontWeight: 500 }}>📊 AV %:</span>
+                  <div style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    padding: '0 0.75rem',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    height: '34px'
+                  }}>
+                    <span style={{ color: '#bbb', fontWeight: 600, fontSize: '0.78rem', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <span>📊</span> AV %:
+                    </span>
                     <select 
                       value={avViewMode} 
                       onChange={e => setAvViewMode(e.target.value)} 
                       className="select-input" 
-                      style={{ padding: '0.2rem 0.4rem', fontSize: '0.78rem', background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer' }}
+                      style={{
+                        padding: '0.2rem 0.4rem',
+                        fontSize: '0.78rem',
+                        background: 'rgba(0, 0, 0, 0.3)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        borderRadius: '6px',
+                        color: '#fff',
+                        cursor: 'pointer',
+                        height: '26px'
+                      }}
                       title="Controle das colunas de Análise Vertical (AV %)"
                     >
-                      <option value="all" style={{ background: '#222' }}>Todas as Empresas</option>
-                      <option value="consol" style={{ background: '#222' }}>Apenas Consolidado (Compacto)</option>
-                      <option value="none" style={{ background: '#222' }}>Ocultar AV % (Mais Empresas)</option>
+                      <option value="all" style={{ background: '#1c1c24' }}>Todas as Empresas</option>
+                      <option value="consol" style={{ background: '#1c1c24' }}>Apenas Consolidado (Compacto)</option>
+                      <option value="none" style={{ background: '#1c1c24' }}>Ocultar AV % (Mais Empresas)</option>
                     </select>
                   </div>
 
-                  {/* Ocultar zerados */}
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', color: '#ccc', cursor: 'pointer', fontSize: '0.82rem', userSelect: 'none' }}>
-                    <input type="checkbox" checked={hideZeros} onChange={e => setHideZeros(e.target.checked)} style={{ cursor: 'pointer' }} />
-                    Ocultar valores zerados
-                  </label>
+                  {/* Toggle Chip: Ocultar Zerados */}
+                  <button
+                    type="button"
+                    onClick={() => setHideZeros(!hideZeros)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '7px',
+                      background: hideZeros ? 'rgba(37, 99, 235, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                      border: `1px solid ${hideZeros ? 'rgba(59, 130, 246, 0.5)' : 'rgba(255, 255, 255, 0.12)'}`,
+                      borderRadius: '8px',
+                      padding: '0 0.85rem',
+                      height: '34px',
+                      color: hideZeros ? '#93C5FD' : '#ccc',
+                      fontSize: '0.78rem',
+                      fontWeight: hideZeros ? 600 : 500,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      transition: 'all 0.2s ease'
+                    }}
+                    title="Alternar exibição de contas com valor zerado"
+                  >
+                    <span>{hideZeros ? '👁️‍🗨️' : '👁️'}</span>
+                    <span>Ocultar Zerados</span>
+                    <span style={{
+                      fontSize: '0.65rem',
+                      padding: '1px 6px',
+                      borderRadius: '4px',
+                      background: hideZeros ? '#2563eb' : 'rgba(255, 255, 255, 0.12)',
+                      color: '#fff',
+                      fontWeight: 'bold',
+                      letterSpacing: '0.5px'
+                    }}>
+                      {hideZeros ? 'SIM' : 'NÃO'}
+                    </span>
+                  </button>
                 </div>
 
-                {/* Lado Direito: Ações */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                {/* Grupo 3 (Direita): Ações */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
                   <button 
+                    type="button"
                     onClick={() => { setMappingViewTab('dre'); setShowViewMappingModal(true); }} 
-                    className="btn-secondary"
-                    style={{ padding: '0.45rem 0.85rem', fontSize: '0.82rem' }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '0 0.95rem',
+                      height: '34px',
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      borderRadius: '8px',
+                      border: '1px solid rgba(255, 183, 77, 0.35)',
+                      background: 'rgba(255, 183, 77, 0.08)',
+                      color: '#FFD54F',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      transition: 'all 0.2s ease'
+                    }}
                     title="Visualizar o plano de contas e agrupamento da DRE"
+                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(255, 183, 77, 0.18)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'rgba(255, 183, 77, 0.08)'}
                   >
-                    🗺️ Ver Mapeamento
+                    <span>🗺️</span>
+                    <span>Ver Mapeamento</span>
                   </button>
+
                   <button 
+                    type="button"
                     onClick={() => handlePrint('DRE')} 
-                    className="btn-primary"
-                    style={{ padding: '0.45rem 0.95rem', fontSize: '0.82rem' }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '0 1.1rem',
+                      height: '34px',
+                      fontSize: '0.8rem',
+                      fontWeight: 'bold',
+                      borderRadius: '8px',
+                      border: 'none',
+                      background: 'linear-gradient(135deg, #F59E0B, #D97706)',
+                      color: '#111',
+                      boxShadow: '0 2px 10px rgba(245, 158, 11, 0.3)',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      transition: 'all 0.2s ease'
+                    }}
+                    title="Exportar ou imprimir DRE em PDF"
+                    onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(245, 158, 11, 0.45)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 2px 10px rgba(245, 158, 11, 0.3)'; }}
                   >
-                    🖨️ Exportar PDF
+                    <span>🖨️</span>
+                    <span>Exportar PDF</span>
                   </button>
                 </div>
               </div>
@@ -2672,107 +2802,210 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                 alignItems: 'center', 
                 gap: '1rem', 
                 flexWrap: 'wrap', 
-                marginBottom: '0.5rem',
-                background: 'rgba(0,0,0,0.2)',
-                padding: '0.6rem 0.85rem',
-                borderRadius: '8px',
-                border: '1px solid rgba(255,255,255,0.08)'
+                marginBottom: '1.25rem',
+                background: 'rgba(22, 22, 30, 0.75)',
+                backdropFilter: 'blur(12px)',
+                padding: '0.65rem 1rem',
+                borderRadius: '12px',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25)'
               }}>
-                {/* Lado Esquerdo: Modo de Visão e Filtros */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', flexWrap: 'wrap' }}>
-                  {/* Segmented Control: Simples vs Detalhado */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <span style={{ fontSize: '0.78rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 600 }}>Visão:</span>
-                    <div style={{
-                      display: 'inline-flex',
-                      background: 'rgba(0,0,0,0.4)',
-                      padding: '3px',
-                      borderRadius: '8px',
-                      border: '1px solid rgba(255,255,255,0.12)'
-                    }}>
-                      <button
-                        type="button"
-                        onClick={() => setIsBalancoDetalhado(false)}
-                        style={{
-                          padding: '0.35rem 0.75rem',
-                          fontSize: '0.8rem',
-                          fontWeight: !isBalancoDetalhado ? 600 : 500,
-                          borderRadius: '6px',
-                          border: 'none',
-                          cursor: 'pointer',
-                          transition: 'all 0.2s ease',
-                          background: !isBalancoDetalhado ? '#2563eb' : 'transparent',
-                          color: !isBalancoDetalhado ? '#ffffff' : '#9ca3af',
-                          boxShadow: !isBalancoDetalhado ? '0 2px 6px rgba(37,99,235,0.4)' : 'none'
-                        }}
-                        title="Visualizar Balanço Patrimonial resumido por grupos sintéticos"
-                      >
-                        📋 Simples
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setIsBalancoDetalhado(true)}
-                        style={{
-                          padding: '0.35rem 0.75rem',
-                          fontSize: '0.8rem',
-                          fontWeight: isBalancoDetalhado ? 600 : 500,
-                          borderRadius: '6px',
-                          border: 'none',
-                          cursor: 'pointer',
-                          transition: 'all 0.2s ease',
-                          background: isBalancoDetalhado ? '#2563eb' : 'transparent',
-                          color: isBalancoDetalhado ? '#ffffff' : '#9ca3af',
-                          boxShadow: isBalancoDetalhado ? '0 2px 6px rgba(37,99,235,0.4)' : 'none'
-                        }}
-                        title="Visualizar Balanço Patrimonial completo com subcontas analíticas detalhadas"
-                      >
-                        📄 Detalhado
-                      </button>
-                    </div>
+                {/* Grupo 1 (Esquerda): Modo de Visão */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  <span style={{ fontSize: '0.74rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                    Visão:
+                  </span>
+                  <div style={{
+                    display: 'inline-flex',
+                    background: 'rgba(0, 0, 0, 0.45)',
+                    padding: '3px',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    height: '34px',
+                    alignItems: 'center'
+                  }}>
+                    <button
+                      type="button"
+                      onClick={() => setIsBalancoDetalhado(false)}
+                      style={{
+                        padding: '0.3rem 0.85rem',
+                        fontSize: '0.8rem',
+                        fontWeight: !isBalancoDetalhado ? 600 : 500,
+                        borderRadius: '6px',
+                        border: 'none',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        background: !isBalancoDetalhado ? '#2563eb' : 'transparent',
+                        color: !isBalancoDetalhado ? '#ffffff' : '#9ca3af',
+                        boxShadow: !isBalancoDetalhado ? '0 2px 6px rgba(37, 99, 235, 0.4)' : 'none',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        whiteSpace: 'nowrap',
+                        height: '28px'
+                      }}
+                      title="Visualizar Balanço Patrimonial resumido por grupos sintéticos"
+                    >
+                      <span>📋</span> Simples
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsBalancoDetalhado(true)}
+                      style={{
+                        padding: '0.3rem 0.85rem',
+                        fontSize: '0.8rem',
+                        fontWeight: isBalancoDetalhado ? 600 : 500,
+                        borderRadius: '6px',
+                        border: 'none',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        background: isBalancoDetalhado ? '#2563eb' : 'transparent',
+                        color: isBalancoDetalhado ? '#ffffff' : '#9ca3af',
+                        boxShadow: isBalancoDetalhado ? '0 2px 6px rgba(37, 99, 235, 0.4)' : 'none',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        whiteSpace: 'nowrap',
+                        height: '28px'
+                      }}
+                      title="Visualizar Balanço Patrimonial completo com subcontas analíticas detalhadas"
+                    >
+                      <span>📄</span> Detalhado
+                    </button>
                   </div>
+                </div>
 
-                  {/* Separador vertical */}
-                  <div style={{ width: '1px', height: '22px', background: 'rgba(255,255,255,0.12)' }} />
-
+                {/* Grupo 2 (Centro): Filtros de Tabela (AV % e Ocultar Zerados) */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
                   {/* Seletor AV % */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', background: 'rgba(255,255,255,0.05)', padding: '0.25rem 0.6rem', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.12)', fontSize: '0.82rem' }}>
-                    <span style={{ color: '#aaa', fontWeight: 500 }}>📊 AV %:</span>
+                  <div style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    padding: '0 0.75rem',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255, 255, 255, 0.12)',
+                    height: '34px'
+                  }}>
+                    <span style={{ color: '#bbb', fontWeight: 600, fontSize: '0.78rem', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <span>📊</span> AV %:
+                    </span>
                     <select 
                       value={avViewMode} 
                       onChange={e => setAvViewMode(e.target.value)} 
                       className="select-input" 
-                      style={{ padding: '0.2rem 0.4rem', fontSize: '0.78rem', background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer' }}
+                      style={{
+                        padding: '0.2rem 0.4rem',
+                        fontSize: '0.78rem',
+                        background: 'rgba(0, 0, 0, 0.3)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        borderRadius: '6px',
+                        color: '#fff',
+                        cursor: 'pointer',
+                        height: '26px'
+                      }}
                       title="Controle das colunas de Análise Vertical (AV %)"
                     >
-                      <option value="all" style={{ background: '#222' }}>Todas as Empresas</option>
-                      <option value="consol" style={{ background: '#222' }}>Apenas Consolidado (Compacto)</option>
-                      <option value="none" style={{ background: '#222' }}>Ocultar AV % (Mais Empresas)</option>
+                      <option value="all" style={{ background: '#1c1c24' }}>Todas as Empresas</option>
+                      <option value="consol" style={{ background: '#1c1c24' }}>Apenas Consolidado (Compacto)</option>
+                      <option value="none" style={{ background: '#1c1c24' }}>Ocultar AV % (Mais Empresas)</option>
                     </select>
                   </div>
 
-                  {/* Ocultar zerados */}
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', color: '#ccc', cursor: 'pointer', fontSize: '0.82rem', userSelect: 'none' }}>
-                    <input type="checkbox" checked={hideZeros} onChange={e => setHideZeros(e.target.checked)} style={{ cursor: 'pointer' }} />
-                    Ocultar valores zerados
-                  </label>
+                  {/* Toggle Chip: Ocultar Zerados */}
+                  <button
+                    type="button"
+                    onClick={() => setHideZeros(!hideZeros)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '7px',
+                      background: hideZeros ? 'rgba(37, 99, 235, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                      border: `1px solid ${hideZeros ? 'rgba(59, 130, 246, 0.5)' : 'rgba(255, 255, 255, 0.12)'}`,
+                      borderRadius: '8px',
+                      padding: '0 0.85rem',
+                      height: '34px',
+                      color: hideZeros ? '#93C5FD' : '#ccc',
+                      fontSize: '0.78rem',
+                      fontWeight: hideZeros ? 600 : 500,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      transition: 'all 0.2s ease'
+                    }}
+                    title="Alternar exibição de contas com valor zerado"
+                  >
+                    <span>{hideZeros ? '👁️‍🗨️' : '👁️'}</span>
+                    <span>Ocultar Zerados</span>
+                    <span style={{
+                      fontSize: '0.65rem',
+                      padding: '1px 6px',
+                      borderRadius: '4px',
+                      background: hideZeros ? '#2563eb' : 'rgba(255, 255, 255, 0.12)',
+                      color: '#fff',
+                      fontWeight: 'bold',
+                      letterSpacing: '0.5px'
+                    }}>
+                      {hideZeros ? 'SIM' : 'NÃO'}
+                    </span>
+                  </button>
                 </div>
 
-                {/* Lado Direito: Ações */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                {/* Grupo 3 (Direita): Ações */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
                   <button 
+                    type="button"
                     onClick={() => { setMappingViewTab('passivo'); setShowViewMappingModal(true); }} 
-                    className="btn-secondary"
-                    style={{ padding: '0.45rem 0.85rem', fontSize: '0.82rem' }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '0 0.95rem',
+                      height: '34px',
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      borderRadius: '8px',
+                      border: '1px solid rgba(255, 183, 77, 0.35)',
+                      background: 'rgba(255, 183, 77, 0.08)',
+                      color: '#FFD54F',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      transition: 'all 0.2s ease'
+                    }}
                     title="Visualizar o plano de contas e agrupamento do Balanço Patrimonial"
+                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(255, 183, 77, 0.18)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'rgba(255, 183, 77, 0.08)'}
                   >
-                    🗺️ Ver Mapeamento
+                    <span>🗺️</span>
+                    <span>Ver Mapeamento</span>
                   </button>
+
                   <button 
+                    type="button"
                     onClick={() => handlePrint('Balanço Patrimonial')} 
-                    className="btn-primary"
-                    style={{ padding: '0.45rem 0.95rem', fontSize: '0.82rem' }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '0 1.1rem',
+                      height: '34px',
+                      fontSize: '0.8rem',
+                      fontWeight: 'bold',
+                      borderRadius: '8px',
+                      border: 'none',
+                      background: 'linear-gradient(135deg, #F59E0B, #D97706)',
+                      color: '#111',
+                      boxShadow: '0 2px 10px rgba(245, 158, 11, 0.3)',
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                      transition: 'all 0.2s ease'
+                    }}
+                    title="Exportar ou imprimir Balanço em PDF"
+                    onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(245, 158, 11, 0.45)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 2px 10px rgba(245, 158, 11, 0.3)'; }}
                   >
-                    🖨️ Exportar PDF
+                    <span>🖨️</span>
+                    <span>Exportar PDF</span>
                   </button>
                 </div>
               </div>
