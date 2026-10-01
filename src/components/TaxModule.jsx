@@ -359,12 +359,6 @@ export default function TaxModule({ companies }) {
           outrasReceitasDre += (r.valorMensal || 0);
           outrasReceitasDreBreakdown.push(`${r.conta} (${r.descricao}): R$ ${(r.valorMensal || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`);
         }
-      } else if (r.conta.startsWith('4.3.1.1.01.00005') || r.conta.startsWith('4.9.1.2.02')) {
-        // Outras Receitas Operacionais / Financeiras da DRE
-        if ((r.valorMensal || 0) > 0) {
-          outrasReceitasDre += (r.valorMensal || 0);
-          outrasReceitasDreBreakdown.push(`${r.conta} (${r.descricao}): R$ ${(r.valorMensal || 0).toLocaleString('pt-BR', {minimumFractionDigits: 2})}`);
-        }
       } else if (isEstimativa && (r.conta.startsWith('4.9.1.2') || r.conta.startsWith('4.3.1.1.01'))) {
         if ((r.valorMensal || 0) > 0) {
           outrasReceitasDre += (r.valorMensal || 0);
