@@ -2753,6 +2753,27 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                   return { id: cid, name: cName, ativo: a, passivo: p, diff: d, ok: Math.abs(d) < 0.01 };
                 });
 
+                const filteredUnmapped = (results.unmapped || []).filter(u => {
+                  if (u.tipo === 'dre') return false;
+                  if (selectedCompany === 'consolidado') return true;
+                  if (isCustomConsol) {
+                    const targetComps = activeCustom?.companies || [];
+                    return targetComps.includes(u.compId) || u.compId === 'exclusoes';
+                  }
+                  return u.compId === selectedCompany;
+                });
+
+                const mesNome = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][selectedMes - 1] || '';
+                const periodLabel = period === 'mensal'
+                  ? `Mês: ${mesNome} / ${selectedAno}`
+                  : period === 'trimestre'
+                  ? `${selectedTrimestre}º Trimestre / ${selectedAno}`
+                  : `Acumulado (Jan a ${mesNome}) / ${selectedAno}`;
+
+                const companiesToDiagnose = isConsolView && subCompsStatus.length > 0
+                  ? subCompsStatus
+                  : [{ id: selectedCompany, name: mainLabel, ativo: mainAtivo, passivo: mainPassivo, diff: mainDiff, ok: isBalanced }];
+
                 return (
                   <div className="print-hide" style={{
                     background: isBalanced 
@@ -2870,24 +2891,45 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                         color: '#ddd',
                         lineHeight: 1.5
                       }}>
-                        <div style={{ fontWeight: 'bold', color: '#FFD54F', marginBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          ℹ️ Diagnóstico Técnico da Conferência
+                        <div style={{ fontWeight: 'bold', color: '#FFD54F', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            ℹ️ Diagnóstico Técnico da Conferência
+                          </span>
+                          <span style={{ fontSize: '0.75rem', background: 'rgba(255, 213, 79, 0.15)', color: '#FFE082', padding: '2px 8px', borderRadius: '4px', border: '1px solid rgba(255, 213, 79, 0.3)' }}>
+                            {periodLabel}
+                          </span>
                         </div>
-                        <p style={{ margin: '0 0 0.4rem 0' }}>
-                          As diferenças apontadas totalizam <strong>{Math.abs(mainDiff).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>, o que representa apenas <strong>{((Math.abs(mainDiff) / (mainAtivo || 1)) * 100).toFixed(4)}%</strong> do volume total do Ativo (R$ {mainAtivo.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}).
+                        <p style={{ margin: '0 0 0.5rem 0' }}>
+                          Para o período <strong>{periodLabel}</strong> em <strong>{mainLabel}</strong>, a diferença apurada entre Ativo e Passivo + PL é de <strong>{Math.abs(mainDiff).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong> ({((Math.abs(mainDiff) / (mainAtivo || 1)) * 100).toFixed(4)}% do Ativo total de {mainAtivo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}).
                         </p>
                         <ul style={{ margin: 0, paddingLeft: '1.2rem', color: '#ccc' }}>
-                          <li style={{ marginBottom: '3px' }}>
-                            <strong>AGF Equipamentos (-R$ 46,28):</strong> Variação centesimal de arredondamento em base de movimentação superior a R$ 139 milhões.
-                          </li>
-                          <li style={{ marginBottom: '3px' }}>
-                            <strong>Casa da Escavadeira (+R$ 4.391,61):</strong> Provisões tributárias e retenções fiscais registradas no DRE do período e conciliadas no fechamento do trimestre.
-                          </li>
-                          <li style={{ marginBottom: '3px' }}>
-                            <strong>AGF Participações (-R$ 487,52):</strong> Ajuste proporcional de equivalência patrimonial transitória.
-                          </li>
-                          <li>
-                            <strong>Mapeamento:</strong> 100% das contas contábeis do balanço estão mapeadas e válidas (nenhuma conta fora de grupo).
+                          {companiesToDiagnose.map(sc => {
+                            const compUnmapped = filteredUnmapped.filter(u => u.compId === sc.id);
+                            let techNote = '';
+                            if (sc.ok) {
+                              techNote = 'Balanço 100% equilibrado e conciliado no período (Ativo = Passivo + PL).';
+                            } else if (compUnmapped.length > 0) {
+                              techNote = `${compUnmapped.length} conta(s) não mapeada(s) com saldo no período (${compUnmapped.map(u => u.conta).slice(0, 3).join(', ')}${compUnmapped.length > 3 ? '...' : ''}), impactando a conciliação patrimonial.`;
+                            } else if (Math.abs(sc.diff) < 10) {
+                              techNote = `Variação centesimal de arredondamento em base de movimentação de ${sc.ativo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}.`;
+                            } else {
+                              techNote = `Divergência de ${sc.diff.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} apurada no período (Ativo: ${sc.ativo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} | Passivo+PL: ${sc.passivo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}). Pode decorrer de provisões tributárias/fiscais do período ou apuração de resultado ainda em aberto.`;
+                            }
+
+                            return (
+                              <li key={sc.id} style={{ marginBottom: '4px' }}>
+                                <strong style={{ color: sc.ok ? '#81C784' : '#FF8A80' }}>
+                                  {sc.ok ? '✓ ' : '• '}{sc.name} ({sc.ok ? 'Equilibrado' : `${sc.diff > 0 ? '+' : ''}${sc.diff.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`}):
+                                </strong>{' '}
+                                <span>{techNote}</span>
+                              </li>
+                            );
+                          })}
+                          <li style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px dashed rgba(255,255,255,0.1)' }}>
+                            <strong style={{ color: filteredUnmapped.length === 0 ? '#81C784' : '#FFB74D' }}>Mapeamento Estrutural:</strong>{' '}
+                            {filteredUnmapped.length === 0
+                              ? '100% das contas contábeis movimentadas no período estão mapeadas nos grupos do Balanço Patrimonial (nenhuma conta pendente fora de grupo).'
+                              : `${filteredUnmapped.length} conta(s) com saldo no período pendente(s) de mapeamento (ver tabela detalhada abaixo).`}
                           </li>
                         </ul>
                       </div>
