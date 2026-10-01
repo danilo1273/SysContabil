@@ -11,14 +11,16 @@ import DashboardView from './DashboardView';
 import IntercompanyExclusionsPanel from './IntercompanyExclusionsPanel';
 import { printReport } from '../utils/printHelper';
 
-// Code-Splitting: Módulos secundários pesados carregados sob demanda via React.lazy
-const TaxModule = React.lazy(() => import('./TaxModule'));
-const FaturamentoModule = React.lazy(() => import('./FaturamentoModule'));
-const RateioModule = React.lazy(() => import('./RateioModule'));
-const CentroCustoModule = React.lazy(() => import('./CentroCustoModule'));
-const GestaoContabilModule = React.lazy(() => import('./GestaoContabilModule'));
-const PerdcompModule = React.lazy(() => import('./PerdcompModule'));
-const EstoqueModule = React.lazy(() => import('./EstoqueModule'));
+import { lazyWithRetry, ModuleErrorBoundary } from '../utils/lazyWithRetry';
+
+// Code-Splitting: Módulos secundários pesados carregados sob demanda via lazyWithRetry (com auto-recuperação de novas versões da Vercel)
+const TaxModule = lazyWithRetry(() => import('./TaxModule'));
+const FaturamentoModule = lazyWithRetry(() => import('./FaturamentoModule'));
+const RateioModule = lazyWithRetry(() => import('./RateioModule'));
+const CentroCustoModule = lazyWithRetry(() => import('./CentroCustoModule'));
+const GestaoContabilModule = lazyWithRetry(() => import('./GestaoContabilModule'));
+const PerdcompModule = lazyWithRetry(() => import('./PerdcompModule'));
+const EstoqueModule = lazyWithRetry(() => import('./EstoqueModule'));
 
 const TabLoadingFallback = () => (
   <div style={{ padding: '4rem 2rem', textAlign: 'center', color: '#90CAF9', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '0.8rem' }}>
@@ -3085,53 +3087,65 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
 
           {secondaryTab === 'faturamento' && (
             <div style={{ marginTop: '1rem' }}>
-              <React.Suspense fallback={<TabLoadingFallback />}>
-                <FaturamentoModule
-                  key={`${selectedCompany}_${selectedAno}_${selectedMes}`}
-                  companies={companies}
-                  selectedCompany={selectedCompany}
-                  selectedAno={selectedAno}
-                  selectedMes={selectedMes}
-                />
-              </React.Suspense>
+              <ModuleErrorBoundary>
+                <React.Suspense fallback={<TabLoadingFallback />}>
+                  <FaturamentoModule
+                    key={`${selectedCompany}_${selectedAno}_${selectedMes}`}
+                    companies={companies}
+                    selectedCompany={selectedCompany}
+                    selectedAno={selectedAno}
+                    selectedMes={selectedMes}
+                  />
+                </React.Suspense>
+              </ModuleErrorBoundary>
             </div>
           )}
 
         {secondaryTab === 'perdcomp' && (
-          <React.Suspense fallback={<TabLoadingFallback />}>
-            <PerdcompModule 
-              companies={companies} 
-              canEdit={userPermissions?.includes('contabil') || ['danilo', 'ryan.santos'].includes(username)} 
-            />
-          </React.Suspense>
+          <ModuleErrorBoundary>
+            <React.Suspense fallback={<TabLoadingFallback />}>
+              <PerdcompModule 
+                companies={companies} 
+                canEdit={userPermissions?.includes('contabil') || ['danilo', 'ryan.santos'].includes(username)} 
+              />
+            </React.Suspense>
+          </ModuleErrorBoundary>
         )}
           </div>
         </div>
       )}
 
       {activeTab === 'apuracao' && (
-        <React.Suspense fallback={<TabLoadingFallback />}>
-          <TaxModule companies={companies} />
-        </React.Suspense>
+        <ModuleErrorBoundary>
+          <React.Suspense fallback={<TabLoadingFallback />}>
+            <TaxModule companies={companies} />
+          </React.Suspense>
+        </ModuleErrorBoundary>
       )}
 
       {activeTab === 'rateio' && (
-        <React.Suspense fallback={<TabLoadingFallback />}>
-          <RateioModule companies={companies} />
-        </React.Suspense>
+        <ModuleErrorBoundary>
+          <React.Suspense fallback={<TabLoadingFallback />}>
+            <RateioModule companies={companies} />
+          </React.Suspense>
+        </ModuleErrorBoundary>
       )}
 
       {activeTab === 'cc' && (
-        <React.Suspense fallback={<TabLoadingFallback />}>
-          <CentroCustoModule companies={companies} userRole={userRole} userPermissions={userPermissions} username={username} />
-        </React.Suspense>
+        <ModuleErrorBoundary>
+          <React.Suspense fallback={<TabLoadingFallback />}>
+            <CentroCustoModule companies={companies} userRole={userRole} userPermissions={userPermissions} username={username} />
+          </React.Suspense>
+        </ModuleErrorBoundary>
       )}
 
       {activeTab === 'estoque' && (
         (userPermissions?.includes('estoque') || ['danilo', 'ryan.santos'].includes(username) || userRole === 'superadmin' || userRole === 'admin') ? (
-          <React.Suspense fallback={<TabLoadingFallback />}>
-            <EstoqueModule companies={companies} userRole={userRole} userPermissions={userPermissions} username={username} />
-          </React.Suspense>
+          <ModuleErrorBoundary>
+            <React.Suspense fallback={<TabLoadingFallback />}>
+              <EstoqueModule companies={companies} userRole={userRole} userPermissions={userPermissions} username={username} />
+            </React.Suspense>
+          </ModuleErrorBoundary>
         ) : (
           <div style={{ padding: '3rem', textAlign: 'center', color: '#ef5350' }}>
             <h3>Acesso Restrito</h3>
@@ -3141,9 +3155,11 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
       )}
 
       {activeTab === 'gestao' && (
-        <React.Suspense fallback={<TabLoadingFallback />}>
-          <GestaoContabilModule userRole={userRole} userName={localStorage.getItem('agf_session') ? JSON.parse(localStorage.getItem('agf_session')).username : ''} companies={companies} />
-        </React.Suspense>
+        <ModuleErrorBoundary>
+          <React.Suspense fallback={<TabLoadingFallback />}>
+            <GestaoContabilModule userRole={userRole} userName={localStorage.getItem('agf_session') ? JSON.parse(localStorage.getItem('agf_session')).username : ''} companies={companies} />
+          </React.Suspense>
+        </ModuleErrorBoundary>
       )}
 
       {isMappingModalOpen && mappingTarget && (

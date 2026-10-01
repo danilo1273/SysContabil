@@ -6,7 +6,8 @@ import UserPanel from './components/UserPanel';
 import UserProfileModal from './components/UserProfileModal';
 import OnlineUsersModal from './components/OnlineUsersModal';
 import GlobalDialog from './components/GlobalDialog';
-const PlanejamentoFiscalModule = lazy(() => import('./components/PlanejamentoFiscalModule'));
+import { lazyWithRetry, ModuleErrorBoundary } from './utils/lazyWithRetry';
+const PlanejamentoFiscalModule = lazyWithRetry(() => import('./components/PlanejamentoFiscalModule'));
 import { getSettings, saveSettings } from './utils/db';
 import './utils/dialog';
 import './App.css';
@@ -468,13 +469,15 @@ function App() {
       {!selectedModule ? (
         <ModuleSelectionScreen user={user} onSelectModule={(mod) => setSelectedModule(mod)} />
       ) : selectedModule === 'planejamento_fiscal' ? (
-        <Suspense fallback={<div style={{ textAlign: 'center', padding: '3rem', color: '#00BCD4', fontWeight: 'bold' }}>Carregando Planejamento Fiscal...</div>}>
-          <PlanejamentoFiscalModule
-            user={user}
-            isSuperAdmin={isSuperAdmin}
-            onBackToModules={() => setSelectedModule(null)}
-          />
-        </Suspense>
+        <ModuleErrorBoundary>
+          <Suspense fallback={<div style={{ textAlign: 'center', padding: '3rem', color: '#00BCD4', fontWeight: 'bold' }}>Carregando Planejamento Fiscal...</div>}>
+            <PlanejamentoFiscalModule
+              user={user}
+              isSuperAdmin={isSuperAdmin}
+              onBackToModules={() => setSelectedModule(null)}
+            />
+          </Suspense>
+        </ModuleErrorBoundary>
       ) : (
         <ProtheusModule 
           userRole={user.role} 
