@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Upload, UploadCloud, Plus, FileText, CheckCircle, AlertTriangle, Play, Database, FileSpreadsheet, Activity, ChevronRight, ChevronDown, RefreshCw, Package, Settings, X, Trash2, Edit2, Check } from 'lucide-react';
+import { Upload, UploadCloud, Plus, FileText, CheckCircle, AlertTriangle, Play, Database, FileSpreadsheet, Activity, ChevronRight, ChevronDown, RefreshCw, Package, Settings, X, Trash2, Edit2, Check, Copy } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, Cell } from 'recharts';
 import { parseProtheusExcel } from '../utils/protheusParser';
 import { protheusMapping, applyMapping } from '../utils/mappingConfig';
 import { supabase } from "../supabaseClient";
 import { saveBalanceteToDB, getDREFromDB, getBalancoFromDB, addManualEntryToDB, getSettings, saveSettings, getCustomConsolidations, saveCustomConsolidations, isResultadoOuEncerramentoConta, checkAvailableMonths, bulkPutRecords, deleteRecords, updateRecord, getRawRecords } from '../utils/db';
+import { parseFinancialValue, formatFinancialInput, copyFinancialValue } from '../utils/financialParser';
 import DashboardView from './DashboardView';
 import IntercompanyExclusionsPanel from './IntercompanyExclusionsPanel';
 import { printReport } from '../utils/printHelper';
@@ -457,9 +458,11 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
   };
 
   const handleAddManualEntry = async () => {
-    if (!manualEmpresa || !manualConta || !manualValor) return window.$alert('Preencha os campos obrigatórios');
+    if (!manualEmpresa || !manualConta || manualValor === '') return window.$alert('Preencha os campos obrigatórios (Empresa, Conta e Valor)');
     try {
-      await addManualEntryToDB(manualEmpresa, dbAno, dbMes, manualConta, manualDescricao || manualConta, parseFloat(manualValor));
+      const parsedVal = parseFinancialValue(manualValor);
+      if (isNaN(parsedVal)) throw new Error('Valor inválido');
+      await addManualEntryToDB(manualEmpresa, dbAno, dbMes, manualConta, manualDescricao || manualConta, parsedVal);
       window.$toast('Lançamento inserido com sucesso!', { type: 'success' });
       setManualConta(''); setManualDescricao(''); setManualValor('');
       loadDbRecords(dbAno, dbMes);
@@ -620,12 +623,13 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
   
   const startEditing = (record) => {
     setEditingId(record.id);
-    setEditingValue(record.valorMensal !== undefined ? record.valorMensal : record.saldoAcumulado);
+    const rawVal = record.valorMensal !== undefined ? record.valorMensal : record.saldoAcumulado;
+    setEditingValue(formatFinancialInput(rawVal));
   };
 
   const saveEdit = async (record) => {
     try {
-      const val = parseFloat(editingValue);
+      const val = parseFinancialValue(editingValue);
       if (isNaN(val)) throw new Error('Valor inválido');
       
       await updateRecord(record.id, record.tipo ? 'balanco' : 'dre', val);
@@ -2071,7 +2075,25 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
             
             <input type="text" placeholder="Conta (ex: 6)" value={manualConta} onChange={(e) => setManualConta(e.target.value)} className="select-input" style={{ width: '120px' }} />
             <input type="text" placeholder="Descrição (Opcional)" value={manualDescricao} onChange={(e) => setManualDescricao(e.target.value)} className="select-input" style={{ flex: 1, minWidth: '150px' }} />
-            <input type="number" placeholder="Valor (R$)" value={manualValor} onChange={(e) => setManualValor(e.target.value)} className="select-input" style={{ width: '120px' }} />
+            <input 
+              type="text" 
+              placeholder="Valor (R$ 0,00)" 
+              value={manualValor} 
+              onChange={(e) => setManualValor(e.target.value)} 
+              onPaste={(e) => {
+                const text = e.clipboardData.getData('text');
+                if (text && /[0-9]/.test(text)) {
+                  e.preventDefault();
+                  setManualValor(formatFinancialInput(text));
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleAddManualEntry();
+              }}
+              className="select-input" 
+              style={{ width: '140px', fontFamily: 'monospace', fontWeight: 'bold' }} 
+              title="Cole qualquer valor com R$, pontos ou vírgulas (ex: 1.500,00 ou -450,20)"
+            />
             
             <button onClick={handleAddManualEntry} className="btn-primary" style={{ padding: '0.6rem 1rem' }}>Inserir</button>
           </div>
@@ -2129,14 +2151,51 @@ function ProtheusModule({ userRole, userPermissions, username, moduleMode, onBac
                       <td style={{ fontWeight: 'bold', color: (r.valorMensal || r.saldoAcumulado) < 0 ? '#ff5252' : 'var(--color-success)' }}>
                         {editingId === r.id ? (
                           <input 
-                            type="number" 
+                            type="text" 
                             className="select-input" 
-                            style={{ width: '120px', padding: '0.2rem' }}
+                            style={{ width: '140px', padding: '0.25rem 0.5rem', fontFamily: 'monospace', fontWeight: 'bold' }}
                             value={editingValue} 
-                            onChange={(e) => setEditingValue(e.target.value)} 
+                            onChange={(e) => setEditingValue(e.target.value)}
+                            onPaste={(e) => {
+                              const text = e.clipboardData.getData('text');
+                              if (text && /[0-9]/.test(text)) {
+                                e.preventDefault();
+                                setEditingValue(formatFinancialInput(text));
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') saveEdit(r);
+                              if (e.key === 'Escape') setEditingId(null);
+                            }}
+                            autoFocus
+                            title="Cole qualquer valor numérico ou edite (Enter para salvar, Esc para cancelar)"
                           />
                         ) : (
-                          (r.valorMensal !== undefined ? r.valorMensal : (r.saldoAcumulado || 0)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                            <span>{(r.valorMensal !== undefined ? r.valorMensal : (r.saldoAcumulado || 0)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                copyFinancialValue(r.valorMensal !== undefined ? r.valorMensal : (r.saldoAcumulado || 0), `Conta ${r.conta}`);
+                              }}
+                              title="Copiar valor numérico (sem prefixo R$)"
+                              style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: '#777',
+                                cursor: 'pointer',
+                                padding: '2px 4px',
+                                borderRadius: '4px',
+                                display: 'inline-flex',
+                                alignItems: 'center'
+                              }}
+                              onMouseEnter={(e) => e.currentTarget.style.color = '#FFD54F'}
+                              onMouseLeave={(e) => e.currentTarget.style.color = '#777'}
+                            >
+                              <Copy size={13} />
+                            </button>
+                          </div>
                         )}
                       </td>
                       <td>

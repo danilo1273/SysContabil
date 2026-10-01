@@ -13,8 +13,10 @@ import {
   AlertTriangle,
   HelpCircle,
   ArrowRight,
-  TrendingDown
+  TrendingDown,
+  Copy
 } from 'lucide-react';
+import { parseFinancialValue, formatFinancialInput, copyFinancialValue } from '../utils/financialParser';
 
 export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = [], onSaved }) {
   const availableCompanies = companies && companies.length > 0 ? companies : [
@@ -110,9 +112,9 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
       availableCompanies.forEach(c => {
         if (storedDRE && storedDRE[c.id]) {
           dreState[c.id] = {
-            faturamento: storedDRE[c.id].faturamento !== undefined ? String(storedDRE[c.id].faturamento) : '',
-            impostos: storedDRE[c.id].impostos !== undefined ? String(storedDRE[c.id].impostos) : '',
-            custo: storedDRE[c.id].custo !== undefined ? String(storedDRE[c.id].custo) : ''
+            faturamento: storedDRE[c.id].faturamento !== undefined ? formatFinancialInput(storedDRE[c.id].faturamento) : '',
+            impostos: storedDRE[c.id].impostos !== undefined ? formatFinancialInput(storedDRE[c.id].impostos) : '',
+            custo: storedDRE[c.id].custo !== undefined ? formatFinancialInput(storedDRE[c.id].custo) : ''
           };
         } else {
           dreState[c.id] = { faturamento: '', impostos: '', custo: '' };
@@ -124,9 +126,9 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
       if (!hasAnyStored && legacyData && (legacyData.faturamento || legacyData.impostos || legacyData.custo)) {
         const firstId = availableCompanies[0]?.id || 'equipamentos';
         dreState[firstId] = {
-          faturamento: legacyData.faturamento ? String(legacyData.faturamento) : '',
-          impostos: legacyData.impostos ? String(legacyData.impostos) : '',
-          custo: legacyData.custo ? String(legacyData.custo) : ''
+          faturamento: legacyData.faturamento ? formatFinancialInput(legacyData.faturamento) : '',
+          impostos: legacyData.impostos ? formatFinancialInput(legacyData.impostos) : '',
+          custo: legacyData.custo ? formatFinancialInput(legacyData.custo) : ''
         };
       }
 
@@ -257,9 +259,9 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
   // Totais Consolidados Calculados
   const totalCliConsol = availableCompanies.reduce((acc, c) => acc + (pulledBalanco[c.id]?.clientes || 0), 0);
   const totalFornConsol = availableCompanies.reduce((acc, c) => acc + (pulledBalanco[c.id]?.fornecedores || 0), 0);
-  const totalFatConsol = availableCompanies.reduce((acc, c) => acc + (parseFloat(companyDRE[c.id]?.faturamento) || 0), 0);
-  const totalImpConsol = availableCompanies.reduce((acc, c) => acc + (parseFloat(companyDRE[c.id]?.impostos) || 0), 0);
-  const totalCustoConsol = availableCompanies.reduce((acc, c) => acc + (parseFloat(companyDRE[c.id]?.custo) || 0), 0);
+  const totalFatConsol = availableCompanies.reduce((acc, c) => acc + (parseFinancialValue(companyDRE[c.id]?.faturamento) || 0), 0);
+  const totalImpConsol = availableCompanies.reduce((acc, c) => acc + (parseFinancialValue(companyDRE[c.id]?.impostos) || 0), 0);
+  const totalCustoConsol = availableCompanies.reduce((acc, c) => acc + (parseFinancialValue(companyDRE[c.id]?.custo) || 0), 0);
 
   const diffBalanco = totalCliConsol - totalFornConsol;
 
@@ -278,9 +280,9 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
         empresaOrigem: c.id,
         empresaDestino: c.id,
         motivo: `Exclusão ${c.name}`,
-        faturamento: parseFloat(companyDRE[c.id]?.faturamento) || 0,
-        impostos: parseFloat(companyDRE[c.id]?.impostos) || 0,
-        custo: parseFloat(companyDRE[c.id]?.custo) || 0,
+        faturamento: parseFinancialValue(companyDRE[c.id]?.faturamento) || 0,
+        impostos: parseFinancialValue(companyDRE[c.id]?.impostos) || 0,
+        custo: parseFinancialValue(companyDRE[c.id]?.custo) || 0,
         clientes: pulledBalanco[c.id]?.clientes || 0,
         fornecedores: pulledBalanco[c.id]?.fornecedores || 0
       }));
@@ -569,7 +571,19 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
                       border: compPulled.clientes > 0 ? '1px solid rgba(33, 150, 243, 0.3)' : '1px solid transparent'
                     }} title={compPulled.clientesContas?.length > 0 ? compPulled.clientesContas.join('\n') : 'Nenhuma conta com saldo encontrada'}>
                       <span>R$ {compPulled.clientes.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                      {compPulled.clientes > 0 && <span style={{ fontSize: '0.65rem', background: '#2196F3', color: '#fff', padding: '1px 5px', borderRadius: '4px' }}>Auto</span>}
+                      {compPulled.clientes > 0 && (
+                        <>
+                          <span style={{ fontSize: '0.65rem', background: '#2196F3', color: '#fff', padding: '1px 5px', borderRadius: '4px' }}>Auto</span>
+                          <button
+                            type="button"
+                            onClick={() => copyFinancialValue(compPulled.clientes, `Clientes ${comp.name}`)}
+                            title="Copiar valor"
+                            style={{ background: 'transparent', border: 'none', color: '#90CAF9', cursor: 'pointer', padding: '0 2px' }}
+                          >
+                            <Copy size={12} />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </td>
 
@@ -586,14 +600,26 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
                       border: compPulled.fornecedores > 0 ? '1px solid rgba(255, 152, 0, 0.3)' : '1px solid transparent'
                     }} title={compPulled.fornecedoresContas?.length > 0 ? compPulled.fornecedoresContas.join('\n') : 'Nenhuma conta com saldo encontrada'}>
                       <span>R$ {compPulled.fornecedores.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                      {compPulled.fornecedores > 0 && <span style={{ fontSize: '0.65rem', background: '#FF9800', color: '#000', padding: '1px 5px', borderRadius: '4px', fontWeight: 'bold' }}>Auto</span>}
+                      {compPulled.fornecedores > 0 && (
+                        <>
+                          <span style={{ fontSize: '0.65rem', background: '#FF9800', color: '#000', padding: '1px 5px', borderRadius: '4px', fontWeight: 'bold' }}>Auto</span>
+                          <button
+                            type="button"
+                            onClick={() => copyFinancialValue(compPulled.fornecedores, `Fornecedores ${comp.name}`)}
+                            title="Copiar valor"
+                            style={{ background: 'transparent', border: 'none', color: '#FFB74D', cursor: 'pointer', padding: '0 2px' }}
+                          >
+                            <Copy size={12} />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </td>
 
                   {/* Faturamento DRE - Digitação */}
                   <td>
                     <input
-                      type="number"
+                      type="text"
                       placeholder="0,00"
                       value={dreVal.faturamento}
                       onChange={e => {
@@ -603,15 +629,26 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
                           [comp.id]: { ...(prev[comp.id] || {}), faturamento: val }
                         }));
                       }}
+                      onPaste={e => {
+                        const text = e.clipboardData.getData('text');
+                        if (text && /[0-9]/.test(text)) {
+                          e.preventDefault();
+                          setCompanyDRE(prev => ({
+                            ...prev,
+                            [comp.id]: { ...(prev[comp.id] || {}), faturamento: formatFinancialInput(text) }
+                          }));
+                        }
+                      }}
                       className="text-input"
                       style={{ width: '100%', fontSize: '0.85rem', padding: '4px 8px', fontFamily: 'monospace' }}
+                      title="Cole ou digite valores (suporta R$, pontos e vírgulas)"
                     />
                   </td>
 
                   {/* Impostos DRE - Digitação */}
                   <td>
                     <input
-                      type="number"
+                      type="text"
                       placeholder="0,00"
                       value={dreVal.impostos}
                       onChange={e => {
@@ -621,15 +658,26 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
                           [comp.id]: { ...(prev[comp.id] || {}), impostos: val }
                         }));
                       }}
+                      onPaste={e => {
+                        const text = e.clipboardData.getData('text');
+                        if (text && /[0-9]/.test(text)) {
+                          e.preventDefault();
+                          setCompanyDRE(prev => ({
+                            ...prev,
+                            [comp.id]: { ...(prev[comp.id] || {}), impostos: formatFinancialInput(text) }
+                          }));
+                        }
+                      }}
                       className="text-input"
                       style={{ width: '100%', fontSize: '0.85rem', padding: '4px 8px', fontFamily: 'monospace' }}
+                      title="Cole ou digite valores (suporta R$, pontos e vírgulas)"
                     />
                   </td>
 
                   {/* Custo DRE - Digitação */}
                   <td>
                     <input
-                      type="number"
+                      type="text"
                       placeholder="0,00"
                       value={dreVal.custo}
                       onChange={e => {
@@ -639,8 +687,19 @@ export default function IntercompanyExclusionsPanel({ dbAno, dbMes, companies = 
                           [comp.id]: { ...(prev[comp.id] || {}), custo: val }
                         }));
                       }}
+                      onPaste={e => {
+                        const text = e.clipboardData.getData('text');
+                        if (text && /[0-9]/.test(text)) {
+                          e.preventDefault();
+                          setCompanyDRE(prev => ({
+                            ...prev,
+                            [comp.id]: { ...(prev[comp.id] || {}), custo: formatFinancialInput(text) }
+                          }));
+                        }
+                      }}
                       className="text-input"
                       style={{ width: '100%', fontSize: '0.85rem', padding: '4px 8px', fontFamily: 'monospace' }}
+                      title="Cole ou digite valores (suporta R$, pontos e vírgulas)"
                     />
                   </td>
                 </tr>
